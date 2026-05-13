@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Immobilien Ratgeber · Lea Strauss</title>
+<meta name="description" content="Immobilien-Ratgeber: Tipps zu Immobilienverkauf, Bewertung und Vermarktung von Lea Strauss Immobilien Braunschweig.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --pink:       #C8747A;
+  --pink-light: #F7EEEE;
+  --black:      #1C1C1C;
+  --gray:       #6E6E6E;
+  --light-gray: #B0AAAA;
+  --line:       #E8E0DF;
+  --bg:         #FDFBFB;
+  --white:      #FFFFFF;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--black);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── HEADER: Logo-Text wie auf leastrauss.de ── */
+header {
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 20px 16px;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Bild-Logo – wird gezeigt wenn es lädt */
+.logo-img {
+  height: 52px;
+  width: auto;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Text-Fallback falls Bild nicht lädt – identisch zum echten Logo */
+.logo-text {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.logo-text-main {
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--black);
+  line-height: 1;
+}
+
+.logo-text-sub {
+  font-family: 'Inter', sans-serif;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--gray);
+  line-height: 1;
+}
+
+/* ── INTRO ── */
+.intro {
+  padding: 28px 24px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--white);
+}
+
+.intro-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--pink);
+  margin-bottom: 12px;
+}
+.intro-eyebrow svg { width: 11px; height: 11px; fill: var(--pink); flex-shrink: 0; }
+
+/* H1 — gleiche Schrift/Größe wie die H1 auf leastrauss.de */
+.intro h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.22;
+  color: var(--black);
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
+}
+
+.intro p {
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--gray);
+  line-height: 1.65;
+  max-width: 285px;
+  margin: 0 auto;
+}
+
+/* ── DIVIDER ── */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 12px;
+}
+.divider-line { flex: 1; height: 1px; background: var(--line); }
+.divider span {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--light-gray);
+  white-space: nowrap;
+}
+
+/* ── KACHEL-GRID ── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.tile {
+  display: block;
+  text-decoration: none;
+  background: var(--white);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tile-img-wrap {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  overflow: hidden;
+  background: var(--pink-light);
+}
+
+.tile-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.35s ease;
+}
+.tile:hover .tile-img { transform: scale(1.05); }
+
+.tile-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tile-placeholder svg { width: 24px; height: 24px; }
+
+.tile-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--pink);
+  color: var(--white);
+  font-family: 'Inter', sans-serif;
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  z-index: 2;
+}
+
+.tile-body { padding: 9px 10px 12px; }
+
+/* Kachel-Titel in Playfair wie H2 auf der Website */
+.tile-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--black);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tile-date {
+  font-size: 10px;
+  color: var(--light-gray);
+  font-weight: 300;
+  margin-top: 5px;
+}
+
+/* ── ALLE ARTIKEL BUTTON ── */
+.all-btn-wrap { padding: 20px 20px 6px; }
+
+.all-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid var(--pink);
+  color: var(--pink);
+  text-decoration: none;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  transition: background 0.18s, color 0.18s;
+}
+.all-btn:hover { background: var(--pink); color: var(--white); }
+.all-btn svg { width: 14px; height: 14px; }
+
+/* ── SOCIAL ── */
+.social-row {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--gray);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 400;
+  transition: color 0.15s;
+}
+.social-link:hover { color: var(--pink); }
+.social-link svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+/* ── FOOTER ── */
+footer { padding: 18px 20px 36px; text-align: center; }
+
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 9px;
+  flex-wrap: wrap;
+}
+.footer-links a { color: var(--light-gray); text-decoration: none; font-size: 11px; font-weight: 300; }
+.footer-links a:hover { color: var(--pink); }
+.footer-copy { font-size: 11px; color: #C8C0C0; font-weight: 300; }
+
+/* ── LOADING ── */
+.loading { padding: 52px 20px; text-align: center; color: var(--gray); font-size: 13px; font-weight: 300; }
+.spinner {
+  width: 24px; height: 24px;
+  border: 1.5px solid var(--line);
+  border-top-color: var(--pink);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+  margin: 0 auto 14px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.fade { animation: fadeUp 0.38s ease both; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+</style>
+</head>
+<body>
+
+<!-- HEADER mit echtem Logo-Bild, Text-Fallback im exakten LSI-Stil -->
+<header>
+  <img
+    class="logo-img"
+    src="https://static.wixstatic.com/media/cc9122_c995311b28d948548145aef5da5a9bb8~mv2.png/v1/fill/w_388,h_160,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/LEA%20STRAUSS%20Logo.png"
+    alt="Lea Strauss Immobilien"
+    onerror="this.style.display='none'; document.querySelector('.logo-text').style.display='flex';"
+  >
+  <div class="logo-text">
+    <span class="logo-text-main">Lea Strauss</span>
+    <span class="logo-text-sub">Immobilien</span>
+  </div>
+</header>
+
+<!-- INTRO -->
+<div class="intro">
+  <div class="intro-eyebrow">
+    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+    Immobilien Ratgeber
+  </div>
+  <h1>Jeden Tag ein<br>neuer Artikel</h1>
+  <p>Tipps zu Verkauf, Bewertung und Vermarktung — verständlich erklärt aus Braunschweig.</p>
+</div>
+
+<!-- ARTIKEL-KACHELN -->
+<div id="content">
+  <div class="loading">
+    <div class="spinner"></div>
+    Artikel werden geladen …
+  </div>
+</div>
+
+<!-- ALLE ARTIKEL -->
+<div class="all-btn-wrap">
+  <a href="https://www.leastrauss.de/blog" class="all-btn" target="_blank">
+    Alle Artikel ansehen
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  </a>
+</div>
+
+<!-- SOCIAL -->
+<div class="social-row">
+  <a href="https://www.instagram.com/leastraussimmobilien" class="social-link" target="_blank">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>
+    Instagram
+  </a>
+  <a href="https://wa.me/4915154879569" class="social-link" target="_blank">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    WhatsApp
+  </a>
+  <a href="mailto:info@leastrauss.de" class="social-link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+    E-Mail
+  </a>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-links">
+    <a href="https://www.leastrauss.de/impressum" target="_blank">Impressum</a>
+    <a href="https://www.leastrauss.de/datenschutz" target="_blank">Datenschutz</a>
+    <a href="https://www.leastrauss.de/cookies" target="_blank">Cookies</a>
+  </div>
+  <p class="footer-copy">© 2025 Lea Strauss Immobilien · Braunschweig</p>
+</footer>
+
+<script>
+const BLOG_URL = 'https://www.leastrauss.de/blog';
+const RSS_FEED = 'https://www.leastrauss.de/blog-feed.xml';
+const PROXY    = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
+const FALLBACK = [
+  { title: 'Geerbte Immobilie verkaufen – was beachten?', link: 'https://www.leastrauss.de/immobilien-ratgeber/geerbte-immobilie-verkaufen-was-beachten', thumbnail: 'https://static.wixstatic.com/media/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp', pubDate: new Date().toISOString() },
+  { title: 'Makler oder privat Haus verkaufen?', link: 'https://www.leastrauss.de/immobilien-ratgeber/makler-oder-privat-haus-verkaufen', thumbnail: 'https://static.wixstatic.com/media/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp', pubDate: new Date(Date.now()-86400000).toISOString() },
+  { title: 'Was kostet ein Makler beim Hausverkauf?', link: 'https://www.leastrauss.de/immobilien-ratgeber/was-kostet-ein-makler-beim-hausverkauf', thumbnail: 'https://static.wixstatic.com/media/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp', pubDate: new Date(Date.now()-172800000).toISOString() },
+  { title: 'Immobilienmakler Salzgitter richtig wählen', link: 'https://www.leastrauss.de/immobilien-ratgeber/immobilienmakler-salzgitter-richtig-w%C3%A4hlen', thumbnail: 'https://static.wixstatic.com/media/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp', pubDate: new Date(Date.now()-259200000).toISOString() },
+  { title: 'Wohnung vermieten in Braunschweig', link: 'https://www.leastrauss.de/immobilien-ratgeber/wohnung-vermieten-in-braunschweig', thumbnail: 'https://static.wixstatic.com/media/cc9122_ad30054d02c34d21850054714e1146fa~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_ad30054d02c34d21850054714e1146fa~mv2.webp', pubDate: new Date(Date.now()-345600000).toISOString() },
+  { title: 'Alle Artikel im Ratgeber ansehen', link: BLOG_URL, thumbnail: '', pubDate: new Date(Date.now()-432000000).toISOString() }
+];
+
+function formatDate(str) {
+  return new Date(str).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
+}
+
+function placeholder() {
+  return `<div class="tile-placeholder">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#C8747A" stroke-width="1.2" opacity="0.35">
+      <rect x="3" y="3" width="18" height="18" rx="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <path d="m21 15-5-5L5 21"/>
+    </svg>
+  </div>`;
+}
+
+function render(articles) {
+  const list = articles.slice(0, 9);
+  const tiles = list.map((a, i) => {
+    const img = a.thumbnail
+      ? `<img class="tile-img" src="${a.thumbnail}" alt="${a.title}" loading="${i < 3 ? 'eager' : 'lazy'}">`
+      : placeholder();
+    const badge = i === 0 ? `<span class="tile-badge">Neu</span>` : '';
+    return `<a href="${a.link}" class="tile fade" target="_blank" style="animation-delay:${i * 0.05}s">
+      <div class="tile-img-wrap">${badge}${img}</div>
+      <div class="tile-body">
+        <div class="tile-title">${a.title}</div>
+        <div class="tile-date">${formatDate(a.pubDate)}</div>
+      </div>
+    </a>`;
+  }).join('');
+
+  document.getElementById('content').innerHTML =
+    `<div class="divider"><div class="divider-line"></div><span>Aktuelle Artikel</span><div class="divider-line"></div></div>
+     <div class="grid">${tiles}</div>`;
+}
+
+async function load() {
+  try {
+    const res = await fetch(`${PROXY}${encodeURIComponent(RSS_FEED)}&count=9`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.items?.length) throw new Error();
+    render(data.items.map(item => ({
+      title: item.title || '',
+      link: item.link || BLOG_URL,
+      thumbnail: item.thumbnail || item.enclosure?.link || '',
+      pubDate: item.pubDate || new Date().toISOString()
+    })));
+  } catch {
+    render(FALLBACK);
+  }
+}
+
+load();
+</script>
+</body>
+</html>
