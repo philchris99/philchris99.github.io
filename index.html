@@ -395,27 +395,61 @@ function render(articles) {
      <div class="grid">${tiles}</div>`;
 }
 
+async function tryFetch(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res;
+}
+
+function parseXML(text) {
+  const xml = new DOMParser().parseFromString(text, 'text/xml');
+  const items = [...xml.querySelectorAll('item')];
+  if (!items.length) throw new Error('Keine Artikel im Feed');
+  return items.map(el => ({
+    title:     el.querySelector('title')?.textContent || '',
+    link:      el.querySelector('link')?.textContent || BLOG_URL,
+    thumbnail: el.querySelector('enclosure')?.getAttribute('url') || '',
+    pubDate:   el.querySelector('pubDate')?.textContent || new Date().toISOString()
+  }));
+}
+
 async function load() {
-  try {
-    const res = await fetch(RSS_FEED, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) throw new Error();
-    const text = await res.text();
-    const xml = new DOMParser().parseFromString(text, 'text/xml');
-    const items = [...xml.querySelectorAll('item')];
-    if (!items.length) throw new Error();
-    render(items.map(el => ({
-      title:     el.querySelector('title')?.textContent || '',
-      link:      el.querySelector('link')?.textContent || BLOG_URL,
-      thumbnail: el.querySelector('enclosure')?.getAttribute('url') || '',
-      pubDate:   el.querySelector('pubDate')?.textContent || new Date().toISOString()
-    })));
-  } catch (e) {
-    document.getElementById('content').innerHTML =
-      `<div class="loading" style="color:#C8747A">
-        ⚠️ Feed konnte nicht geladen werden.<br>
-        <small style="color:#999;font-size:11px;margin-top:6px;display:block">${e.message || 'Unbekannter Fehler'}</small>
-      </div>`;
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(RSS_FEED)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(RSS_FEED)}`,
+    `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_FEED)}&count=9`
+  ];
+
+  for (const url of proxies) {
+    try {
+      const res = await tryFetch(url);
+      const text = await res.text();
+
+      // rss2json liefert JSON, alle anderen XML
+      if (url.includes('rss2json')) {
+        const data = JSON.parse(text);
+        if (data.status !== 'ok' || !data.items?.length) throw new Error('Keine Items');
+        render(data.items.map(item => ({
+          title:     item.title || '',
+          link:      item.link || BLOG_URL,
+          thumbnail: item.thumbnail || item.enclosure?.link || '',
+          pubDate:   item.pubDate || new Date().toISOString()
+        })));
+      } else {
+        render(parseXML(text));
+      }
+      return; // Erfolg — fertig
+    } catch (e) {
+      console.warn('Proxy fehlgeschlagen:', url, e.message);
+    }
   }
+
+  // Alle Proxies fehlgeschlagen
+  document.getElementById('content').innerHTML =
+    `<div class="loading" style="color:#C8747A">
+      ⚠️ Artikel konnten nicht geladen werden.<br>
+      <small style="color:#999;font-size:11px;margin-top:6px;display:block">Alle Verbindungsversuche fehlgeschlagen.</small>
+    </div>`;
 }
 
 load();
