@@ -357,16 +357,8 @@ footer { padding: 18px 20px 36px; text-align: center; }
 <script>
 const BLOG_URL = 'https://www.leastrauss.de/blog';
 const RSS_FEED = 'https://www.leastrauss.de/blog-feed.xml';
-const PROXY    = 'https://api.rss2json.com/v1/api.json?rss_url=';
 
-const FALLBACK = [
-  { title: 'Geerbte Immobilie verkaufen – was beachten?', link: 'https://www.leastrauss.de/immobilien-ratgeber/geerbte-immobilie-verkaufen-was-beachten', thumbnail: 'https://static.wixstatic.com/media/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp', pubDate: new Date().toISOString() },
-  { title: 'Makler oder privat Haus verkaufen?', link: 'https://www.leastrauss.de/immobilien-ratgeber/makler-oder-privat-haus-verkaufen', thumbnail: 'https://static.wixstatic.com/media/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp', pubDate: new Date(Date.now()-86400000).toISOString() },
-  { title: 'Was kostet ein Makler beim Hausverkauf?', link: 'https://www.leastrauss.de/immobilien-ratgeber/was-kostet-ein-makler-beim-hausverkauf', thumbnail: 'https://static.wixstatic.com/media/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp', pubDate: new Date(Date.now()-172800000).toISOString() },
-  { title: 'Immobilienmakler Salzgitter richtig wählen', link: 'https://www.leastrauss.de/immobilien-ratgeber/immobilienmakler-salzgitter-richtig-w%C3%A4hlen', thumbnail: 'https://static.wixstatic.com/media/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp', pubDate: new Date(Date.now()-259200000).toISOString() },
-  { title: 'Wohnung vermieten in Braunschweig', link: 'https://www.leastrauss.de/immobilien-ratgeber/wohnung-vermieten-in-braunschweig', thumbnail: 'https://static.wixstatic.com/media/cc9122_ad30054d02c34d21850054714e1146fa~mv2.webp/v1/fill/w_600,h_600,al_c,q_85/cc9122_ad30054d02c34d21850054714e1146fa~mv2.webp', pubDate: new Date(Date.now()-345600000).toISOString() },
-  { title: 'Alle Artikel im Ratgeber ansehen', link: BLOG_URL, thumbnail: '', pubDate: new Date(Date.now()-432000000).toISOString() }
-];
+
 
 function formatDate(str) {
   return new Date(str).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' });
@@ -405,20 +397,24 @@ function render(articles) {
 
 async function load() {
   try {
-    const res = await fetch(`${PROXY}${encodeURIComponent(RSS_FEED)}&count=9`, {
-      signal: AbortSignal.timeout(5000)
-    });
+    const res = await fetch(RSS_FEED, { signal: AbortSignal.timeout(6000) });
     if (!res.ok) throw new Error();
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.items?.length) throw new Error();
-    render(data.items.map(item => ({
-      title: item.title || '',
-      link: item.link || BLOG_URL,
-      thumbnail: item.thumbnail || item.enclosure?.link || '',
-      pubDate: item.pubDate || new Date().toISOString()
+    const text = await res.text();
+    const xml = new DOMParser().parseFromString(text, 'text/xml');
+    const items = [...xml.querySelectorAll('item')];
+    if (!items.length) throw new Error();
+    render(items.map(el => ({
+      title:     el.querySelector('title')?.textContent || '',
+      link:      el.querySelector('link')?.textContent || BLOG_URL,
+      thumbnail: el.querySelector('enclosure')?.getAttribute('url') || '',
+      pubDate:   el.querySelector('pubDate')?.textContent || new Date().toISOString()
     })));
-  } catch {
-    render(FALLBACK);
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      `<div class="loading" style="color:#C8747A">
+        ⚠️ Feed konnte nicht geladen werden.<br>
+        <small style="color:#999;font-size:11px;margin-top:6px;display:block">${e.message || 'Unbekannter Fehler'}</small>
+      </div>`;
   }
 }
 
