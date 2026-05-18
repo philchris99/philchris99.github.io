@@ -2,65 +2,209 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Immobilien Ratgeber</title>
+<meta name="description" content="Immobilien-Ratgeber: Tipps zu Immobilienverkauf, Bewertung und Vermarktung von Lea Strauss Immobilien Braunschweig.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --pink:       #C8747A;
+  --pink-light: #F7EEEE;
+  --black:      #1C1C1C;
+  --gray:       #6E6E6E;
+  --light-gray: #B0AAAA;
+  --line:       #E8E0DF;
+  --bg:         #FDFBFB;
+  --white:      #FFFFFF;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--black);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+header {
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 20px 16px;
+  text-align: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.logo { height: 52px; width: auto; display: block; margin: 0 auto; }
+
+.logo-text { display: none; flex-direction: column; align-items: center; gap: 1px; }
+.logo-text-main { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: var(--black); line-height: 1; }
+.logo-text-sub  { font-family: 'Inter', sans-serif; font-size: 9px; font-weight: 400; letter-spacing: 0.28em; text-transform: uppercase; color: var(--gray); line-height: 1; }
+
+.intro {
+  padding: 28px 24px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--white);
+}
+
+.intro h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: 28px;
+  font-weight: 500;
+  line-height: 1.22;
+  color: var(--black);
+  letter-spacing: 0.01em;
+}
+
+.intro p {
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--gray);
+  line-height: 1.65;
+  max-width: 285px;
+  margin: 8px auto 0;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 12px;
+}
+.divider-line { flex: 1; height: 1px; background: var(--line); }
+.divider span { font-size: 10px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--light-gray); white-space: nowrap; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line);
+}
+
+.tile { display: block; text-decoration: none; background: var(--white); -webkit-tap-highlight-color: transparent; }
+
+.tile-img-wrap { position: relative; width: 100%; padding-top: 100%; overflow: hidden; background: var(--pink-light); }
+
+.tile-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.35s ease; }
+.tile:hover .tile-img { transform: scale(1.05); }
+
+.tile-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+.tile-badge { position: absolute; top: 0; left: 0; background: var(--pink); color: var(--white); font-family: 'Inter', sans-serif; font-size: 8.5px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 9px; z-index: 2; }
+
+.tile-body { padding: 9px 10px 12px; }
+
+.tile-title { font-family: 'Playfair Display', serif; font-size: 13px; font-weight: 500; line-height: 1.3; color: var(--black); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+.tile-date { font-size: 10px; color: var(--light-gray); font-weight: 300; margin-top: 5px; }
+
+.all-btn-wrap { padding: 20px 20px 6px; }
+
+.all-btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 13px; border: 1px solid var(--pink); color: var(--pink); text-decoration: none; font-family: 'Inter', sans-serif; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; background: transparent; transition: background 0.18s, color 0.18s; }
+.all-btn:hover { background: var(--pink); color: var(--white); }
+.all-btn svg { width: 14px; height: 14px; }
+
+.social-row { display: flex; justify-content: center; gap: 20px; padding: 16px 20px 14px; border-bottom: 1px solid var(--line); }
+
+.social-link { display: inline-flex; align-items: center; gap: 5px; color: var(--gray); text-decoration: none; font-size: 12px; font-weight: 400; transition: color 0.15s; }
+.social-link:hover { color: var(--pink); }
+.social-link svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+footer { padding: 18px 20px 36px; text-align: center; }
+
+.footer-links { display: flex; justify-content: center; gap: 16px; margin-bottom: 9px; flex-wrap: wrap; }
+.footer-links a { color: var(--light-gray); text-decoration: none; font-size: 11px; font-weight: 300; }
+.footer-links a:hover { color: var(--pink); }
+.footer-copy { font-size: 11px; color: #C8C0C0; font-weight: 300; }
+
+.fade { animation: fadeUp 0.38s ease both; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+</style>
 </head>
 <body>
+
+<header>
+  <img class="logo"
+    src="https://static.wixstatic.com/media/cc9122_c995311b28d948548145aef5da5a9bb8~mv2.png/v1/fill/w_388,h_160,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/LEA%20STRAUSS%20Logo.png"
+    alt="Lea Strauss Immobilien"
+    onerror="this.style.display='none'; document.querySelector('.logo-text').style.display='flex';"
+  >
+  <div class="logo-text">
+    <span class="logo-text-main">Lea Strauss</span>
+    <span class="logo-text-sub">Immobilien</span>
+  </div>
+</header>
+
+<div class="intro">
+  <h1>Immobilien Ratgeber</h1>
+  <p>Tipps zu Verkauf, Bewertung und Vermarktung — verständlich erklärt von Lea Strauss Immobilien.</p>
+</div>
+
 <!-- GRID:START --><div class="divider"><div class="divider-line"></div><span>Aktuelle Artikel</span><div class="divider-line"></div></div>
 <div class="grid"><a href="https://www.leastrauss.de/immobilien-ratgeber/unterlagen-hausverkauf-deutschland-was-n%C3%B6tig-ist" class="tile fade" target="_blank" style="animation-delay:0.0s">
-      <div class="tile-img-wrap"><span class="tile-badge">Neu</span><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_c9328cdc5d1043ac8e22d3d48224db6b~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Unterlagen Hausverkauf Deutschland: Was nötig ist" loading="eager"></div>
-      <div class="tile-body">
-        <div class="tile-title">Unterlagen Hausverkauf Deutschland: Was nötig ist</div>
-        <div class="tile-date">18. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/hausverkauf-vorbereiten-checkliste-mit-%C3%BCberblick" class="tile fade" target="_blank" style="animation-delay:0.05s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_6adaff3671684e349d8eccc422672ae4~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Hausverkauf vorbereiten: Checkliste mit Überblick" loading="eager"></div>
-      <div class="tile-body">
-        <div class="tile-title">Hausverkauf vorbereiten: Checkliste mit Überblick</div>
-        <div class="tile-date">17. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/marktpreiseinsch%C3%A4tzung-immobilie-braunschweig" class="tile fade" target="_blank" style="animation-delay:0.1s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_7a0625850d2947a5b7a52787c4af6ca3~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Marktpreiseinschätzung Immobilie Braunschweig" loading="eager"></div>
-      <div class="tile-body">
-        <div class="tile-title">Marktpreiseinschätzung Immobilie Braunschweig</div>
-        <div class="tile-date">16. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/immobilienbewertung-kostenlos-in-braunschweig" class="tile fade" target="_blank" style="animation-delay:0.15000000000000002s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_1c0ec0a865174c18b4c32407bece09fc~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Immobilienbewertung kostenlos in Braunschweig" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Immobilienbewertung kostenlos in Braunschweig</div>
-        <div class="tile-date">15. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/erbschein-hausverkauf-wann-notwendig" class="tile fade" target="_blank" style="animation-delay:0.2s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_3b8c862090754c558cbf0401e5ad7291~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Erbschein Hausverkauf - wann notwendig?" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Erbschein Hausverkauf - wann notwendig?</div>
-        <div class="tile-date">14. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/geerbte-immobilie-verkaufen-was-beachten" class="tile fade" target="_blank" style="animation-delay:0.25s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Geerbte Immobilie verkaufen - was beachten?" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Geerbte Immobilie verkaufen - was beachten?</div>
-        <div class="tile-date">13. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/makler-oder-privat-haus-verkaufen" class="tile fade" target="_blank" style="animation-delay:0.30000000000000004s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Makler oder privat Haus verkaufen?" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Makler oder privat Haus verkaufen?</div>
-        <div class="tile-date">12. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/was-kostet-ein-makler-beim-hausverkauf" class="tile fade" target="_blank" style="animation-delay:0.35000000000000003s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Was kostet ein Makler beim Hausverkauf?" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Was kostet ein Makler beim Hausverkauf?</div>
-        <div class="tile-date">11. Mai</div>
-      </div>
-    </a><a href="https://www.leastrauss.de/immobilien-ratgeber/immobilienmakler-salzgitter-richtig-w%C3%A4hlen" class="tile fade" target="_blank" style="animation-delay:0.4s">
-      <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Immobilienmakler Salzgitter richtig wählen" loading="lazy"></div>
-      <div class="tile-body">
-        <div class="tile-title">Immobilienmakler Salzgitter richtig wählen</div>
-        <div class="tile-date">10. Mai</div>
-      </div>
-    </a></div><!-- GRID:END -->
-<!-- UPDATED:18.05.2026 14:36 -->
+  <div class="tile-img-wrap"><span class="tile-badge">Neu</span><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_c9328cdc5d1043ac8e22d3d48224db6b~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Unterlagen Hausverkauf Deutschland: Was nötig ist" loading="eager"></div>
+  <div class="tile-body"><div class="tile-title">Unterlagen Hausverkauf Deutschland: Was nötig ist</div><div class="tile-date">18. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/hausverkauf-vorbereiten-checkliste-mit-%C3%BCberblick" class="tile fade" target="_blank" style="animation-delay:0.05s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_6adaff3671684e349d8eccc422672ae4~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Hausverkauf vorbereiten: Checkliste mit Überblick" loading="eager"></div>
+  <div class="tile-body"><div class="tile-title">Hausverkauf vorbereiten: Checkliste mit Überblick</div><div class="tile-date">17. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/marktpreiseinsch%C3%A4tzung-immobilie-braunschweig" class="tile fade" target="_blank" style="animation-delay:0.1s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_7a0625850d2947a5b7a52787c4af6ca3~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Marktpreiseinschätzung Immobilie Braunschweig" loading="eager"></div>
+  <div class="tile-body"><div class="tile-title">Marktpreiseinschätzung Immobilie Braunschweig</div><div class="tile-date">16. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/immobilienbewertung-kostenlos-in-braunschweig" class="tile fade" target="_blank" style="animation-delay:0.15s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_1c0ec0a865174c18b4c32407bece09fc~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Immobilienbewertung kostenlos in Braunschweig" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Immobilienbewertung kostenlos in Braunschweig</div><div class="tile-date">15. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/erbschein-hausverkauf-wann-notwendig" class="tile fade" target="_blank" style="animation-delay:0.2s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_3b8c862090754c558cbf0401e5ad7291~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Erbschein Hausverkauf - wann notwendig?" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Erbschein Hausverkauf - wann notwendig?</div><div class="tile-date">14. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/geerbte-immobilie-verkaufen-was-beachten" class="tile fade" target="_blank" style="animation-delay:0.25s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_4e3d624f30ed4471a46a565521627ea4~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Geerbte Immobilie verkaufen - was beachten?" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Geerbte Immobilie verkaufen - was beachten?</div><div class="tile-date">13. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/makler-oder-privat-haus-verkaufen" class="tile fade" target="_blank" style="animation-delay:0.3s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_244589ce5613483499cdd09d01ab2e57~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Makler oder privat Haus verkaufen?" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Makler oder privat Haus verkaufen?</div><div class="tile-date">12. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/was-kostet-ein-makler-beim-hausverkauf" class="tile fade" target="_blank" style="animation-delay:0.35s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_31905aa237fa442aa79b6a7ac3fa5588~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Was kostet ein Makler beim Hausverkauf?" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Was kostet ein Makler beim Hausverkauf?</div><div class="tile-date">11. Mai</div></div>
+</a><a href="https://www.leastrauss.de/immobilien-ratgeber/immobilienmakler-salzgitter-richtig-w%C3%A4hlen" class="tile fade" target="_blank" style="animation-delay:0.4s">
+  <div class="tile-img-wrap"><img class="tile-img" src="https://static.wixstatic.com/media/cc9122_41e3cc6ea5b349a8adf5efbe5943e0cc~mv2.webp/v1/fit/w_1000,h_1000,al_c,q_80/file.png" alt="Immobilienmakler Salzgitter richtig wählen" loading="lazy"></div>
+  <div class="tile-body"><div class="tile-title">Immobilienmakler Salzgitter richtig wählen</div><div class="tile-date">10. Mai</div></div>
+</a></div><!-- GRID:END -->
+
+<div class="all-btn-wrap">
+  <a href="https://www.leastrauss.de/blog" class="all-btn" target="_blank">
+    Alle Artikel ansehen
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+  </a>
+</div>
+
+<div class="social-row">
+  <a href="https://www.instagram.com/leastraussimmobilien" class="social-link" target="_blank">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="0.5" fill="currentColor" stroke="none"/></svg>
+    Instagram
+  </a>
+  <a href="https://wa.me/4915154879569" class="social-link" target="_blank">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    WhatsApp
+  </a>
+  <a href="mailto:info@leastrauss.de" class="social-link">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+    E-Mail
+  </a>
+</div>
+
+<footer>
+  <div class="footer-links">
+    <a href="https://www.leastrauss.de/impressum" target="_blank">Impressum</a>
+    <a href="https://www.leastrauss.de/datenschutz" target="_blank">Datenschutz</a>
+    <a href="https://www.leastrauss.de/cookies" target="_blank">Cookies</a>
+  </div>
+  <p class="footer-copy">© 2025 Lea Strauss Immobilien · Braunschweig<!-- UPDATED: --></p>
+</footer>
+
 </body>
 </html>
