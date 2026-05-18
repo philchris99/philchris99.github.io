@@ -38,7 +38,7 @@ jobs:
           # XML parsen
           ns = {'content': 'http://purl.org/rss/1.0/modules/content/'}
           root = ET.fromstring(xml_data)
-          items = root.findall('.//item')[:9]
+          items = root.findall('.//item')
 
           def fmt_date(date_str):
               try:
