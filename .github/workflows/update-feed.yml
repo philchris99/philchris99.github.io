@@ -1,0 +1,118 @@
+name: Feed aktualisieren
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # täglich um 7 Uhr deutscher Zeit
+  workflow_dispatch:        # auch manuell auslösbar
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      - name: Feed laden und index.html aktualisieren
+        run: |
+          python3 << 'EOF'
+          import urllib.request
+          import xml.etree.ElementTree as ET
+          import re
+          from datetime import datetime
+
+          FEED_URL = 'https://www.leastrauss.de/blog-feed.xml'
+          BLOG_URL = 'https://www.leastrauss.de/blog'
+
+          # Feed laden
+          try:
+              req = urllib.request.Request(FEED_URL, headers={'User-Agent': 'Mozilla/5.0'})
+              with urllib.request.urlopen(req, timeout=15) as r:
+                  xml_data = r.read()
+          except Exception as e:
+              print(f'Feed-Fehler: {e}')
+              exit(1)
+
+          # XML parsen
+          ns = {'content': 'http://purl.org/rss/1.0/modules/content/'}
+          root = ET.fromstring(xml_data)
+          items = root.findall('.//item')[:9]
+
+          def fmt_date(date_str):
+              try:
+                  dt = datetime.strptime(date_str.strip(), '%a, %d %b %Y %H:%M:%S %Z')
+                  months = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez']
+                  return f"{dt.day}. {months[dt.month-1]}"
+              except:
+                  return ''
+
+          # HTML für Kacheln bauen
+          tiles_html = ''
+          for i, item in enumerate(items):
+              title = item.findtext('title') or ''
+              link  = item.findtext('link') or BLOG_URL
+              pub   = item.findtext('pubDate') or ''
+              enc   = item.find('enclosure')
+              thumb = enc.get('url') if enc is not None else ''
+
+              badge = '<span class="tile-badge">Neu</span>' if i == 0 else ''
+              date_str = fmt_date(pub)
+
+              if thumb:
+                  img = f'<img class="tile-img" src="{thumb}" alt="{title}" loading="{"eager" if i < 3 else "lazy"}">'
+              else:
+                  img = '''<div class="tile-placeholder">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#C8747A" stroke-width="1.2" opacity="0.35">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <path d="m21 15-5-5L5 21"/>
+                    </svg>
+                  </div>'''
+
+              delay = f'style="animation-delay:{i*0.05}s"'
+              tiles_html += f'''<a href="{link}" class="tile fade" target="_blank" {delay}>
+                <div class="tile-img-wrap">{badge}{img}</div>
+                <div class="tile-body">
+                  <div class="tile-title">{title}</div>
+                  <div class="tile-date">{date_str}</div>
+                </div>
+              </a>'''
+
+          grid_html = f'''<div class="divider"><div class="divider-line"></div><span>Aktuelle Artikel</span><div class="divider-line"></div></div>
+          <div class="grid">{tiles_html}</div>'''
+
+          # index.html einlesen
+          with open('index.html', 'r', encoding='utf-8') as f:
+              html = f.read()
+
+          # Alten Grid-Block ersetzen (zwischen den Markierungen)
+          new_html = re.sub(
+              r'<!-- GRID:START -->.*?<!-- GRID:END -->',
+              f'<!-- GRID:START -->{grid_html}<!-- GRID:END -->',
+              html,
+              flags=re.DOTALL
+          )
+
+          # Aktualisierungsdatum setzen
+          now = datetime.utcnow().strftime('%d.%m.%Y %H:%M')
+          new_html = re.sub(
+              r'<!-- UPDATED:.*?-->',
+              f'<!-- UPDATED:{now} -->',
+              new_html
+          )
+
+          with open('index.html', 'w', encoding='utf-8') as f:
+              f.write(new_html)
+
+          print(f'✅ {len(items)} Artikel eingebaut.')
+          EOF
+
+      - name: Änderungen committen
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --staged --quiet || git commit -m "Feed aktualisiert $(date +'%d.%m.%Y')"
+          git push
