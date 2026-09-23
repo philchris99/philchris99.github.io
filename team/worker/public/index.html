@@ -5,131 +5,147 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Strauss Team">
-<meta name="theme-color" content="#1E3A4C">
-<link rel="icon" href="/logo.svg">
-<title>Strauss Team</title>
+<meta name="apple-mobile-web-app-title" content="Apartments Strauss">
+<meta name="application-name" content="Apartments Strauss">
+<meta name="theme-color" content="#FFFFFF">
+<link rel="icon" type="image/png" href="/icon-512.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>Apartments Strauss</title>
 <style>
 /* ==========================================================================
-   MARKE – hier Farben von Apartment Strauss eintragen, Logo = public/logo.svg
+   MARKE Apartments Strauss – Logo in public/logo*.png
    ========================================================================== */
 :root {
-  --brand: #1E3A4C;        /* Hauptfarbe (Buttons, Überschriften) */
-  --brand-ink: #FFFFFF;    /* Schrift auf Hauptfarbe */
-  --accent: #B8925A;       /* feine Akzente (Linien, Heute-Markierung) */
-  --serif: Georgia, "Iowan Old Style", "Times New Roman", serif;   /* Überschriften */
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; /* Text */
-  /* ------------------------------------------------------------------------ */
-  --bg: #F4F2EE; --card: #FFFFFF; --text: #1D2328; --muted: #66707A; --line: #E2DDD5;
-  --head-bg: #FFFFFF;
-  --open: #9A6A12; --open-bg: #FBF0DC; --ok: #2D7050; --ok-bg: #E2F1E8;
-  --done: #4B5663; --done-bg: #ECEFF2; --bad: #B03535; --bad-bg: #FBE6E6;
-  --new: #B03535;
+  --brand: #2E2E2C;        /* Anthrazit wie das Logo (Buttons, Überschriften) */
+  --brand-ink: #FFFFFF;
+  --accent: #7C8B6B;       /* Salbeigrün – passend zu den Blumen im Logo */
+  --accent-soft: #EEF1EA;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #F6F4F0; --card: #FFFFFF; --text: #242422; --muted: #6E6A64; --line: #E4DFD7;
+  --open: #93620E; --open-bg: #FBF0DC; --ok: #3D6B47; --ok-bg: #E4F0E6;
+  --done: #5A5A56; --done-bg: #EFEDE9; --bad: #B03535; --bad-bg: #FBE6E6; --new: #B03535;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --brand: #7FA7BF; --brand-ink: #0F1B23; --accent: #D0AC72;
-    --bg: #121618; --card: #1C2226; --text: #E9ECEE; --muted: #9AA4AC; --line: #2E363C;
-    --open: #E5B460; --open-bg: #3A2D16; --ok: #72C99A; --ok-bg: #173026;
-    --done: #B4BDC7; --done-bg: #262D33; --bad: #F08C8C; --bad-bg: #3D1D1D; --new: #F08C8C;
+    --brand: #ECE8E1; --brand-ink: #1B1B1A; --accent: #A6B594; --accent-soft: #232820;
+    --bg: #151514; --card: #1F1F1D; --text: #EDEAE4; --muted: #A39E96; --line: #34332F;
+    --open: #E5B460; --open-bg: #3A2D16; --ok: #8CCB98; --ok-bg: #1B2E1F;
+    --done: #B3AFA8; --done-bg: #262624; --bad: #F08C8C; --bad-bg: #3D1D1D; --new: #F08C8C;
   }
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { font: 16px/1.5 var(--sans); background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
 img { max-width: 100%; }
 [hidden] { display: none !important; }
+a { color: inherit; }
 
-/* Kopf: bleibt hell, damit das Logo in beiden Modi lesbar ist */
-header { background: var(--head-bg); border-bottom: 2px solid var(--accent); padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px; position: sticky; top: 0; z-index: 5; }
-.head { max-width: 820px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.head img { height: 40px; width: auto; display: block; }
-.head .who { text-align: right; font-size: 13px; color: #66707A; line-height: 1.3; }
-.head .who b { color: #1D2328; display: block; font-size: 14px; }
-.head .who button { margin-top: 4px; min-height: 28px; padding: 2px 10px; font-size: 12px; background: #fff; color: #1D2328; border-color: #D8D2C8; }
+/* Kopf: immer hell, damit das schwarze Logo lesbar bleibt */
+header { background: #FFFFFF; border-bottom: 1px solid #E4DFD7; padding: calc(8px + env(safe-area-inset-top, 0px)) 16px 8px; position: sticky; top: 0; z-index: 5; }
+.head { max-width: 820px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand .house { height: 46px; width: auto; }
+.brand .word { height: 30px; width: auto; }
+.head .who { text-align: right; font-size: 12px; color: #6E6A64; line-height: 1.3; }
+.head .who b { color: #242422; display: block; font-size: 14px; }
+.head .who button { margin-top: 3px; min-height: 28px; padding: 2px 10px; font-size: 12px; background: #fff; color: #242422; border-color: #D8D2C8; }
 
 main { max-width: 820px; margin: 0 auto; padding: 8px 16px calc(48px + env(safe-area-inset-bottom, 0px)); }
-h1 { font: 400 26px/1.2 var(--serif); color: var(--brand); text-wrap: balance; }
-h2 { font: 400 22px/1.2 var(--serif); color: var(--brand); text-wrap: balance; }
-.section { margin-top: 26px; scroll-margin-top: 80px; }
-.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.section-head .meta { font-variant-numeric: tabular-nums; }
-.today .section-head, .next .section-head { border-bottom: 2px solid var(--accent); }
+h1 { font: 400 25px/1.2 var(--sans); letter-spacing: .01em; color: var(--brand); text-wrap: balance; }
+h2 { font: 500 14px/1.3 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--brand); }
+.section { margin-top: 28px; scroll-margin-top: 80px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.section.key .section-head { border-bottom: 2px solid var(--accent); }
 .meta { color: var(--muted); font-size: 14px; }
-.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .greeting { margin-top: 18px; }
 .greeting p { margin-top: 2px; }
 
 button, input, select, textarea { font: inherit; color: inherit; }
-button { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 14px; cursor: pointer; min-height: 44px; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+button, .btn { border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 14px; cursor: pointer; min-height: 44px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-align: center; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }
+button.go { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
 button.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
 button.danger.armed { background: var(--bad); color: #fff; }
-button.small { min-height: 34px; padding: 5px 11px; font-size: 14px; }
-button.link { border: 0; background: none; color: var(--brand); padding: 0; min-height: 0; text-decoration: underline; }
+button.small, .btn.small { min-height: 34px; padding: 5px 11px; font-size: 14px; }
 button:disabled { opacity: .55; cursor: default; }
-input, select, textarea { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 12px; }
+input, select, textarea { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 12px; min-height: 44px; }
 textarea { min-height: 90px; resize: vertical; }
 label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
-.check { display: flex; align-items: center; gap: 8px; font-size: 15px; }
-.check input { width: 20px; height: 20px; }
-.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px 14px; margin-top: 6px; }
 
 /* Auf einen Blick */
 .glance { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
 .glance.three { grid-template-columns: repeat(3, 1fr); }
-.tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 8px; text-align: center; cursor: pointer; min-height: 0; display: block; width: 100%; }
-.tile b { display: block; font: 400 30px/1.1 var(--serif); font-variant-numeric: tabular-nums; color: var(--brand); }
-.tile span { font-size: 13px; color: var(--muted); line-height: 1.25; display: block; margin-top: 2px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 8px; cursor: pointer; display: block; width: 100%; min-height: 0; }
+.tile b { display: block; font: 300 30px/1.1 var(--sans); font-variant-numeric: tabular-nums; color: var(--brand); }
+.tile span { font-size: 13px; color: var(--muted); line-height: 1.25; display: block; margin-top: 3px; }
 .tile.warn { border-color: var(--bad); background: var(--bad-bg); }
 .tile.warn b { color: var(--bad); }
 .tile.text b { font: 600 15px/1.25 var(--sans); color: var(--text); overflow-wrap: break-word; hyphens: auto; }
 .todo { margin-top: 12px; border: 1px solid var(--bad); background: var(--bad-bg); border-radius: 14px; padding: 12px 14px; }
-.todo b { color: var(--bad); }
+.todo > b { color: var(--bad); }
 .todo ul { list-style: none; margin-top: 6px; display: grid; gap: 4px; }
-.todo li button { text-align: left; width: 100%; background: var(--card); border-color: var(--line); font-size: 15px; }
+.todo li button { justify-content: flex-start; text-align: left; width: 100%; background: var(--card); font-size: 15px; }
+
+/* Neuigkeiten */
+.news { margin-top: 14px; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; }
+.news-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.news ul { list-style: none; margin-top: 8px; display: grid; gap: 6px; }
+.news li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
+.news li.unread { border-left: 4px solid var(--new); }
+.news li b { display: block; font-size: 15px; }
 
 /* Reinigungskarten */
 .task { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; scroll-margin-top: 80px; }
 .task.urgent { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
 .task.is-new { border-left: 6px solid var(--new); }
-.task.is-next { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
-.task.muted { background: var(--done-bg); border-color: var(--line); box-shadow: none; }
+.task.is-next { box-shadow: 0 0 0 2px var(--accent) inset; }
+.task.muted { background: var(--done-bg); box-shadow: none; }
 .task.muted h3, .task.muted .meta { color: var(--muted); }
+.task-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .task h3 { font: 600 19px/1.3 var(--sans); }
-.task .when { font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip { display: inline-block; font-size: 12px; font-weight: 650; border-radius: 99px; padding: 3px 10px; white-space: nowrap; background: var(--done-bg); color: var(--done); }
 .chip.new { background: var(--new); color: #fff; letter-spacing: .05em; }
 .chip.next { background: var(--accent); color: #fff; }
-.s-offen { color: var(--open); background: var(--open-bg); }
-.s-bestätigt { color: var(--ok); background: var(--ok-bg); }
-.s-erledigt { color: var(--done); background: var(--card); border: 1px solid var(--line); }
-.s-storniert { color: var(--muted); background: var(--card); text-decoration: line-through; }
+.chip.yes { color: var(--ok); background: var(--ok-bg); }
+.chip.wait { color: var(--open); background: var(--open-bg); }
 .chip.alert { color: var(--bad); background: var(--bad-bg); }
-.chip.manual { color: var(--brand); background: transparent; border: 1px solid var(--brand); }
+.chip.run { color: #fff; background: var(--accent); }
+.chip.manual { color: var(--brand); background: transparent; border: 1px solid var(--line); }
+.chip.gone { text-decoration: line-through; }
 .origin { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .note { margin-top: 10px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 8px 8px 0; font-size: 15px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.actions > button { flex: 1 1 160px; }
-.day { margin: 16px 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.actions > * { flex: 1 1 150px; }
+.phone { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; min-height: 36px; padding: 4px 12px; border-radius: 99px; border: 1px solid var(--accent); color: var(--accent); text-decoration: none; white-space: nowrap; font-weight: 600; }
+.phone svg { width: 16px; height: 16px; }
+.assign { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: stretch; }
+.assign select { flex: 1 1 180px; width: auto; }
+.assign button { flex: 0 1 auto; }
+.day { margin: 16px 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 
-/* Meldungen */
+/* Meldungen + Fotos */
 .report { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.report.owner { border-left: 3px solid var(--accent); }
 .report.resolved { opacity: .6; }
 .report p { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.thumbs button { width: 84px; height: 84px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); padding: 0; min-height: 0; }
-.thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.thumb { position: relative; width: 84px; height: 84px; }
+.thumb > button:first-child { width: 84px; height: 84px; border-radius: 8px; overflow: hidden; padding: 0; min-height: 0; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb .x { position: absolute; top: -8px; right: -8px; width: 28px; height: 28px; min-height: 0; padding: 0; border-radius: 99px; background: var(--bad); color: #fff; border: 2px solid var(--card); font-size: 15px; line-height: 1; }
 .report-form { margin-top: 12px; display: grid; gap: 10px; }
-.filepick { display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px dashed var(--muted); border-radius: 10px; padding: 12px; cursor: pointer; color: var(--muted); font-size: 15px; }
-.filepick input { display: none; }
+.pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pick label { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px dashed var(--muted); border-radius: 10px; padding: 10px; cursor: pointer; color: var(--text); font-size: 15px; min-height: 44px; }
+.pick input { display: none; }
 
 /* Galerie */
-.gallery { position: fixed; inset: 0; z-index: 20; background: rgba(8, 12, 15, .94); display: flex; flex-direction: column; color: #fff; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
+.gallery { position: fixed; inset: 0; z-index: 20; background: rgba(10, 10, 9, .95); display: flex; flex-direction: column; color: #fff; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
 .gallery .bar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 15px; }
-.gallery .bar button, .gallery .nav { background: rgba(255, 255, 255, .12); color: #fff; border: 0; }
+.gallery .bar button, .gallery .nav { background: rgba(255, 255, 255, .14); color: #fff; border: 0; }
 .gallery .stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 0 8px; touch-action: pan-y; }
 .gallery .stage img { max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 6px; }
 .gallery .navs { display: flex; justify-content: center; gap: 12px; padding: 12px; }
@@ -138,13 +154,13 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 /* Übersicht / Formulare */
 .notice { border-radius: 12px; padding: 10px 14px; margin-top: 12px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .notice.bad { color: var(--bad); background: var(--bad-bg); }
-.notice.info { background: var(--card); border: 1px solid var(--line); }
 .empty { color: var(--muted); padding: 6px 0 2px; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
-.panel + .panel { margin-top: 10px; }
-.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; align-items: end; }
+.panel + .panel, .panel + form.panel { margin-top: 10px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; align-items: end; }
 .codebox { margin-top: 12px; border: 2px solid var(--accent); border-radius: 14px; padding: 14px 16px; background: var(--card); }
 .codebox .code { font: 600 34px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .12em; color: var(--brand); margin: 6px 0; }
+.person { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 details.more { margin-top: 12px; }
 details.more > summary { cursor: pointer; padding: 10px 0; color: var(--brand); font-weight: 600; }
 code { font: 13px ui-monospace, Menlo, monospace; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; word-break: break-all; }
@@ -152,18 +168,29 @@ table { width: 100%; border-collapse: collapse; font-size: 14px; }
 td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .scroll { overflow-x: auto; }
 .danger-zone { border: 1px dashed var(--bad); }
-.login { max-width: 420px; margin: 40px auto 0; }
-.login input.pin { font: 600 30px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .3em; text-align: center; }
+.login { max-width: 400px; margin: 28px auto 0; text-align: center; }
+.login .logo { width: 190px; margin: 4px auto 18px; display: block; }
+.login input.pin { font: 600 32px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .35em; text-align: center; padding-left: .35em; }
+.login .hint { margin-top: 12px; }
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: 520px; margin: 0 auto; background: var(--text); color: var(--bg); border-radius: 12px; padding: 12px 16px; font-weight: 600; z-index: 30; }
-@media (max-width: 520px) { .glance { grid-template-columns: repeat(2, 1fr); } .glance.three { grid-template-columns: repeat(3, 1fr); } .head img { height: 34px; } .tile b { font-size: 26px; } }
+@media (max-width: 520px) {
+  .glance { grid-template-columns: repeat(2, 1fr); }
+  .glance.three { grid-template-columns: repeat(3, 1fr); }
+  .brand .house { height: 40px; } .brand .word { height: 24px; }
+  .tile b { font-size: 26px; }
+}
+@media (max-width: 360px) { .brand .word { display: none; } }
 </style>
 </head>
 <body>
-<header><div class="head"><img src="/logo.svg" alt="Apartment Strauss"><div class="who" id="who"></div></div></header>
+<header><div class="head">
+  <div class="brand"><img class="house" src="/logo-house.png" alt=""><img class="word" src="/logo-wordmark.png" alt="Apartments Strauss"></div>
+  <div class="who" id="who"></div>
+</div></header>
 <main id="app"><p class="empty" style="margin-top:24px">Wird geladen …</p></main>
 <div class="gallery" id="gallery" hidden role="dialog" aria-modal="true" aria-label="Fotos">
   <div class="bar"><span id="g-count"></span><button type="button" id="g-close">Schließen ✕</button></div>
-  <div class="stage" id="g-stage"><img id="g-img" alt="Foto zur Meldung"></div>
+  <div class="stage" id="g-stage"><img id="g-img" alt="Foto"></div>
   <div class="navs"><button type="button" class="nav" id="g-prev">‹ Zurück</button><button type="button" class="nav" id="g-next">Weiter ›</button></div>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>
@@ -177,32 +204,36 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   const WDL = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
   const utc = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
   const addDays = (iso, n) => { const d = utc(iso); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-  const fmt = (iso) => { const d = utc(iso); return `${WD[d.getUTCDay()]}, ${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.`; };
-  const fmtLong = (iso) => { const d = utc(iso); return `${WDL[d.getUTCDay()]}, ${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`; };
+  const two = (n) => String(n).padStart(2, '0');
+  const fmt = (iso) => { const d = utc(iso); return `${WD[d.getUTCDay()]}, ${two(d.getUTCDate())}.${two(d.getUTCMonth() + 1)}.`; };
+  const fmtLong = (iso) => { const d = utc(iso); return `${WDL[d.getUTCDay()]}, ${two(d.getUTCDate())}.${two(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`; };
   const fmtTime = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '–';
+  const clock = (iso) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const duration = (a, b) => { const m = Math.round((Date.parse(b) - Date.parse(a)) / 60000); return `${Math.floor(m / 60)}:${two(m % 60)} Std.`; };
   const ADMIN = location.pathname.replace(/\/+$/, '') === '/admin';
+  const PHONE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>';
 
   // ---- Anmeldung: Sitzung im Browser merken ---------------------------------
-  // ?u=&k= (Link aus der Push-Nachricht) meldet ebenfalls an.
   const params = new URLSearchParams(location.search);
-  let auth = null;
   const store = {
     get() { try { return localStorage.getItem('team-auth'); } catch (e) { return null; } },
     set(v) { try { v ? localStorage.setItem('team-auth', v) : localStorage.removeItem('team-auth'); } catch (e) { /* ohne Speicher */ } },
   };
-  if (params.get('u') && params.get('k')) {
+  let auth = store.get();
+  if (params.get('u') && params.get('k')) { // Link aus der Push-Nachricht
     auth = params.get('u') + '.' + params.get('k');
     store.set(auth);
     history.replaceState(null, '', location.pathname);
-  } else {
-    auth = store.get();
   }
   const photoUrl = (id) => `/api/photos/${encodeURIComponent(id)}?a=${encodeURIComponent(auth)}`;
 
   let data = null;
-  let newCode = null;         // gerade erzeugter Code (nur einmal anzeigen)
-  let editCleaner = null;     // Reinigungskraft in Bearbeitung
-  const openForms = new Set(); // Reinigungen mit offenem Meldungsformular
+  let newCode = null;            // gerade erzeugter Code (nur einmal anzeigen)
+  let editPerson = null;         // Person, deren Name bearbeitet wird
+  let editTask = null;           // manuelle Reinigung in Bearbeitung
+  let lockTimer = null;
+  const openForms = new Set();   // Reinigungen mit offenem Hinweis-Formular
+  const pending = {};            // ausgewählte, noch nicht gesendete Fotos je Reinigung
   let toastTimer;
   function toast(text) {
     $('toast').textContent = text;
@@ -218,12 +249,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
     const res = await fetch(path, { method: method || 'GET', headers, body: payload });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(json.error || 'Fehler ' + res.status + ' – bitte erneut versuchen'), { status: res.status });
+    if (!res.ok) throw Object.assign(new Error(json.error || 'Fehler ' + res.status + ' – bitte erneut versuchen'), { status: res.status, retryAfter: json.retryAfter });
     return json;
   }
 
-  // Beim automatischen Aktualisieren nichts überschreiben, was gerade eingetippt wird
-  const busyEditing = () => openForms.size > 0 || !!editCleaner || !!document.querySelector('#app [data-dirty]') || !$('gallery').hidden;
+  // Beim automatischen Aktualisieren nichts überschreiben, was gerade bearbeitet wird
+  const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!document.querySelector('#app [data-dirty]')
+    || !$('gallery').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
   async function refresh(force) {
     if (!auth) return showLogin();
@@ -239,30 +271,72 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
   function update(next) { data = Object.assign({}, data, next); render(); }
 
+  // ---- Anmeldung --------------------------------------------------------------
   function showLogin() {
     $('who').innerHTML = '';
     $('app').innerHTML = ADMIN ? `
       <form class="panel login" id="admin-login">
-        <div class="eyebrow">Apartment Strauss</div><h1 style="margin:4px 0 10px">Admin-Anmeldung</h1>
-        <label class="field">Passwort <input id="admin-pw" type="password" autocomplete="current-password" required></label>
+        <img class="logo" src="/logo.png" alt="Apartments Strauss">
+        <h1 style="margin-bottom:12px">Admin-Notzugang</h1>
+        <label class="field" style="text-align:left">Passwort <input id="admin-pw" type="password" autocomplete="current-password" required></label>
         <div class="actions"><button class="primary" type="submit">Anmelden</button></div>
-        <p class="meta" style="margin-top:12px">Für Reinigungskräfte: <a href="/">zur Anmeldung mit Code</a></p>
+        <p class="meta hint"><a href="/">Zur Anmeldung mit Code</a></p>
       </form>` : `
       <form class="panel login" id="code-login">
-        <div class="eyebrow">Apartment Strauss · Team</div><h1 style="margin:4px 0 6px">Anmelden</h1>
-        <p class="meta" style="margin-bottom:12px">Bitte den persönlichen 6-stelligen Code eingeben.</p>
-        <input id="code" class="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="••••••" aria-label="Persönlicher Code" required>
-        <div class="actions"><button class="primary" type="submit">Anmelden</button></div>
-        <p class="meta" style="margin-top:12px">Tipp: Danach über „Teilen → Zum Home-Bildschirm“ als App ablegen – du bleibst angemeldet.</p>
+        <img class="logo" src="/logo.png" alt="Apartments Strauss">
+        <p class="meta" style="margin-bottom:10px">Bitte persönlichen 6-stelligen Code eingeben</p>
+        <input id="code" class="pin" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Persönlicher Code" required>
+        <p class="meta hint" id="login-status" role="status"></p>
       </form>`;
     const first = document.querySelector('#app input');
     if (first) first.focus();
   }
 
+  async function tryCode() {
+    const input = $('code');
+    const code = input.value.replace(/\D/g, '');
+    if (code.length !== 6 || input.disabled) return;
+    input.disabled = true;
+    $('login-status').textContent = 'Anmeldung …';
+    try {
+      const res = await api('/api/login', 'POST', { code }, true);
+      auth = res.session; store.set(auth);
+      await refresh(true);
+    } catch (err) {
+      input.value = '';
+      $('login-status').textContent = err.message;
+      if (err.status === 429) return lockLogin(err.retryAfter || 60);
+      input.disabled = false;
+      input.focus();
+    }
+  }
+  function lockLogin(seconds) {
+    const input = $('code');
+    clearInterval(lockTimer);
+    let left = seconds;
+    const tick = () => {
+      if (!$('code')) return clearInterval(lockTimer);
+      if (left <= 0) {
+        clearInterval(lockTimer);
+        input.disabled = false;
+        $('login-status').textContent = 'Bitte erneut versuchen.';
+        input.focus();
+        return;
+      }
+      $('login-status').textContent = `Zu viele falsche Versuche – gesperrt, noch ${left} Sekunden`;
+      left--;
+    };
+    tick();
+    lockTimer = setInterval(tick, 1000);
+  }
+
   // ---- Bausteine ------------------------------------------------------------
+  const people = () => [...(data.leads || []), ...(data.staff || [])];
   function nameOf(id) {
-    const c = (data.cleaners || []).find((x) => x.id === id);
-    return c ? c.name : id === data.user.id ? data.user.name : 'Reinigungskraft';
+    if (!id) return '';
+    if (id === data.user.id) return data.user.name;
+    const p = people().find((x) => x.id === id);
+    return p ? p.name : (id.startsWith('buero') || id === 'owner' ? 'Apartments Strauss' : 'Unbekannt');
   }
   function dayWord(iso) {
     if (iso === data.today) return 'Heute';
@@ -271,240 +345,318 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return fmt(iso);
   }
   const isActive = (t) => t.status === 'offen' || t.status === 'bestätigt';
-  const isNew = (t) => t.status === 'offen' && t.date >= data.today;
+  const role = () => data.user.role;
 
-  function statusChip(t) {
-    if (t.status === 'offen' && t.escalated) return '<span class="chip alert">nicht bestätigt!</span>';
-    const label = { offen: 'noch nicht bestätigt', bestätigt: 'bestätigt', erledigt: 'erledigt ✓', storniert: 'entfällt' }[t.status] || t.status;
-    return `<span class="chip s-${esc(t.status)}">${label}</span>`;
+  function chips(t) {
+    const out = [];
+    if (t.status === 'storniert') return '<span class="chip gone">entfällt</span>';
+    if (t.status === 'erledigt') out.push(`<span class="chip yes">erledigt ✓ ${t.doneAt ? clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`);
+    else {
+      if (t.lateAlerted || t.reminded2) out.push('<span class="chip alert">überfällig</span>');
+      out.push(t.leadConfirmedAt ? '<span class="chip yes">Leitung ✓</span>' : '<span class="chip wait">Leitung offen</span>');
+      if (!t.assignedTo) out.push('<span class="chip wait">nicht zugewiesen</span>');
+      else out.push(`<span class="chip ${t.staffConfirmedAt ? 'yes' : 'wait'}">${esc(nameOf(t.assignedTo))} ${t.staffConfirmedAt ? '✓' : 'offen'}</span>`);
+      if (t.startedAt) out.push(`<span class="chip run">läuft seit ${clock(t.startedAt)}</span>`);
+    }
+    if (t.sameDayArrival && isActive(t)) out.push('<span class="chip alert">Wechseltag – Anreise am selben Tag</span>');
+    if (t.manual) out.push('<span class="chip manual">manuelle Reinigung</span>');
+    return out.join('');
   }
 
-  function reportHtml(t, r, owner) {
+  function reportHtml(t, r) {
+    const mine = r.by === data.user.id || role() === 'owner';
+    const author = r.byRole === 'owner' ? 'Apartments Strauss' : nameOf(r.by);
     const ids = r.photos.join(',');
-    return `<div class="report${r.resolved ? ' resolved' : ''}">
-      <div class="meta"><b>${esc(nameOf(r.by))}</b> · ${fmtTime(r.at)}${r.resolved ? ' · behoben' : ''}</div>
+    return `<div class="report${r.byRole === 'owner' ? ' owner' : ''}${r.resolved ? ' resolved' : ''}">
+      <div class="meta"><b>${r.byRole === 'owner' ? 'Hinweis von ' : ''}${esc(author)}</b> · ${fmtTime(r.at)}${r.resolved ? ' · behoben' : ''}</div>
       ${r.text ? `<p>${esc(r.text)}</p>` : ''}
-      ${r.photos.length ? `<div class="thumbs">${r.photos.map((p, i) => `<button type="button" data-gallery="${esc(ids)}" data-index="${i}" aria-label="Foto ${i + 1} von ${r.photos.length} öffnen"><img src="${photoUrl(p)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
-      ${owner && !r.resolved ? `<div class="actions"><button class="small" data-resolve="${esc(t.id)}" data-report="${esc(r.id)}">Als behoben markieren</button></div>` : ''}
+      ${r.photos.length ? `<div class="thumbs">${r.photos.map((p, i) => `<div class="thumb">
+        <button type="button" data-gallery="${esc(ids)}" data-index="${i}" aria-label="Foto ${i + 1} öffnen"><img src="${photoUrl(p)}" alt="" loading="lazy"></button>
+        ${mine ? `<button type="button" class="x" data-delphoto="${esc(p)}" data-task="${esc(t.id)}" data-report="${esc(r.id)}" aria-label="Foto löschen">✕</button>` : ''}
+      </div>`).join('')}</div>` : ''}
+      ${role() === 'owner' && !r.resolved && r.byRole !== 'owner' ? `<div class="actions"><button class="small" data-resolve="${esc(t.id)}" data-report="${esc(r.id)}">Als behoben markieren</button></div>` : ''}
     </div>`;
   }
 
-  function taskCard(t, owner, opts) {
+  function reportForm(t) {
+    const label = role() === 'owner' ? 'Hinweis für die Reinigung' : 'Was fehlt, was ist kaputt, was ist zu tun?';
+    return `<form class="report-form" data-report-form="${esc(t.id)}">
+      <label class="field">${label}
+        <textarea name="text" id="text-${esc(t.id)}" placeholder="${role() === 'owner' ? 'z. B. Bitte Kaffee auffüllen …' : 'z. B. Handtücher fehlen, Glühbirne im Bad defekt …'}"></textarea></label>
+      <div class="pick">
+        <label>Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
+        <label>Aus Galerie<input type="file" accept="image/*" multiple data-photo-input="${esc(t.id)}"></label>
+      </div>
+      <div class="thumbs" data-previews="${esc(t.id)}">${previewsHtml(t.id)}</div>
+      <button class="primary" type="submit">${role() === 'owner' ? 'Hinweis senden' : 'Meldung senden'}</button>
+    </form>`;
+  }
+  function previewsHtml(taskId) {
+    return (pending[taskId] || []).map((p, i) => `<div class="thumb"><button type="button" tabindex="-1"><img src="${p.url}" alt="Ausgewähltes Foto ${i + 1}"></button>
+      <button type="button" class="x" data-unpick="${esc(taskId)}" data-index="${i}" aria-label="Foto entfernen">✕</button></div>`).join('');
+  }
+
+  function editForm(t) {
+    return `<form class="report-form" data-edit-task="${esc(t.id)}">
+      <div class="form-grid">
+        <label class="field">Neues Datum <input type="date" name="date" value="${esc(t.date)}" min="${data.today}" required></label>
+        <label class="field">Hinweis <input name="note" value="${esc(t.note || '')}" maxlength="500"></label>
+      </div>
+      <div class="actions"><button class="primary" type="submit">Speichern und Team informieren</button><button type="button" data-edit-cancel>Abbrechen</button></div>
+    </form>`;
+  }
+
+  function assignControl(t) {
+    const options = [...(data.staff || []).map((s) => [s.id, s.name]), [data.user.id, `Ich selbst (${data.user.name})`]];
+    return `<div class="assign">
+      <select data-assign-select="${esc(t.id)}" aria-label="Mitarbeiterin auswählen">
+        <option value="">${t.assignedTo ? 'Neu zuweisen …' : 'Mitarbeiterin wählen …'}</option>
+        ${options.map(([id, name]) => `<option value="${esc(id)}" ${id === t.assignedTo ? 'disabled' : ''}>${esc(name)}</option>`).join('')}
+      </select>
+      <button class="primary" data-assign="${esc(t.id)}">Zuweisen</button>
+    </div>`;
+  }
+
+  function taskCard(t, opts) {
     opts = opts || {};
+    const r = role();
     const active = isActive(t);
-    const muted = !active;
-    const nu = !owner && isNew(t);
-    const cls = ['task', muted ? 'muted' : '', nu ? 'is-new' : '', opts.next && !nu ? 'is-next' : '',
-      owner && t.status === 'offen' && (t.escalated || t.date === data.today) ? 'urgent' : ''].filter(Boolean).join(' ');
-    const who = owner ? (t.assignedTo ? `übernommen von <b>${esc(nameOf(t.assignedTo))}</b>` : (active ? 'noch niemand eingetragen' : '')) : '';
-    const chips = [
-      nu ? '<span class="chip new">NEU</span>' : '',
-      opts.next ? '<span class="chip next">Als Nächstes</span>' : '',
-      statusChip(t),
-      t.sameDayArrival && active ? '<span class="chip alert">Wechseltag – Anreise am selben Tag</span>' : '',
-      t.manual ? '<span class="chip manual">zusätzliche Reinigung</span>' : '',
-    ].join('');
-    let actions = '';
-    if (!owner && t.status === 'offen') actions += `<button class="primary" data-confirm="${esc(t.id)}">Bestätigen – ich übernehme</button>`;
-    if (!owner && t.status === 'bestätigt') actions += `<button class="primary" data-done="${esc(t.id)}">Erledigt melden</button>`;
-    if (!owner && t.status !== 'storniert') actions += `<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Meldung schließen' : 'Hinweis / Problem melden'}</button>`;
-    if (owner && t.manual && active) actions += `<button class="danger small" data-cancel="${esc(t.id)}">Reinigung absagen</button>`;
-    const origin = t.createdAt ? `Eingetragen ${fmtTime(t.createdAt)} · ${t.source === 'manuell' ? 'manuell hinzugefügt' : 'automatisch aus Smoobu'}${t.changedAt ? ` · Datum geändert ${fmtTime(t.changedAt)}` : ''}` : '';
+    const mineToDo = t.assignedTo === data.user.id;
+    const isNew = r === 'staff' ? active && !t.staffConfirmedAt : r === 'lead' ? active && (!t.leadConfirmedAt || !t.assignedTo) : false;
+    const urgent = active && (t.lateAlerted || t.reminded2 || (r === 'owner' && t.status === 'offen' && t.date <= addDays(data.today, 1)));
+    const cls = ['task', active ? '' : 'muted', isNew ? 'is-new' : '', opts.next ? 'is-next' : '', urgent ? 'urgent' : ''].filter(Boolean).join(' ');
+    const actions = [];
+    if (r === 'lead' && active && !t.leadConfirmedAt) actions.push(`<button data-lead-confirm="${esc(t.id)}">Erhalt bestätigen</button>`);
+    if (active && mineToDo && !t.staffConfirmedAt) actions.push(`<button class="primary" data-confirm="${esc(t.id)}">Erhalt bestätigen</button>`);
+    // Beginn/Erledigt nur für die zugewiesene Person (auch Leitung, wenn sie selbst reinigt) nach Bestätigung
+    const canWork = active && r !== 'owner' && mineToDo && !!t.staffConfirmedAt;
+    if (canWork) {
+      if (!t.startedAt) actions.push(`<button class="go" data-start="${esc(t.id)}">Reinigung beginnen</button>`);
+      actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Erledigt melden</button>`);
+    }
+    if (t.status !== 'storniert') actions.push(`<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Schließen' : r === 'owner' ? 'Hinweis / Foto hinzufügen' : 'Hinweis / Problem melden'}</button>`);
+    if (r === 'owner' && t.manual && active) {
+      actions.push(`<button class="small" data-edit-task="${esc(t.id)}">Bearbeiten / verschieben</button>`);
+      actions.push(`<button class="danger small" data-cancel="${esc(t.id)}">Absagen</button>`);
+    }
+    const origin = `Eingetragen ${fmtTime(t.createdAt)} · ${t.source === 'manuell' ? 'manuell hinzugefügt' : 'automatisch aus Smoobu'}${t.changedAt ? ` · geändert ${fmtTime(t.changedAt)}` : ''}`;
     return `<article class="${cls}" id="task-${esc(t.id)}">
-      <div class="eyebrow"><span class="when">${esc(dayWord(t.date))}</span> · ${t.manual ? 'Reinigung' : 'Check-out'}</div>
-      <h3>${esc(t.apartmentName)}</h3>
-      <div class="meta">${fmtLong(t.date)}${t.guest ? ' · ' + esc(t.guest) : ''}${who ? ' · ' + who : ''}</div>
-      <div class="chips">${chips}</div>
-      ${origin ? `<div class="origin">${origin}</div>` : ''}
+      <div class="task-top">
+        <div><div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))} · ${t.manual ? 'Reinigung' : 'Check-out'}</div>
+        <h3>${esc(t.apartmentName)}</h3></div>
+        ${t.guestPhone && active ? `<a class="phone" href="tel:${esc(t.guestPhone.replace(/[^\d+]/g, ''))}" aria-label="Gast anrufen: ${esc(t.guestPhone)}">${PHONE_ICON} Gast</a>` : ''}
+      </div>
+      <div class="meta">${fmtLong(t.date)}${t.guest ? ' · ' + esc(t.guest) : ''}${t.guestPhone && active ? ' · ' + esc(t.guestPhone) : ''}</div>
+      <div class="chips">${chips(t)}</div>
+      <div class="origin">${origin}</div>
       ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
-      ${(t.reports || []).map((r) => reportHtml(t, r, owner)).join('')}
-      ${actions ? `<div class="actions">${actions}</div>` : ''}
-      ${!owner && openForms.has(t.id) ? `<form class="report-form" data-report-form="${esc(t.id)}">
-          <label class="field">Was fehlt, was ist kaputt, was ist zu tun?
-            <textarea name="text" id="text-${esc(t.id)}" placeholder="z. B. Handtücher fehlen, Glühbirne im Bad defekt …"></textarea></label>
-          <label class="filepick">Fotos hinzufügen (optional, max. 5)<input type="file" name="photo" id="photo-${esc(t.id)}" accept="image/*" multiple></label>
-          <div class="meta" data-preview></div>
-          <button class="primary" type="submit">Meldung senden</button>
-        </form>` : ''}
-      ${owner && t.history ? `<details class="meta" style="margin-top:8px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
+      ${t.reports.map((rep) => reportHtml(t, rep)).join('')}
+      ${r === 'lead' && active ? assignControl(t) : ''}
+      ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
+      ${editTask === t.id ? editForm(t) : ''}
+      ${openForms.has(t.id) ? reportForm(t) : ''}
+      ${t.history ? `<details class="meta" style="margin-top:8px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
     </article>`;
   }
 
-  const list = (items, owner, empty, nextId) => items.length ? items.map((t) => taskCard(t, owner, { next: t.id === nextId })).join('') : `<p class="empty">${empty}</p>`;
+  const list = (items, empty, nextId) => items.length ? items.map((t) => taskCard(t, { next: t.id === nextId })).join('') : `<p class="empty">${empty}</p>`;
   const section = (id, title, sub, body, cls) =>
     `<section class="section ${cls || ''}" id="${id}"><div class="section-head"><h2>${title}</h2><span class="meta">${sub || ''}</span></div>${body}</section>`;
   const tile = (target, value, label, warn, text) =>
     `<button type="button" class="tile${warn ? ' warn' : ''}${text ? ' text' : ''}" data-jump="${target}"><b>${value}</b><span>${label}</span></button>`;
-  const logList = (entries, showTo) => entries.length
-    ? entries.map((n) => `<div class="report"><div class="meta">${fmtTime(n.at)}${showTo ? ' → ' + esc(n.toName) : ''}</div><p><b>${esc(n.title)}</b><br>${esc(n.body)}</p></div>`).join('')
-    : '<p class="empty">Noch keine Nachrichten.</p>';
+  function byDay(tasks, nextId) {
+    const days = {};
+    for (const t of tasks) (days[t.date] = days[t.date] || []).push(t);
+    return Object.keys(days).sort().map((d) => `<div class="day">${esc(dayWord(d))}${['Heute', 'Morgen', 'Gestern'].includes(dayWord(d)) ? ' · ' + fmt(d) : ''}</div>${list(days[d], '', nextId)}`).join('');
+  }
+
+  function newsPanel() {
+    const items = data.changes || [];
+    if (!items.length) return '';
+    const unread = items.filter((c) => !data.seenAt || c.at > data.seenAt);
+    const shown = unread.length ? unread : items.slice(0, 3);
+    return `<div class="news" id="news">
+      <div class="news-head"><b>${unread.length ? `Neuigkeiten (${unread.length})` : 'Letzte Änderungen'}</b>
+        ${unread.length ? '<button class="small" data-seen>Alles gelesen</button>' : ''}</div>
+      <ul>${shown.slice(0, 10).map((c) => `<li class="${!data.seenAt || c.at > data.seenAt ? 'unread' : ''}">
+        <span class="meta">${fmtTime(c.at)}</span><b>${esc(c.title)}</b>${esc(c.body)}
+        ${c.taskId ? ` <button class="small" data-jump="task-${esc(c.taskId)}" style="margin-top:6px">Zur Reinigung</button>` : ''}</li>`).join('')}</ul>
+    </div>`;
+  }
 
   function pushSetup() {
-    return `<details class="more"><summary>Push-Nachrichten einrichten</summary><div class="panel">
+    return `<details class="more"><summary>Push-Nachrichten einrichten (iPhone, Android, Computer)</summary><div class="panel">
       <ol style="margin-left:18px; display:grid; gap:8px">
-        <li>App <b>ntfy</b> aus dem App Store bzw. Google Play installieren.</li>
-        <li>In der App auf „+“ tippen und diesen Kanal abonnieren:<br><code id="topic">${esc(data.topic)}</code> <button class="small" data-copy="topic">Kopieren</button></li>
-        <li>Benachrichtigungen für ntfy erlauben.</li>
+        <li>App <b>ntfy</b> installieren – iPhone: App Store, Android: Google Play. Am Computer geht auch <b>ntfy.sh/app</b> im Browser.</li>
+        <li>In ntfy auf „+“ tippen und diesen Kanal abonnieren:<br><code id="topic">${esc(data.topic)}</code> <button class="small" data-copy="topic">Kopieren</button></li>
+        <li>Mitteilungen für ntfy erlauben. iPhone: Einstellungen → ntfy → Mitteilungen → „Erlauben“ und „Sofortige Mitteilungen“ an. Android: Benachrichtigungen erlauben, Akku-Optimierung für ntfy ausschalten.</li>
         <li><button class="small" data-test>Test-Nachricht senden</button></li>
       </ol>
       <p class="meta" style="margin-top:8px">Den Kanalnamen nicht weitergeben – wer ihn kennt, kann die Nachrichten mitlesen.</p></div></details>`;
   }
 
-  // ---- Reinigungskraft ------------------------------------------------------
-  function renderCleaner() {
+  // ---- Team -------------------------------------------------------------------
+  function teamList(kind, persons, title) {
+    const rows = persons.map((p) => editPerson === p.id ? `
+      <form class="panel" data-edit-person="${esc(p.id)}">
+        <label class="field">Name <input name="name" value="${esc(p.name)}" required maxlength="60"></label>
+        <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-edit-cancel>Abbrechen</button></div>
+      </form>` : `
+      <div class="panel"><div class="person"><b style="font-size:17px">${esc(p.name)}</b><span class="meta">${kind === 'lead' ? 'Reinigungsleitung' : 'Mitarbeiterin'}</span></div>
+        <div class="actions">
+          <button class="small" data-edit-person="${esc(p.id)}">Name ändern</button>
+          <button class="small" data-newcode="${esc(p.id)}">Neuen Code erzeugen</button>
+          <button class="small danger" data-remove="${esc(p.id)}">Entfernen</button>
+        </div></div>`).join('');
+    return `<h3 style="margin:14px 0 8px; font-size:16px">${title}</h3>
+      ${rows || '<p class="empty">Noch niemand angelegt.</p>'}
+      <form class="panel" data-add-person="${kind}" style="margin-top:10px">
+        <div class="form-grid"><label class="field">${kind === 'lead' ? 'Reinigungsleitung hinzufügen' : 'Mitarbeiterin hinzufügen'}
+          <input name="name" required maxlength="60" placeholder="Name"></label>
+          <button class="primary" type="submit">Anlegen und Code erzeugen</button></div>
+      </form>`;
+  }
+  function codeBox() {
+    return newCode ? `<div class="codebox"><div class="eyebrow">Anmeldecode für ${esc(newCode.name)}</div>
+      <div class="code">${esc(newCode.code.slice(0, 3))} ${esc(newCode.code.slice(3))}</div>
+      <p class="meta">Jetzt notieren und persönlich weitergeben – der Code wird nur einmal angezeigt. Anmeldung unter <b>${esc(location.host)}</b>.
+      Ein neuer Code meldet alle bisherigen Geräte dieser Person ab.</p>
+      <div class="actions"><button class="small" data-hide-code>Verstanden, ausblenden</button></div></div>` : '';
+  }
+
+  // ---- Mitarbeiterin ----------------------------------------------------------
+  function renderStaff() {
     const t0 = data.today;
-    const tasks = data.tasks.filter((t) => t.status !== 'storniert' || t.date >= t0);
-    const upcoming = tasks.filter((t) => t.date >= t0);
-    const past = tasks.filter((t) => t.date < t0).reverse();
-    const fresh = upcoming.filter(isNew);
-    const today = upcoming.filter((t) => t.date === t0 && t.status !== 'storniert');
-    const todayOpen = today.filter(isActive).length;
+    const upcoming = data.tasks.filter((t) => t.date >= t0 && (isActive(t) || t.date === t0 || t.status === 'storniert'));
+    const past = data.tasks.filter((t) => t.date < t0).reverse();
+    const fresh = upcoming.filter((t) => isActive(t) && !t.staffConfirmedAt);
+    const planned = upcoming.filter((t) => !(isActive(t) && !t.staffConfirmedAt));
+    const today = data.tasks.filter((t) => t.date === t0 && t.status !== 'storniert');
     const next = upcoming.find(isActive);
-
-    // Plan nach Tagen gruppiert (erledigte grau, abgesagte durchgestrichen)
-    const byDay = {};
-    for (const t of upcoming.filter((x) => !isNew(x) && x.date <= addDays(t0, 30))) (byDay[t.date] = byDay[t.date] || []).push(t);
-    const plan = Object.keys(byDay).sort().map((d) =>
-      `<div class="day">${esc(dayWord(d))}${d !== t0 && d !== addDays(t0, 1) ? '' : ' · ' + fmt(d)}</div>${list(byDay[d], false, '', next && next.id)}`).join('');
-    const later = upcoming.filter((t) => !isNew(t) && t.date > addDays(t0, 30));
-
     return `
       <div class="greeting"><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">${fmtLong(t0)}</p></div>
       <div class="glance three">
-        ${tile('neu', fresh.length, fresh.length === 1 ? 'neu – bitte bestätigen' : 'neu – bitte bestätigen', fresh.length > 0)}
-        ${tile('plan', today.length ? `${today.length - todayOpen}/${today.length}` : '0', today.length ? 'heute erledigt' : 'heute nichts')}
+        ${tile('neu', fresh.length, 'neu – bitte bestätigen', fresh.length > 0)}
+        ${tile('plan', today.length ? `${today.filter((t) => t.status === 'erledigt').length}/${today.length}` : '0', today.length ? 'heute erledigt' : 'heute nichts')}
         ${tile(next ? 'task-' + next.id : 'plan', next ? esc(next.apartmentName) : '–', next ? 'als Nächstes · ' + esc(dayWord(next.date)) : 'nichts geplant', false, true)}
       </div>
-      ${fresh.length ? section('neu', 'Neu – bitte bestätigen', fresh.length + ' offen',
-        fresh.map((t) => taskCard(t, false, { next: next && t.id === next.id })).join(''), 'next') : ''}
-      ${section('plan', 'Mein Plan', 'bestätigt & erledigt', plan || `<p class="empty">${fresh.length ? 'Noch nichts bestätigt – bitte oben bestätigen.' : 'Keine Reinigungen geplant.'}</p>`, 'today')}
-      ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, false, '')}</details>` : ''}
-      ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, false, '')}</details>` : ''}
-      <p class="meta" style="margin-top:16px">Bitte neue Reinigungen spätestens bis ${esc(data.escalationTime)} Uhr am Reinigungstag bestätigen.</p>
-      ${pushSetup()}
-      <details class="more"><summary>Meine Nachrichten</summary>${logList(data.log, false)}</details>`;
+      ${newsPanel()}
+      ${fresh.length ? section('neu', 'Neu – bitte bestätigen', fresh.length + ' offen', list(fresh, '', next && next.id), 'key') : ''}
+      ${section('plan', 'Mein Plan', 'bestätigt & erledigt', byDay(planned, next && next.id) || `<p class="empty">${fresh.length ? 'Bitte oben bestätigen.' : 'Keine Reinigungen zugewiesen.'}</p>`, 'key')}
+      ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
+      ${pushSetup()}`;
   }
 
-  // ---- Auftraggeber ---------------------------------------------------------
-  function teamSection() {
-    const apts = data.apartments || [];
-    const aptName = (id) => (apts.find((a) => a.id === id) || {}).name || id;
-    const aptChecks = (selected) => `
-      <label class="check" style="margin-top:8px"><input type="checkbox" data-all ${selected === 'all' ? 'checked' : ''}> <b>Alle Wohnungen</b></label>
-      <div class="checks" data-apts ${selected === 'all' ? 'hidden' : ''}>${apts.map((a) =>
-        `<label class="check"><input type="checkbox" value="${esc(a.id)}" ${selected !== 'all' && selected.includes(a.id) ? 'checked' : ''}> ${esc(a.name)}</label>`).join('')}</div>`;
-    const rows = data.cleaners.map((c) => editCleaner === c.id ? `
-      <form class="panel" data-edit-cleaner="${esc(c.id)}">
-        <label class="field">Name <input name="name" value="${esc(c.name)}" required maxlength="60"></label>
-        ${aptChecks(c.apartments)}
-        <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-edit-cancel>Abbrechen</button></div>
-      </form>` : `
-      <div class="panel">
-        <div style="display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap"><b style="font-size:17px">${esc(c.name)}</b></div>
-        <div class="meta">${c.apartments === 'all' ? 'Alle Wohnungen' : esc(c.apartments.map(aptName).join(', ') || 'keine Wohnung')}</div>
-        <div class="actions">
-          <button class="small" data-edit="${esc(c.id)}">Bearbeiten</button>
-          <button class="small" data-newcode="${esc(c.id)}">Neuen Code erzeugen</button>
-          <button class="small danger" data-remove="${esc(c.id)}">Entfernen</button>
-        </div>
-      </div>`).join('');
-    const ownerCode = `<form class="panel" id="owner-code" style="margin-bottom:10px">
-        <b>Mein Admin-Code</b>
-        <p class="meta" style="margin:4px 0 8px">${data.hasOwnerCode
-          ? 'Eingerichtet ✓ – damit meldet ihr euch auf der Startseite direkt in dieser Übersicht an. Hier könnt ihr ihn ändern.'
-          : 'Noch nicht eingerichtet. Legt einen eigenen 6-stelligen Code fest – dann reicht auf der Startseite der Code, genau wie bei den Reinigungskräften.'}</p>
-        <div class="form-grid"><label class="field">Neuer 6-stelliger Code
-          <input id="owner-code-input" inputmode="numeric" autocomplete="new-password" maxlength="7" placeholder="z. B. 482913" required></label>
-          <button class="primary" type="submit">${data.hasOwnerCode ? 'Code ändern' : 'Code festlegen'}</button></div>
-        <p class="meta" style="margin-top:6px">Nicht erlaubt: leicht zu erratende Codes wie 123456 oder 111111. Falls der Code vergessen wird: Anmeldung mit Passwort unter <b>/admin</b>.</p>
-      </form>`;
-    return section('team', 'Team', data.cleaners.length + ' Reinigungskräfte', `
-      ${ownerCode}
-      ${newCode ? `<div class="codebox"><div class="eyebrow">Anmeldecode für ${esc(newCode.name)}</div>
-        <div class="code">${esc(newCode.code.slice(0, 3))} ${esc(newCode.code.slice(3))}</div>
-        <p class="meta">Bitte jetzt notieren und persönlich weitergeben – der Code wird nur einmal angezeigt.
-        Anmeldung unter <b>${esc(location.host)}</b>. Ein neuer Code meldet alle bisherigen Geräte ab.</p>
-        <div class="actions"><button class="small" data-hide-code>Verstanden, ausblenden</button></div></div>` : ''}
-      ${rows || '<p class="empty">Noch keine Reinigungskräfte angelegt.</p>'}
-      <form class="panel" id="add-cleaner" style="margin-top:10px">
-        <b>Reinigungskraft hinzufügen</b>
-        <label class="field" style="margin-top:8px">Name <input name="name" required maxlength="60" placeholder="z. B. Anna"></label>
-        ${aptChecks('all')}
-        <div class="actions"><button class="primary" type="submit">Anlegen und Code erzeugen</button></div>
-      </form>`);
+  // ---- Reinigungsleitung -----------------------------------------------------
+  function renderLead() {
+    const t0 = data.today, t1 = addDays(t0, 1), t14 = addDays(t0, 14);
+    const active = data.tasks.filter(isActive);
+    const todo = active.filter((t) => t.date >= t0 && (!t.leadConfirmedAt || !t.assignedTo));
+    const waiting = active.filter((t) => t.assignedTo && !t.staffConfirmedAt);
+    const rest = data.tasks.filter((t) => !todo.includes(t));
+    const today = rest.filter((t) => t.date === t0);
+    const tomorrow = rest.filter((t) => t.date === t1);
+    const soon = rest.filter((t) => t.date > t1 && t.date <= t14);
+    const later = rest.filter((t) => t.date > t14);
+    const past = rest.filter((t) => t.date < t0).reverse();
+    const reports = data.openReports || [];
+    return `
+      <div class="greeting"><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">Reinigungsleitung · ${fmtLong(t0)}</p></div>
+      <div class="glance">
+        ${tile('neu', todo.length, 'zu bestätigen / zuweisen', todo.length > 0)}
+        ${tile('heute', waiting.length, 'warten auf Mitarbeiterin', waiting.some((t) => t.date <= t1))}
+        ${tile('heute', data.tasks.filter((t) => t.date === t0 && t.status !== 'storniert').length, 'Reinigungen heute')}
+        ${tile('meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
+      </div>
+      ${newsPanel()}
+      ${todo.length ? section('neu', 'Neu – bestätigen & zuweisen', todo.length + ' offen', list(todo, ''), 'key') : ''}
+      ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine weiteren Reinigungen an.'), 'key')}
+      ${section('morgen', 'Morgen', fmt(t1), list(tomorrow, 'Keine Reinigungen.'))}
+      ${section('bald', 'Nächste 14 Tage', '', list(soon, 'Keine Reinigungen.'))}
+      ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
+      ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
+      ${section('meldungen', 'Offene Meldungen', '', reportsBlock(reports))}
+      ${section('team', 'Mein Team', (data.staff || []).length + ' Mitarbeiterinnen', codeBox() + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
+      ${pushSetup()}`;
   }
 
+  function reportsBlock(reports) {
+    return reports.length ? reports.map((r) => `<article class="task"><div class="eyebrow">${esc(dayWord(r.date))} · ${fmtLong(r.date)}</div>
+      <h3>${esc(r.apartmentName)}</h3>${reportHtml({ id: r.taskId }, r)}</article>`).join('') : '<p class="empty">Keine offenen Meldungen.</p>';
+  }
+
+  // ---- Admin ------------------------------------------------------------------
   function renderOwner() {
     const t0 = data.today, t1 = addDays(t0, 1), t14 = addDays(t0, 14);
     const tasks = data.tasks;
-    const live = tasks.filter((t) => t.status !== 'storniert');
+    const active = tasks.filter(isActive);
     const today = tasks.filter((t) => t.date === t0);
     const tomorrow = tasks.filter((t) => t.date === t1);
     const soon = tasks.filter((t) => t.date > t1 && t.date <= t14);
     const later = tasks.filter((t) => t.date > t14);
     const past = tasks.filter((t) => t.date < t0).reverse();
-    const unconfirmed = live.filter((t) => t.status === 'offen' && t.date >= t0);
-    const alarms = unconfirmed.filter((t) => t.escalated);
+    const unconfirmed = active.filter((t) => t.status === 'offen' && t.date >= t0);
+    const alarms = active.filter((t) => t.lateAlerted || t.reminded2);
     const reports = data.openReports || [];
     const apartments = data.apartments || [];
-    const todayLive = today.filter((t) => t.status !== 'storniert');
-
-    // Handlungsbedarf: Alarme, unbestätigt in den nächsten 2 Tagen, offene Meldungen
     const urgent = [
-      ...alarms.map((t) => [`task-${t.id}`, `Alarm: ${t.apartmentName} – ${dayWord(t.date)} nicht bestätigt`]),
-      ...unconfirmed.filter((t) => !t.escalated && t.date <= t1).map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: noch niemand eingetragen`]),
-      ...(!data.hasOwnerCode ? [['team', 'Eigenen 6-stelligen Admin-Code festlegen (für die Anmeldung auf der Startseite)']] : []),
-      ...(!data.cleaners.length ? [['team', 'Noch keine Reinigungskraft angelegt – bitte unter „Team“ hinzufügen']] : []),
+      ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${t.reminded2 ? 'noch nicht erledigt' : 'nicht rechtzeitig bestätigt'}`]),
+      ...unconfirmed.filter((t) => !t.lateAlerted && t.date <= t1).map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: noch nicht vollständig bestätigt`]),
+      ...(!data.hasOwnerCode ? [['team', 'Eigenen 6-stelligen Admin-Code festlegen']] : []),
+      ...(!(data.leads || []).length ? [['team', 'Noch keine Reinigungsleitung angelegt']] : []),
     ];
-
-    const reportsBody = reports.length ? reports.map((r) => `<article class="task">
-        <div class="eyebrow">${esc(dayWord(r.date))} · ${fmtLong(r.date)}</div><h3>${esc(r.apartmentName)}</h3>
-        ${reportHtml({ id: r.taskId }, r, true)}</article>`).join('') : '<p class="empty">Keine offenen Meldungen.</p>';
-
     const manualForm = `<form class="panel" id="manual-form">
       <div class="form-grid">
         <label class="field">Wohnung / Einheit
           <select id="m-apt" required><option value="">Bitte wählen …</option>${apartments.map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select></label>
         <label class="field">Datum <input id="m-date" type="date" required min="${t0}" value="${t1}"></label>
       </div>
-      <label class="field" style="margin-top:10px">Hinweis für die Reinigungskraft (optional)
+      <label class="field" style="margin-top:10px">Hinweis für die Reinigung (optional)
         <input id="m-note" maxlength="500" placeholder="z. B. Zwischenreinigung, Fenster putzen, Bettwäsche wechseln"></label>
-      <div class="actions"><button class="primary" type="submit">Eintragen und Reinigungskraft benachrichtigen</button></div>
+      <div class="actions"><button class="primary" type="submit">Eintragen und Reinigungsleitung benachrichtigen</button></div>
     </form>`;
-
+    const ownerCode = `<form class="panel" id="owner-code">
+        <b>Mein Admin-Code</b>
+        <p class="meta" style="margin:4px 0 8px">${data.hasOwnerCode ? 'Eingerichtet ✓ – hier ändern.' : 'Noch nicht eingerichtet – damit reicht auf der Startseite der Code.'}</p>
+        <div class="form-grid"><label class="field">Neuer 6-stelliger Code
+          <input id="owner-code-input" inputmode="numeric" autocomplete="new-password" maxlength="6" placeholder="z. B. 482913" required></label>
+          <button class="primary" type="submit">${data.hasOwnerCode ? 'Code ändern' : 'Code festlegen'}</button></div>
+        <p class="meta" style="margin-top:6px">Nicht erlaubt: 123456, 111111 usw. Notzugang ohne Code: <b>/admin</b> mit Passwort.</p>
+      </form>`;
     return `
       ${data.syncError ? `<div class="notice bad"><span><b>Abgleich mit Smoobu gestört:</b> ${esc(data.syncError)}</span><button class="small" data-jump="system">Details</button></div>` : ''}
       <div class="greeting"><h1>${fmtLong(t0)}</h1><p class="meta">Stand ${esc(data.time)} Uhr · Smoobu zuletzt ${fmtTime(data.lastSync)}</p></div>
       <div class="glance">
-        ${tile('heute', todayLive.length, 'Check-outs heute')}
-        ${tile('heute', unconfirmed.length, 'noch nicht bestätigt', unconfirmed.some((t) => t.date <= t1))}
+        ${tile('heute', today.filter((t) => t.status !== 'storniert').length, 'Reinigungen heute')}
+        ${tile('heute', unconfirmed.length, 'nicht bestätigt', unconfirmed.some((t) => t.date <= t1))}
         ${tile('meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
-        ${tile('heute', alarms.length, 'Alarme', alarms.length > 0)}
+        ${tile('heute', alarms.length, 'überfällig', alarms.length > 0)}
       </div>
       ${urgent.length ? `<div class="todo"><b>Handlungsbedarf</b><ul>${urgent.map(([id, text]) => `<li><button type="button" data-jump="${esc(id)}">${esc(text)}</button></li>`).join('')}</ul></div>` : ''}
-      ${section('heute', 'Heute', fmt(t0), list(today, true, 'Heute stehen keine Reinigungen an.'), 'today')}
-      ${section('meldungen', 'Offene Meldungen', reports.length ? reports.length + ' offen' : '', reportsBody)}
-      ${section('morgen', 'Morgen', fmt(t1), list(tomorrow, true, 'Morgen stehen keine Reinigungen an.'))}
-      ${section('bald', 'Nächste 14 Tage', '', list(soon, true, 'Keine Reinigungen.'))}
-      ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, true, '')}</details>` : ''}
-      ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, true, '')}</details>` : ''}
-      ${section('manuell', 'Reinigung hinzufügen', 'manuell', manualForm)}
-      ${teamSection()}
+      ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine Reinigungen an.'), 'key')}
+      ${section('meldungen', 'Offene Meldungen', reports.length ? reports.length + ' offen' : '', reportsBlock(reports))}
+      ${section('morgen', 'Morgen', fmt(t1), list(tomorrow, 'Morgen stehen keine Reinigungen an.'))}
+      ${section('bald', 'Nächste 14 Tage', '', list(soon, 'Keine Reinigungen.'))}
+      ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
+      ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
+      ${section('manuell', 'Manuelle Reinigung hinzufügen', '', manualForm)}
+      ${section('team', 'Team', '', ownerCode + codeBox()
+        + teamList('lead', data.leads || [], 'Reinigungsleitung') + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
       ${pushSetup()}
-      <details class="more"><summary>Verschickte Nachrichten</summary>${logList(data.log, true)}</details>
+      <details class="more"><summary>Verschickte Nachrichten</summary>${(data.log || []).map((n) => `<div class="report"><div class="meta">${fmtTime(n.at)} → ${esc(n.toName)}</div><p><b>${esc(n.title)}</b><br>${esc(n.body)}</p></div>`).join('') || '<p class="empty">Noch keine.</p>'}</details>
       <details class="more" id="system"><summary>System &amp; Smoobu</summary>
         <div class="panel">
           <p class="meta">Letzter Smoobu-Abgleich: <b>${fmtTime(data.lastSync)}</b>${data.lastSyncCount != null ? ` · ${data.lastSyncCount} Buchungen` : ''}. Automatisch alle 15 Minuten.</p>
           <div class="actions"><button class="small" data-sync>Jetzt abgleichen</button><button class="small" data-diagnose>Diagnose</button></div>
           <div id="diagnose"></div>
-          <p class="meta" style="margin-top:10px">Optional für sofortige Aktualisierung – Webhook-Adresse für Smoobu:<br><code id="hook">${esc(data.webhookUrl)}</code> <button class="small" data-copy="hook">Kopieren</button></p>
+          <p class="meta" style="margin-top:10px">Optional – Webhook-Adresse für Smoobu (sofortige Aktualisierung):<br><code id="hook">${esc(data.webhookUrl)}</code> <button class="small" data-copy="hook">Kopieren</button></p>
         </div>
         <div class="panel scroll"><b>Wohnungen aus Smoobu (${apartments.length})</b><table>
           ${apartments.map((a) => `<tr><td>${esc(a.name)}</td><td><code>${esc(a.id)}</code></td></tr>`).join('') || '<tr><td class="meta">Erscheinen nach dem ersten Abgleich.</td></tr>'}</table></div>
       </details>
       ${data.allowReset ? `<section class="section"><div class="panel danger-zone">
         <div class="eyebrow">Testphase</div><h2 style="margin-top:4px">Alles zurücksetzen</h2>
-        <p class="meta" style="margin:6px 0 10px">Löscht alle Reinigungen, Bestätigungen, Meldungen, Fotos und Nachrichten und lädt die Buchungen frisch aus Smoobu. Das Team und die Anmeldecodes bleiben erhalten. Es werden keine Push-Nachrichten verschickt.</p>
+        <p class="meta" style="margin:6px 0 10px">Löscht alle Reinigungen, Bestätigungen, Meldungen, Fotos und Nachrichten und lädt frisch aus Smoobu. Team und Codes bleiben erhalten. Keine Push-Nachrichten.</p>
         <form id="reset-form" class="form-grid"><label class="field">Zur Bestätigung <b>ZURÜCKSETZEN</b> eingeben
           <input id="reset-confirm" autocomplete="off" placeholder="ZURÜCKSETZEN"></label>
           <button class="danger" type="submit">Alles zurücksetzen</button></form>
@@ -512,8 +664,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   function render() {
-    $('who').innerHTML = `<b>${esc(data.user.name)}</b>${data.user.role === 'owner' ? 'Admin' : 'Reinigung'} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`;
-    $('app').innerHTML = data.user.role === 'owner' ? renderOwner() : renderCleaner();
+    const label = { owner: 'Admin', lead: 'Reinigungsleitung', staff: 'Mitarbeiterin' }[role()];
+    $('who').innerHTML = `<b>${esc(data.user.name)}</b>${label} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`;
+    $('app').innerHTML = role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff();
   }
 
   // ---- Galerie ----------------------------------------------------------------
@@ -550,7 +703,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (e.key === 'ArrowLeft') step(-1);
   });
 
-  // ---- Fotos vor dem Hochladen verkleinern (spart Datenvolumen und Speicher) --
+  // ---- Fotos vor dem Hochladen verkleinern ------------------------------------
   function compress(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
@@ -568,69 +721,80 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       img.src = url;
     });
   }
-
-  const selectedApartments = (form) => {
-    if (form.querySelector('[data-all]').checked) return 'all';
-    return [...form.querySelectorAll('[data-apts] input:checked')].map((i) => i.value);
-  };
+  function redrawPreviews(taskId) {
+    const box = document.querySelector(`[data-previews="${CSS.escape(taskId)}"]`);
+    if (box) box.innerHTML = previewsHtml(taskId);
+  }
 
   // ---- Ereignisse -----------------------------------------------------------
-  document.addEventListener('input', (e) => { if (e.target.closest('#app form')) e.target.setAttribute('data-dirty', ''); });
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'code') {
+      e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6);
+      if (e.target.value.length === 6) tryCode(); // sofort weiter, ohne Enter
+      return;
+    }
+    if (e.target.closest('#app form')) e.target.setAttribute('data-dirty', '');
+  });
 
   document.addEventListener('change', (e) => {
-    if (e.target.type === 'file') {
-      const n = e.target.files.length;
-      const preview = e.target.closest('form').querySelector('[data-preview]');
-      if (preview) preview.textContent = n ? `${n} Foto${n > 1 ? 's' : ''} ausgewählt${n > 5 ? ' – bitte höchstens 5' : ''}` : '';
+    const id = e.target.dataset.photoInput;
+    if (!id) return;
+    const list = pending[id] = pending[id] || [];
+    for (const f of e.target.files) {
+      if (list.length >= 5) { toast('Höchstens 5 Fotos pro Meldung'); break; }
+      list.push({ file: f, url: URL.createObjectURL(f) });
     }
-    if (e.target.matches('[data-all]')) e.target.closest('form').querySelector('[data-apts]').hidden = e.target.checked;
+    e.target.value = '';
+    redrawPreviews(id);
   });
 
   document.addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
+    if (form.id === 'code-login') return tryCode();
     const submit = form.querySelector('[type=submit]');
-    submit.disabled = true;
-    const label = submit.textContent;
+    if (submit) submit.disabled = true;
+    const label = submit && submit.textContent;
     try {
-      if (form.id === 'code-login') {
-        const res = await api('/api/login', 'POST', { code: $('code').value }, true);
-        auth = res.session; store.set(auth);
-        await refresh(true);
-      } else if (form.id === 'admin-login') {
+      if (form.id === 'admin-login') {
         const res = await api('/api/admin-login', 'POST', { password: $('admin-pw').value }, true);
         auth = res.session; store.set(auth);
         await refresh(true);
       } else if (form.dataset.reportForm) {
         const id = form.dataset.reportForm;
-        const files = [...form.querySelector('input[type=file]').files];
-        if (files.length > 5) throw new Error('Bitte höchstens 5 Fotos auswählen');
+        const photos = pending[id] || [];
         const text = form.querySelector('textarea').value.trim();
-        if (!text && !files.length) throw new Error('Bitte einen Text eingeben oder ein Foto anhängen');
-        submit.textContent = files.length ? 'Fotos werden vorbereitet …' : 'Wird gesendet …';
+        if (!text && !photos.length) throw new Error('Bitte einen Text eingeben oder ein Foto auswählen');
+        submit.textContent = photos.length ? 'Fotos werden vorbereitet …' : 'Wird gesendet …';
         const body = new FormData();
         body.append('text', text);
-        for (const f of files) body.append('photo', await compress(f), 'foto.jpg');
+        for (const p of photos) body.append('photo', await compress(p.file), 'foto.jpg');
         submit.textContent = 'Wird gesendet …';
         const next = await api(`/api/tasks/${encodeURIComponent(id)}/report`, 'POST', body);
+        photos.forEach((p) => URL.revokeObjectURL(p.url));
+        delete pending[id];
         openForms.delete(id);
         update(next);
-        toast('Meldung gesendet – danke!');
+        toast(role() === 'owner' ? 'Hinweis gesendet – das Team wurde informiert' : 'Meldung gesendet – danke!');
+      } else if (form.dataset.editTask) {
+        const next = await api(`/api/tasks/${encodeURIComponent(form.dataset.editTask)}/edit`, 'POST', { date: form.elements.date.value, note: form.elements.note.value });
+        editTask = null;
+        update(next);
+        toast('Gespeichert – das Team wurde informiert');
       } else if (form.id === 'manual-form') {
         update(await api('/api/manual', 'POST', { apartmentId: $('m-apt').value, date: $('m-date').value, note: $('m-note').value }));
-        toast('Reinigung eingetragen – Reinigungskraft wurde benachrichtigt');
+        toast('Reinigung eingetragen – Reinigungsleitung wurde benachrichtigt');
       } else if (form.id === 'owner-code') {
-        const res = await api('/api/owner-code', 'POST', { code: $('owner-code-input').value });
-        update(res);
+        update(await api('/api/owner-code', 'POST', { code: $('owner-code-input').value }));
         toast('Admin-Code gespeichert – ab jetzt reicht der Code auf der Startseite');
-      } else if (form.id === 'add-cleaner') {
-        const res = await api('/api/team', 'POST', { name: form.elements.name.value, apartments: selectedApartments(form) });
+      } else if (form.dataset.addPerson) {
+        const res = await api('/api/team', 'POST', { name: form.elements.name.value, role: form.dataset.addPerson });
         newCode = res.newCode;
         update(res);
         document.getElementById('team').scrollIntoView();
-      } else if (form.dataset.editCleaner) {
-        const res = await api(`/api/team/${form.dataset.editCleaner}`, 'POST', { name: form.elements.name.value, apartments: selectedApartments(form) });
-        editCleaner = null;
+      } else if (form.dataset.editPerson) {
+        const res = await api(`/api/team/${form.dataset.editPerson}`, 'POST', { name: form.elements.name.value });
+        editPerson = null;
         update(res);
         toast('Gespeichert');
       } else if (form.id === 'reset-form') {
@@ -644,11 +808,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       }
     } catch (err) {
       toast(err.message);
-      if (submit.isConnected) { submit.disabled = false; submit.textContent = label; }
+      if (submit && submit.isConnected) { submit.disabled = false; submit.textContent = label; }
     }
   });
 
-  /** Zweimal tippen zur Sicherheit (Browser-Dialoge sind auf Handys unpraktisch) */
+  /** Zweimal tippen zur Sicherheit */
   function armed(b, text) {
     if (b.classList.contains('armed')) return true;
     const original = b.textContent;
@@ -657,42 +821,65 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = original; } }, 4000);
     return false;
   }
+  const taskAction = async (id, action, body, message) => {
+    update(await api(`/api/tasks/${encodeURIComponent(id)}/${action}`, 'POST', body));
+    if (message) toast(message);
+  };
 
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
-    if (!b || b.closest('form') && b.type === 'submit' || b.closest('#gallery')) return;
+    if (!b || (b.type === 'submit' && b.closest('form')) || b.closest('#gallery')) return;
     const d = b.dataset;
     try {
       if (d.jump) {
         const el = document.getElementById(d.jump);
-        if (el) { if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+        if (el) { if (el.tagName === 'DETAILS') el.open = true; const det = el.closest('details'); if (det) det.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
       } else if (d.gallery) {
         openGallery(d.gallery.split(','), Number(d.index));
+      } else if (d.unpick) {
+        const list = pending[d.unpick] || [];
+        const [removed] = list.splice(Number(d.index), 1);
+        if (removed) URL.revokeObjectURL(removed.url);
+        redrawPreviews(d.unpick);
+      } else if (d.delphoto) {
+        if (!armed(b, '?')) return toast('Zum Löschen nochmal auf ✕ tippen');
+        await taskAction(d.task, `reports/${encodeURIComponent(d.report)}/photos/${encodeURIComponent(d.delphoto)}/delete`, null, 'Foto gelöscht');
       } else if (d.logout !== undefined) {
         store.set(null); auth = null; data = null;
         showLogin();
-      } else if (d.confirm || d.done) {
+      } else if (d.leadConfirm) {
+        b.disabled = true; await taskAction(d.leadConfirm, 'lead-confirm', null, 'Erhalt bestätigt');
+      } else if (d.assign) {
+        const sel = document.querySelector(`[data-assign-select="${CSS.escape(d.assign)}"]`);
+        if (!sel || !sel.value) return toast('Bitte zuerst eine Mitarbeiterin auswählen');
         b.disabled = true;
-        update(await api(`/api/tasks/${encodeURIComponent(d.confirm || d.done)}/${d.confirm ? 'confirm' : 'done'}`, 'POST'));
-        toast(d.confirm ? 'Bestätigt – danke!' : 'Als erledigt gemeldet');
+        await taskAction(d.assign, 'assign', { to: sel.value }, `Zugewiesen an ${nameOf(sel.value)} – sie wurde benachrichtigt`);
+      } else if (d.confirm) {
+        b.disabled = true; await taskAction(d.confirm, 'confirm', null, 'Bestätigt – danke!');
+      } else if (d.start) {
+        b.disabled = true; await taskAction(d.start, 'start', null, 'Beginn erfasst');
+      } else if (d.done) {
+        if (!armed(b, 'Wirklich erledigt? Nochmal tippen')) return;
+        await taskAction(d.done, 'done', null, 'Als erledigt gemeldet – danke!');
       } else if (d.toggleReport) {
         if (openForms.has(d.toggleReport)) openForms.delete(d.toggleReport); else openForms.add(d.toggleReport);
         render();
         const ta = document.getElementById('text-' + d.toggleReport);
         if (ta) ta.focus();
+      } else if (d.editTask) {
+        editTask = editTask === d.editTask ? null : d.editTask; render();
+      } else if (d.editCancel !== undefined) {
+        editTask = null; editPerson = null; render();
       } else if (d.resolve) {
         b.disabled = true;
-        update(await api(`/api/tasks/${encodeURIComponent(d.resolve)}/reports/${encodeURIComponent(d.report)}/resolve`, 'POST'));
-        toast('Meldung als behoben markiert');
+        await taskAction(d.resolve, `reports/${encodeURIComponent(d.report)}/resolve`, null, 'Als behoben markiert');
       } else if (d.cancel) {
         if (!armed(b, 'Wirklich absagen? Nochmal tippen')) return;
-        b.disabled = true;
-        update(await api(`/api/tasks/${encodeURIComponent(d.cancel)}/cancel`, 'POST'));
-        toast('Reinigung abgesagt – Reinigungskraft wurde benachrichtigt');
-      } else if (d.edit) {
-        editCleaner = d.edit; render();
-      } else if (d.editCancel !== undefined) {
-        editCleaner = null; render();
+        await taskAction(d.cancel, 'cancel', null, 'Abgesagt – das Team wurde informiert');
+      } else if (d.seen !== undefined) {
+        update(await api('/api/seen', 'POST'));
+      } else if (d.editPerson) {
+        editPerson = d.editPerson; render();
       } else if (d.newcode) {
         if (!armed(b, 'Alter Code wird ungültig – nochmal tippen')) return;
         const res = await api(`/api/team/${d.newcode}/code`, 'POST');
@@ -701,21 +888,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.remove) {
         if (!armed(b, 'Wirklich entfernen? Nochmal tippen')) return;
         update(await api(`/api/team/${d.remove}/delete`, 'POST'));
-        toast('Reinigungskraft entfernt');
+        toast('Entfernt');
       } else if (d.hideCode !== undefined) {
         newCode = null; render();
       } else if (d.sync !== undefined) {
-        b.disabled = true;
-        b.textContent = 'Gleiche ab …';
+        b.disabled = true; b.textContent = 'Gleiche ab …';
         const next = await api('/api/sync', 'POST');
         update(next);
         toast(next.summary.syncError ? next.summary.syncError : `Abgleich fertig: ${next.summary.bookings} Buchungen`);
       } else if (d.diagnose !== undefined) {
-        b.disabled = true;
-        b.textContent = 'Prüfe …';
+        b.disabled = true; b.textContent = 'Prüfe …';
         const res = await api('/api/diagnose', 'POST');
-        b.disabled = false;
-        b.textContent = 'Diagnose';
+        b.disabled = false; b.textContent = 'Diagnose';
         $('diagnose').innerHTML = `<div class="scroll" style="margin-top:8px"><table>${res.results.map((r) => `<tr>
             <td><b>${esc(r.variant)}</b></td>
             <td>Status ${esc(r.status ?? '–')}${r.received ? ' · ' + esc(r.received) + ' erhalten' + (r.total != null ? ' von ' + esc(r.total) : '') : ''}
@@ -733,7 +917,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       }
     } catch (err) {
       toast(err.message);
-      if (err.status !== 401) refresh(true); else { store.set(null); auth = null; showLogin(); }
+      if (err.status === 401) { store.set(null); auth = null; showLogin(); } else refresh(true);
     }
   });
 

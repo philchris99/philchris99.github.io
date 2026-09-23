@@ -1,6 +1,6 @@
 // Anmeldung
-//  - Reinigungskraft: persönlicher 6-stelliger Code (nur als Hash gespeichert)
-//  - Auftraggeber: /admin mit ADMIN_PASSWORD
+//  - alle: persönlicher 6-stelliger Code (nur als Hash gespeichert)
+//  - Admin-Notzugang: /admin mit ADMIN_PASSWORD
 // Nach der Anmeldung gibt es ein Token (HMAC aus APP_SECRET, Nutzer-ID, Version).
 // Es wird im Browser gespeichert; Version erhöhen = auf allen Geräten abmelden.
 import config from './config.js';
@@ -15,11 +15,12 @@ async function hmac(secret, message) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-/** cfg = config mit den aktuellen Reinigungskräften aus der Datenbank */
+/** cfg = config mit Reinigungsleitung (leads) und Mitarbeiterinnen (staff) aus der Datenbank */
 export function allUsers(cfg) {
   return [
     ...cfg.owners.map((u) => ({ ...u, role: 'owner' })),
-    ...cfg.cleaners.map((u) => ({ ...u, role: 'cleaner' })),
+    ...cfg.leads.map((u) => ({ ...u, role: 'lead' })),
+    ...cfg.staff.map((u) => ({ ...u, role: 'staff' })),
   ];
 }
 
@@ -85,7 +86,7 @@ export async function hashCode(code, salt) {
   return [...hash].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Sucht die Reinigungskraft zu einem Code (Codes sind eindeutig). */
+/** Sucht die Person zu einem Code (Codes sind eindeutig). */
 export async function findByCode(cleaners, code) {
   for (const c of cleaners) {
     if (c.codeHash && safeEqual(await hashCode(code, c.codeSalt), c.codeHash)) return c;

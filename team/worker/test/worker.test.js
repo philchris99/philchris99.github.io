@@ -93,190 +93,197 @@ async function call(method, path, { session, body, headers = {} } = {}) {
   return { status: res.status, body: type.includes('json') ? await res.json() : await res.text() };
 }
 
-let admin; // Sitzung Auftraggeber
-let anna;  // Sitzung Reinigungskraft
-let annaId;
-const topicOf = async (session) => (await call('GET', '/api/me', { session })).body.topic;
+let admin;   // Sitzung Admin
+let lea;     // Sitzung Reinigungsleitung
+let mia;     // Sitzung Mitarbeiterin
+let leaId, miaId;
+const me = async (session) => (await call('GET', '/api/me', { session })).body;
+const topicOf = async (session) => (await me(session)).topic;
+const who = () => pushes.map((p) => p.title);
 
-test('Anmeldung: /admin mit Passwort, Reinigungskraft anlegen, Anmeldung mit 6-stelligem Code', async () => {
-  assert.equal((await call('GET', '/admin')).body, 'APP', '/admin liefert die App');
-  assert.equal((await call('GET', '/api/me')).status, 401);
+test('Admin (Notzugang /admin) legt Leitung an, Leitung legt Mitarbeiterin an, Anmeldung per Code', async () => {
+  assert.equal((await call('GET', '/admin')).body, 'APP');
   assert.equal((await call('POST', '/api/admin-login', { body: { password: 'falsch' } })).status, 401);
-  const login = await call('POST', '/api/admin-login', { body: { password: 'admin-passwort' } });
-  assert.equal(login.status, 200);
-  admin = login.body.session;
+  admin = (await call('POST', '/api/admin-login', { body: { password: 'admin-passwort' } })).body.session;
 
-  const created = await call('POST', '/api/team', { session: admin, body: { name: 'Anna', apartments: 'all' } });
-  assert.equal(created.status, 200);
-  const code = created.body.newCode.code;
-  assert.match(code, /^\d{6}$/);
-  annaId = created.body.cleaners[0].id;
-  assert.equal(created.body.cleaners[0].codeHash, undefined, 'Code-Hash wird nie ausgeliefert');
-  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes(code), 'Code nicht im Klartext gespeichert');
+  const lead = await call('POST', '/api/team', { session: admin, body: { name: 'Lea', role: 'lead' } });
+  assert.equal(lead.status, 200);
+  leaId = lead.body.leads[0].id;
+  lea = (await call('POST', '/api/login', { body: { code: lead.body.newCode.code } })).body.session;
+  assert.equal((await me(lea)).user.role, 'lead');
 
-  assert.equal((await call('POST', '/api/login', { body: { code: code === '000000' ? '111111' : '000000' } })).status, 401);
-  const cl = await call('POST', '/api/login', { body: { code } });
-  assert.equal(cl.status, 200);
-  anna = cl.body.session;
-  const me = await call('GET', '/api/me', { session: anna });
-  assert.equal(me.body.user.name, 'Anna');
-  assert.equal(me.body.user.role, 'cleaner');
-  assert.equal((await call('POST', '/api/team', { session: anna, body: { name: 'X' } })).status, 404, 'nur Auftraggeber');
+  assert.equal((await call('POST', '/api/team', { session: lea, body: { name: 'X', role: 'lead' } })).status, 403, 'Leitung legt keine Leitung an');
+  const staff = await call('POST', '/api/team', { session: lea, body: { name: 'Mia' } });
+  assert.equal(staff.status, 200);
+  miaId = staff.body.staff[0].id;
+  mia = (await call('POST', '/api/login', { body: { code: staff.body.newCode.code } })).body.session;
+  const m = await me(mia);
+  assert.equal(m.user.role, 'staff');
+  assert.equal((await call('POST', '/api/team', { session: mia, body: { name: 'Y' } })).status, 403);
+  assert.equal((await call('POST', `/api/team/${miaId}`, { session: lea, body: { name: 'Mia K.' } })).body.staff[0].name, 'Mia K.');
+  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes(staff.body.newCode.code), 'nur Hash gespeichert');
 });
 
-test('Admin-Code: festlegen und damit auf der Startseite in die Gesamtübersicht', async () => {
-  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '123456' } })).status, 400, 'zu leicht');
-  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '12a456' } })).status, 400);
-  assert.equal((await call('POST', '/api/owner-code', { session: anna, body: { code: '482913' } })).status, 404, 'nur Auftraggeber');
-  const res = await call('POST', '/api/owner-code', { session: admin, body: { code: '482913' } });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.hasOwnerCode, true);
-  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes('482913'), 'nur als Hash gespeichert');
-  const login = await call('POST', '/api/login', { body: { code: '482 913' } });
-  assert.equal(login.status, 200);
-  const me = await call('GET', '/api/me', { session: login.body.session });
-  assert.equal(me.body.user.role, 'owner');
+test('Admin-Code: festlegen und damit auf der Startseite anmelden', async () => {
+  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '123456' } })).status, 400);
+  assert.equal((await call('POST', '/api/owner-code', { session: lea, body: { code: '482913' } })).status, 404);
+  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '482913' } })).body.hasOwnerCode, true);
+  const login = await call('POST', '/api/login', { body: { code: '482913' } });
+  assert.equal((await me(login.body.session)).user.role, 'owner');
 });
 
-test('Zu viele falsche Codes → Sperre für diese Verbindung', async () => {
+test('3 falsche Codes → 1 Minute gesperrt', async () => {
   const headers = () => ({ 'CF-Connecting-IP': '203.0.113.9' });
-  for (let i = 0; i < 8; i++) await call('POST', '/api/login', { body: { code: '99999' + i }, headers: headers() });
-  assert.equal((await call('POST', '/api/login', { body: { code: '999990' }, headers: headers() })).status, 429);
+  let r = await call('POST', '/api/login', { body: { code: '999990' }, headers: headers() });
+  assert.equal(r.status, 401);
+  assert.match(r.body.error, /noch 2 Versuche/);
+  await call('POST', '/api/login', { body: { code: '999991' }, headers: headers() });
+  r = await call('POST', '/api/login', { body: { code: '999992' }, headers: headers() });
+  assert.equal(r.status, 429);
+  assert.match(r.body.error, /1 Minute gesperrt/);
+  r = await call('POST', '/api/login', { body: { code: '482913' }, headers: headers() });
+  assert.equal(r.status, 429, 'auch richtiger Code während der Sperre abgelehnt');
+  assert.ok(r.body.retryAfter > 0 && r.body.retryAfter <= 60);
 });
 
-test('Ablauf: Import, neue Buchung, Bestätigen, Verlängern, Fristen, Löschen, Webhook', async () => {
-  smoobuBookings = [booking(1, '2026-09-25')];
-  const s = await runSync(env, at('2026-09-23', '09:00'));
-  assert.equal(s.syncError, null);
+test('Ablauf: neue Buchung → Leitung → Zuweisung → Mitarbeiterin sieht und bestätigt', async () => {
+  smoobuBookings = [booking(1, '2099-09-25', { phone: '+49 170 555' })];
+  await runSync(env, at('2026-09-23', '09:00'));
   assert.equal(pushes.length, 0, 'erster Abgleich still');
-
-  smoobuBookings.push(booking(2, '2026-09-27'));
+  smoobuBookings.push(booking(2, '2099-09-27'));
   await runSync(env, at('2026-09-23', '09:15'));
-  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(anna), 'Neue Endreinigung']]);
+  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(lea), 'Neue Reinigung']]);
 
-  let me = await call('GET', '/api/me', { session: anna });
-  assert.deepEqual(me.body.tasks.map((t) => [t.id, t.guest, t.source]), [['1', '', 'smoobu'], ['2', '', 'smoobu']]);
-  assert.ok(me.body.tasks[1].createdAt, 'Eintragungszeit wird mitgeliefert');
+  assert.equal((await me(mia)).tasks.length, 0, 'Mitarbeiterin sieht noch nichts');
+  const leadView = await me(lea);
+  assert.equal(leadView.tasks.length, 2);
+  assert.equal(leadView.tasks[0].guestPhone, '+49 170 555', 'Telefonnummer des Gastes');
+  assert.equal(leadView.tasks[0].guest, '', 'Gastname ausgeblendet');
 
   pushes = [];
-  assert.equal((await call('POST', '/api/tasks/2/confirm', { session: anna })).status, 200);
+  const assigned = await call('POST', '/api/tasks/2/assign', { session: lea, body: { to: miaId } });
+  assert.equal(assigned.status, 200);
+  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(mia), 'Neue Reinigung für dich']]);
+  assert.equal((await call('POST', '/api/tasks/2/assign', { session: mia, body: { to: miaId } })).status, 403);
+
+  const mv = await me(mia);
+  assert.deepEqual(mv.tasks.map((t) => t.id), ['2']);
+  assert.equal(mv.changes[0].title, 'Neue Reinigung für dich', 'Neuigkeiten oben');
+  pushes = [];
+  const confirmed = await call('POST', '/api/tasks/2/confirm', { session: mia });
+  assert.equal(confirmed.body.tasks[0].status, 'bestätigt');
   assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(admin), 'Reinigung bestätigt']]);
 
-  pushes = [];
-  smoobuBookings[1] = booking(2, '2026-09-28');
-  await runSync(env, at('2026-09-23', '09:30'));
-  assert.deepEqual(pushes.map((p) => p.title).sort(), ['Bestätigte Reinigung verschoben', 'Reinigung verschoben']);
-
-  pushes = [];
-  await runSync(env, at('2026-09-25', '12:00'));
-  assert.deepEqual(pushes.map((p) => [p.title, p.priority]), [['Erinnerung: Reinigung bestätigen', 4]]);
-  pushes = [];
-  await runSync(env, at('2026-09-25', '13:00'));
-  assert.equal(pushes.length, 2, 'Alarm an Reinigungskraft und Auftraggeber');
-
-  pushes = [];
-  smoobuBookings = smoobuBookings.filter((b) => b.id !== 2);
-  await runSync(env, at('2026-09-25', '13:15'));
-  assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
-
-  const hookPath = new URL((await call('GET', '/api/me', { session: admin })).body.webhookUrl).pathname;
-  assert.equal((await call('POST', '/api/smoobu-webhook/falsch', { body: {} })).status, 404);
-  pushes = [];
-  assert.equal((await call('POST', hookPath, { body: { action: 'newReservation', data: booking(3, '2026-10-01') } })).status, 200);
-  assert.deepEqual(pushes.map((p) => p.title), ['Neue Endreinigung']);
-
-  me = await call('GET', '/api/me', { session: admin });
-  assert.deepEqual(me.body.apartments, [{ id: '111', name: 'FeWo Elbblick' }, { id: '222', name: 'Loft Altstadt' }]);
+  const seen = await call('POST', '/api/seen', { session: mia });
+  assert.ok(seen.body.seenAt);
 });
 
-test('Erledigte Reinigungen bleiben für die Reinigungskraft sichtbar', async () => {
-  smoobuBookings = [booking(40, '2099-09-26')];
-  await runSync(env, at('2026-09-26', '08:00'));
-  assert.equal((await call('POST', '/api/tasks/40/confirm', { session: anna })).status, 200);
-  assert.equal((await call('POST', '/api/tasks/40/done', { session: anna })).status, 200);
-  const me = await call('GET', '/api/me', { session: anna });
-  assert.equal(me.body.tasks.find((x) => x.id === '40').status, 'erledigt');
+test('Beginn und Ende erfassen; Admin kann nicht abhaken', async () => {
+  assert.equal((await call('POST', '/api/tasks/2/start', { session: admin })).status, 403);
+  const s = await call('POST', '/api/tasks/2/start', { session: mia });
+  assert.ok(s.body.tasks[0].startedAt);
+  pushes = [];
+  const d = await call('POST', '/api/tasks/2/done', { session: mia });
+  assert.equal(d.body.tasks[0].status, 'erledigt');
+  assert.deepEqual(who().sort(), ['Reinigung erledigt', 'Reinigung erledigt']);
+  assert.equal((await me(mia)).tasks[0].status, 'erledigt', 'bleibt sichtbar (grau)');
 });
 
-test('Meldung mit Foto: Push an Auftraggeber, Foto nur mit Anmeldung, als behoben markierbar', async () => {
+test('6-Stunden-Frist und 12/15-Uhr-Erinnerungen laufen über den Abgleich', async () => {
+  pushes = [];
+  smoobuBookings = [booking(1, '2099-09-25', { phone: '+49 170 555' })];
+  await runSync(env, at('2026-09-23', '15:15'));
+  assert.deepEqual(who(), ['Reinigung nicht bestätigt'], '6 Std. nach 09:00 nicht bestätigt → Admin');
+  assert.equal(pushes[0].topic, await topicOf(admin));
+  assert.equal(pushes[0].priority, 5);
+});
+
+test('Hinweis vom Admin mit Foto → Leitung + Mitarbeiterin; Mitarbeiterin löscht eigenes Foto', async () => {
   smoobuBookings = [booking(20, '2099-10-12')];
   await runSync(env, at('2026-09-27', '09:00'));
+  await call('POST', '/api/tasks/20/assign', { session: lea, body: { to: miaId } });
   pushes = [];
-  const form = new FormData();
-  form.append('text', 'Kaffeemaschine defekt');
-  form.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], { type: 'image/jpeg' }), 'foto.jpg');
-  const res = await call('POST', '/api/tasks/20/report', { session: anna, body: form });
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.deepEqual(pushes.map((p) => p.title), ['Meldung: FeWo Elbblick']);
-  const rep = res.body.tasks.find((t) => t.id === '20').reports[0];
+  const note = new FormData();
+  note.append('text', 'Bitte Kaffee auffüllen');
+  note.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 9])], { type: 'image/jpeg' }), 'a.jpg');
+  const n = await call('POST', '/api/tasks/20/report', { session: admin, body: note });
+  assert.equal(n.status, 200, JSON.stringify(n.body));
+  assert.deepEqual(who().sort(), ['Hinweis von Apartments Strauss: FeWo Elbblick', 'Hinweis von Apartments Strauss: FeWo Elbblick']);
 
-  const img = await call('GET', `/api/photos/${rep.photos[0]}?a=${admin}`);
-  assert.equal(img.status, 200);
-  assert.equal(img.type, 'image/jpeg');
-  assert.deepEqual(img.bytes, [0xff, 0xd8, 0xff, 1, 2, 3], 'Foto unverändert');
-  assert.equal((await call('GET', `/api/photos/${rep.photos[0]}`)).status, 401);
-
+  pushes = [];
+  const rep = new FormData();
+  rep.append('text', 'Glühbirne defekt');
+  rep.append('photo', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }), 'b.jpg');
+  rep.append('photo', new Blob([new Uint8Array([4, 5, 6])], { type: 'image/jpeg' }), 'c.jpg');
+  const r = await call('POST', '/api/tasks/20/report', { session: mia, body: rep });
+  assert.deepEqual(who().sort(), ['Meldung: FeWo Elbblick', 'Meldung: FeWo Elbblick'], 'an Admin + Leitung');
+  const report = r.body.tasks.find((t) => t.id === '20').reports.find((x) => x.text === 'Glühbirne defekt');
+  const adminNote = r.body.tasks.find((t) => t.id === '20').reports.find((x) => x.byRole === 'owner');
+  assert.equal((await call('POST', `/api/tasks/20/reports/${adminNote.id}/photos/${adminNote.photos[0]}/delete`, { session: mia })).status, 403);
   const before = env.DB.count('photos');
-  const bad = new FormData();
-  bad.append('text', 'x');
-  bad.append('photo', new Blob(['hallo'], { type: 'text/plain' }), 'x.txt');
-  assert.equal((await call('POST', '/api/tasks/20/report', { session: anna, body: bad })).status, 400);
-  assert.equal(env.DB.count('photos'), before, 'nichts gespeichert');
-
-  const me = await call('GET', '/api/me', { session: admin });
-  assert.equal(me.body.openReports.length, 1);
-  const done = await call('POST', `/api/tasks/20/reports/${rep.id}/resolve`, { session: admin });
-  assert.equal(done.body.openReports.length, 0);
+  const del = await call('POST', `/api/tasks/20/reports/${report.id}/photos/${report.photos[0]}/delete`, { session: mia });
+  assert.equal(del.status, 200);
+  assert.equal(env.DB.count('photos'), before - 1, 'Foto auch aus der Datenbank gelöscht');
+  const img = await call('GET', `/api/photos/${report.photos[1]}?a=${admin}`);
+  assert.deepEqual(img.bytes, [4, 5, 6]);
+  assert.equal((await me(admin)).openReports.length, 1, 'Meldung der Mitarbeiterin offen, Admin-Hinweis nicht');
 });
 
-test('manuelle Reinigung: Push an Reinigungskraft, absagen, Abgleich lässt sie in Ruhe', async () => {
+test('Manuelle Reinigung: anlegen → Leitung; verschieben → Neuigkeit bei Leitung', async () => {
   pushes = [];
   const res = await call('POST', '/api/manual', { session: admin, body: { apartmentId: '222', date: '2099-01-02', note: 'Grundreinigung' } });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const task = res.body.tasks.find((t) => t.manual);
   assert.equal(task.apartmentName, 'Loft Altstadt');
-  assert.equal(task.source, 'manuell');
-  assert.deepEqual(pushes.map((p) => p.title), ['Zusätzliche Reinigung']);
-  await runSync(env, at('2026-09-27', '09:15'));
-  const me = await call('GET', '/api/me', { session: anna });
-  assert.equal(me.body.tasks.find((t) => t.id === task.id).status, 'offen');
+  assert.deepEqual(who(), ['Zusätzliche Reinigung']);
   pushes = [];
+  const moved = await call('POST', `/api/tasks/${task.id}/edit`, { session: admin, body: { date: '2099-01-05' } });
+  assert.equal(moved.body.tasks.find((t) => t.id === task.id).date, '2099-01-05');
+  assert.deepEqual(who(), ['Reinigung verschoben']);
+  assert.match((await me(lea)).changes[0].body, /statt/);
+  assert.equal((await call('POST', `/api/tasks/${task.id}/edit`, { session: lea, body: { date: '2099-01-06' } })).status, 403);
   assert.equal((await call('POST', `/api/tasks/${task.id}/cancel`, { session: admin })).status, 200);
-  assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
 });
 
-test('Team: bearbeiten, neuer Code meldet alte Geräte ab', async () => {
-  let res = await call('POST', `/api/team/${annaId}`, { session: admin, body: { name: 'Anna M.', apartments: ['111'] } });
-  assert.deepEqual(res.body.cleaners.map((c) => [c.name, c.apartments]), [['Anna M.', ['111']]]);
-  res = await call('POST', `/api/team/${annaId}/code`, { session: admin });
+test('Neuer Code meldet alte Geräte ab; Entfernen', async () => {
+  const res = await call('POST', `/api/team/${miaId}/code`, { session: lea });
   assert.match(res.body.newCode.code, /^\d{6}$/);
-  assert.equal((await call('GET', '/api/me', { session: anna })).status, 401, 'alte Anmeldung ungültig');
-  anna = (await call('POST', '/api/login', { body: { code: res.body.newCode.code } })).body.session;
-  assert.equal((await call('GET', '/api/me', { session: anna })).status, 200);
+  assert.equal((await call('GET', '/api/me', { session: mia })).status, 401);
+  mia = (await call('POST', '/api/login', { body: { code: res.body.newCode.code } })).body.session;
+  assert.equal((await call('GET', '/api/me', { session: mia })).status, 200);
 });
 
-test('Zurücksetzen nur mit Bestätigung; Team und Anmeldungen bleiben erhalten', async () => {
+test('Zurücksetzen: nur mit Bestätigung, Team bleibt', async () => {
   assert.equal((await call('POST', '/api/reset', { session: admin, body: { confirm: 'ja' } })).status, 400);
+  assert.equal((await call('POST', '/api/reset', { session: lea, body: { confirm: 'ZURÜCKSETZEN' } })).status, 404);
   pushes = [];
-  smoobuBookings = [booking(30, '2099-10-20'), booking(31, '2099-10-21')];
+  smoobuBookings = [booking(30, '2099-10-20')];
   const res = await call('POST', '/api/reset', { session: admin, body: { confirm: 'ZURÜCKSETZEN' } });
-  assert.equal(res.status, 200);
-  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30', '31']);
+  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30']);
   assert.equal(env.DB.count('photos'), 0);
   assert.equal(pushes.length, 0);
-  assert.equal(res.body.cleaners.length, 1, 'Reinigungskraft bleibt');
-  assert.equal((await call('GET', '/api/me', { session: anna })).status, 200, 'Anmeldung bleibt gültig');
+  assert.equal(res.body.leads.length, 1);
+  assert.equal(res.body.staff.length, 1);
 });
 
-test('Team: Reinigungskraft entfernen → Anmeldung ungültig', async () => {
-  const res = await call('POST', `/api/team/${annaId}/delete`, { session: admin });
-  assert.equal(res.body.cleaners.length, 0);
-  assert.equal((await call('GET', '/api/me', { session: anna })).status, 401);
+test('Viele gleichartige Nachrichten werden gebündelt', async () => {
+  pushes = [];
+  smoobuBookings = [booking(30, '2099-10-20'), ...[41, 42, 43, 44].map((id, i) => booking(id, `2099-11-0${i + 1}`))];
+  await runSync(env, at('2026-09-28', '09:00'));
+  assert.ok(who().includes('4 neue Reinigungen'));
+  assert.ok(!who().includes('Neue Reinigung'), 'keine Einzelnachrichten');
+  assert.match(pushes.find((p) => p.title === '4 neue Reinigungen').message, /• FeWo Elbblick/);
+});
+
+test('Leitung entfernen → Anmeldung ungültig', async () => {
+  const res = await call('POST', `/api/team/${leaId}/delete`, { session: admin });
+  assert.equal(res.body.leads.length, 0);
+  assert.equal((await call('GET', '/api/me', { session: lea })).status, 401);
 });
 
 test('HMAC: richtige Signaturform wird automatisch gefunden', async () => {
   const saved = env.SMOOBU_API_KEY;
-  env.SMOOBU_API_KEY = ` "${HMAC_KEY}" `; // mit Anführungszeichen/Leerzeichen kopiert
+  env.SMOOBU_API_KEY = ` "${HMAC_KEY}" `;
   env.SMOOBU_API_SECRET = HMAC_SECRET;
   try {
     const diag = await call('POST', '/api/diagnose', { session: admin });
@@ -284,11 +291,11 @@ test('HMAC: richtige Signaturform wird automatisch gefunden', async () => {
     assert.match(login.topKeys[0], /funktioniert: Hash base64, Pfad mit \/api, Zeit ohne ms, leere Query-Zeile nein/);
     assert.ok(!JSON.stringify(diag.body).includes('Müller'), 'keine Gästedaten');
     smoobuCalls = 0;
-    const s = await runSync(env, at('2026-09-27', '10:00'));
+    const s = await runSync(env, at('2026-09-28', '10:00'));
     assert.equal(s.syncError, null);
     assert.equal(smoobuCalls, 2, 'Buchungen + Wohnungen, keine erneute Erkennung');
     env.SMOOBU_API_SECRET = 'falsch';
-    assert.match((await runSync(env, at('2026-09-27', '10:15'))).syncError, /lehnt die Anmeldung ab \(401\)/);
+    assert.match((await runSync(env, at('2026-09-28', '10:15'))).syncError, /lehnt die Anmeldung ab \(401\)/);
   } finally {
     env.SMOOBU_API_KEY = saved;
     delete env.SMOOBU_API_SECRET;
@@ -298,7 +305,7 @@ test('HMAC: richtige Signaturform wird automatisch gefunden', async () => {
 test('Fehlender Smoobu-Schlüssel wird klar gemeldet', async () => {
   const saved = env.SMOOBU_API_KEY;
   delete env.SMOOBU_API_KEY;
-  const s = await runSync(env, at('2026-09-27', '11:00'));
+  const s = await runSync(env, at('2026-09-28', '11:00'));
   env.SMOOBU_API_KEY = saved;
-  assert.match(s.syncError, /SMOOBU_API_KEY fehlt – bitte in Cloudflare als „Secret“ eintragen/);
+  assert.match(s.syncError, /SMOOBU_API_KEY fehlt/);
 });

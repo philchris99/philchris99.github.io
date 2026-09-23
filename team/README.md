@@ -1,4 +1,4 @@
-# Team Strauss – Reinigungsplan mit Smoobu
+# Apartments Strauss – Reinigungsplan mit Smoobu
 
 Web-App unter **team.apartments-strauss.de**:
 Buchungen aus Smoobu → Endreinigungen → Bestätigung durch die Reinigungskraft → Push-Nachrichten.
@@ -14,34 +14,42 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 | `logic/` | Die Regeln (neue Buchung, Verlängerung, Storno, Bestätigen, Fristen) mit Tests |
 | `worker/` | Server: Smoobu-Abgleich, API, Push, Web-App (`public/`) |
 | `pages/` | Nur die Weiterleitung, damit die eigene Subdomain funktioniert |
-| `demo/` | Die Testversion mit simulierter Uhrzeit (ohne Server) |
 
 ## Funktionen
 
-- **Anmeldung**
-  - Reinigungskräfte: auf https://team.apartments-strauss.de mit persönlichem **6-stelligem Code** (bleibt auf dem Handy angemeldet)
-  - Auftraggeber: ebenfalls mit eigenem **6-stelligen Admin-Code** auf der Startseite (einmalig festlegen unter „Team → Mein Admin-Code“);
-    Notzugang ohne Code: **https://team.apartments-strauss.de/admin** mit `ADMIN_PASSWORD`
-  - Nach 8 Fehlversuchen 15 Minuten Sperre
-- **Team** (in der Admin-Ansicht): Reinigungskräfte anlegen, zuständige Wohnungen wählen, Code erzeugen
-  (wird nur einmal angezeigt, nur als Hash gespeichert), neuer Code = alte Geräte abgemeldet, entfernen
-- **Startseite Auftraggeber**: Kacheln (Check-outs heute, unbestätigt, Meldungen, Alarme), Handlungsbedarf, Heute, Meldungen, Morgen, 14 Tage
-- **Startseite Reinigungskraft**: „Neu – bitte bestätigen“ (rot markiert), „Als Nächstes“, Plan nach Tagen; erledigte bleiben grau sichtbar
-- Jede Reinigung zeigt, **wann** und **wie** sie eingetragen wurde (automatisch aus Smoobu / manuell) und ggf. Datumsänderung
-- **Meldungen** mit Text + bis zu 5 Fotos (Galerie mit Wischen), Push an Auftraggeber, „Als behoben markieren“
-- **Manuelle Reinigungen** inkl. Push an die Reinigungskraft, absagbar
-- **Testphase**: „Alles zurücksetzen“ (Eingabe ZURÜCKSETZEN); Team bleibt erhalten. Danach `allowReset: false` in `worker/src/config.js`.
+**Rollen**
+- **Admin** (Apartments Strauss): alles sehen, manuelle Reinigungen anlegen/verschieben/absagen, Hinweise + Fotos an Reinigungen,
+  Meldungen als behoben markieren, Team verwalten (Reinigungsleitung + Mitarbeiterinnen)
+- **Reinigungsleitung**: bekommt alle neuen Reinigungen, bestätigt den Erhalt und **weist sie einer Mitarbeiterin zu**
+  (oder sich selbst); legt eigene Mitarbeiterinnen mit Code an
+- **Mitarbeiterin**: sieht nur die ihr zugewiesenen Reinigungen, bestätigt, erfasst Beginn (optional) und Ende
+
+**Anmeldung**: auf der Startseite 6-stelliger Code (geht nach der 6. Ziffer automatisch weiter); nach 3 falschen Codes 1 Minute gesperrt.
+Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_PASSWORD`.
+
+**Fristen und Erinnerungen** (deutsche Zeit, Push über ntfy)
+- 6 Std. nach Eintragung/Verschiebung nicht von Leitung **und** Mitarbeiterin bestätigt → Alarm an Admin
+- Reinigungstag 12:00 nicht erledigt → Erinnerung an Leitung, Mitarbeiterin, Admin
+- Reinigungstag 15:00 immer noch nicht erledigt → erneute Erinnerung an alle
+- Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt
+
+**Weiteres**
+- „Neuigkeiten“ oben: was sich geändert hat (neu, zugewiesen, verlängert/verkürzt, verschoben, abgesagt, Hinweise)
+- Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
+- Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
+- Beginn und Ende der Reinigung mit Dauer
+- Testphase: „Alles zurücksetzen“ (Team bleibt). Danach `allowReset: false` in `worker/src/config.js`.
 
 ## Design / Logo
 
-Farben und Schriften stehen ganz oben in `worker/public/index.html` (Block „MARKE“).
-Logo: `worker/public/logo.svg` durch das echte Logo ersetzen (SVG oder PNG; bei PNG den Dateinamen in `index.html` anpassen).
+Logo-Dateien in `worker/public/`: `logo.png` (Anmeldung), `logo-house.png` + `logo-wordmark.png` (Kopfzeile),
+`icon-512.png` / `apple-touch-icon.png` (App-Symbol). Farben oben in `worker/public/index.html` (Block „MARKE“).
 Es werden bewusst keine Google Fonts geladen (Datenschutz).
 
 ## Einstellungen ändern
 
-In `worker/src/config.js`: Reinigungskräfte, deren zuständige Wohnungen, Uhrzeiten, Gastnamen ein/aus.
-Einen persönlichen Link sperren: bei der Person `version` um 1 erhöhen → neuer Link und neuer Push-Kanal.
+In `worker/src/config.js`: Fristen und Uhrzeiten, Gastnamen/Telefonnummer ein/aus. Team und Codes werden in der App verwaltet.
+Person sperren: in der App „Neuen Code erzeugen“ oder „Entfernen“.
 
 ## Einrichtung (einmalig, ca. 45 Minuten)
 

@@ -54,27 +54,30 @@ export async function saveSettings(db, settings) {
 }
 
 // ---- Schutz gegen Durchprobieren von Codes/Passwort ----------------------------
-const WINDOW = 15 * 60 * 1000;
-const MAX_FAILS = 8;
-
 async function ensureAttempts(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, since INTEGER NOT NULL)').run();
 }
 
-export async function tooManyAttempts(db, key, now) {
+/** Gesperrt? Liefert die verbleibenden Sekunden (0 = frei). */
+export async function lockedFor(db, key, now, { max, windowMs }) {
   await ensureAttempts(db);
   const row = await db.prepare('SELECT count, since FROM login_attempts WHERE key = ?').bind(key).first();
-  return !!row && now - row.since < WINDOW && row.count >= MAX_FAILS;
+  if (!row || row.count < max || now - row.since >= windowMs) return 0;
+  return Math.ceil((row.since + windowMs - now) / 1000);
 }
 
-export async function recordFailure(db, key, now) {
+/** Fehlversuch zählen; ab dem max. Versuch beginnt die Sperrzeit neu. */
+export async function recordFailure(db, key, now, { max, windowMs }) {
   await ensureAttempts(db);
   const row = await db.prepare('SELECT count, since FROM login_attempts WHERE key = ?').bind(key).first();
-  if (!row || now - row.since >= WINDOW) {
+  if (!row || now - row.since >= windowMs) {
     await db.prepare('INSERT OR REPLACE INTO login_attempts (key, count, since) VALUES (?, 1, ?)').bind(key, now).run();
-  } else {
-    await db.prepare('UPDATE login_attempts SET count = count + 1 WHERE key = ?').bind(key).run();
+    return 1;
   }
+  const count = row.count + 1;
+  // Sperre gilt ab dem letzten Fehlversuch
+  await db.prepare('UPDATE login_attempts SET count = ?, since = ? WHERE key = ?').bind(count, count >= max ? now : row.since, key).run();
+  return count;
 }
 
 export async function clearAttempts(db, key) {

@@ -1,38 +1,40 @@
 /*
- * Reinigungs-Logik für Apartment Strauss (Smoobu → Reinigungskräfte)
+ * Reinigungs-Logik für Apartments Strauss (Smoobu → Reinigungsleitung → Mitarbeiterinnen)
  *
- * Reine Funktionen ohne Abhängigkeiten: laufen im Browser (index.html),
- * in Node (Tests) und später z. B. in Google Apps Script oder einem
- * Cloudflare Worker. Jede Funktion bekommt den aktuellen Zustand und gibt
- * einen NEUEN Zustand plus eine Liste von Benachrichtigungen zurück.
- * Wie die Benachrichtigungen verschickt werden (Push, Telegram, E-Mail)
- * entscheidet der Aufrufer.
+ * Rollen
+ *  - owner  (Apartments Strauss / Admin)
+ *  - lead   (Reinigungsleitung): erhält alle neuen Reinigungen, bestätigt den Erhalt
+ *            und weist sie einer Mitarbeiterin (oder sich selbst) zu
+ *  - staff  (Mitarbeiterin): sieht nur die ihr zugewiesenen Reinigungen und bestätigt sie
+ *
+ * Eine Reinigung ist „bestätigt“, wenn Leitung UND zugewiesene Mitarbeiterin bestätigt haben.
+ *
+ * Fristen (deutsche Zeit)
+ *  - 6 Stunden nach Eintragung (oder Verschiebung) nicht vollständig bestätigt → Alarm an Admin
+ *  - Reinigungstag 12:00 noch nicht erledigt → Erinnerung an Leitung, Mitarbeiterin, Admin
+ *  - Reinigungstag 15:00 noch nicht erledigt → erneute Erinnerung an alle
+ *
+ * Reine Funktionen ohne Abhängigkeiten: laufen im Browser, in Node (Tests) und im
+ * Cloudflare Worker. Jede Funktion bekommt den Zustand und gibt einen NEUEN Zustand
+ * plus eine Liste von Benachrichtigungen zurück. Verschickt werden sie vom Aufrufer.
  */
 (function (root) {
   'use strict';
 
-  // ---------------------------------------------------------------------------
-  // Konfiguration (anpassen: Smoobu-Apartment-IDs, Namen, Reinigungskräfte)
-  // ---------------------------------------------------------------------------
   const DEFAULT_CONFIG = {
     timezone: 'Europe/Berlin',
-    reminderTime: '12:00',   // Erinnerung an die Reinigungskräfte
-    escalationTime: '13:00', // Alarm an Reinigungskräfte UND Auftraggeber
-    owner: { id: 'owner', name: 'Apartment Strauss' },
-    apartments: Array.from({ length: 13 }, (_, i) => ({
-      id: String(i + 1),       // hier später die Smoobu-Apartment-ID eintragen
-      name: 'Wohnung ' + (i + 1),
-    })),
-    // apartments: 'all' oder Liste von Apartment-IDs, für die jemand zuständig ist
-    cleaners: [
-      { id: 'anna', name: 'Anna', apartments: 'all' },
-      { id: 'maria', name: 'Maria', apartments: ['1', '2', '3', '4', '5', '6', '7'] },
-    ],
+    confirmWithinHours: 6,       // so lange nach Eintragung muss alles bestätigt sein
+    reminderTime: '12:00',       // Reinigungstag: erste Erinnerung, falls nicht erledigt
+    secondReminderTime: '15:00', // Reinigungstag: zweite Erinnerung
+    owner: { id: 'owner', name: 'Apartments Strauss' },
+    leads: [],                   // [{ id, name }]
+    staff: [],                   // [{ id, name }]
+    apartments: [],              // optionale Namen: [{ id, name }]
   };
 
   const STATUS = {
-    OPEN: 'offen',          // noch niemand hat bestätigt
-    CONFIRMED: 'bestätigt', // Reinigungskraft hat übernommen
+    OPEN: 'offen',          // noch nicht vollständig bestätigt
+    CONFIRMED: 'bestätigt', // Leitung + Mitarbeiterin haben bestätigt
     DONE: 'erledigt',
     CANCELLED: 'storniert',
   };
@@ -83,6 +85,9 @@
     return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
   }
 
+  const toIso = (now) => new Date(now).toISOString();
+  const hhmm = (iso, tz) => localParts(iso, tz).time;
+
   // ---------------------------------------------------------------------------
   // Hilfsfunktionen
   // ---------------------------------------------------------------------------
@@ -100,89 +105,179 @@
   }
 
   function apartmentName(config, apartmentId, fallback) {
-    const apt = config.apartments.find((a) => a.id === String(apartmentId));
+    const apt = (config.apartments || []).find((a) => a.id === String(apartmentId));
     return apt ? apt.name : fallback || 'Wohnung ' + apartmentId;
   }
 
-  /** Alle Reinigungskräfte, die für eine Wohnung zuständig sind. */
-  function cleanersFor(config, apartmentId) {
-    return config.cleaners.filter(
-      (c) => c.apartments === 'all' || c.apartments.includes(String(apartmentId))
-    );
+  function personName(config, id) {
+    const p = [...config.leads, ...config.staff].find((x) => x.id === id);
+    return p ? p.name : 'Unbekannt';
   }
 
-  /** Empfänger: die zugewiesene Kraft, sonst alle Zuständigen. */
-  function recipientsFor(config, task) {
-    if (task.assignedTo) return [task.assignedTo];
-    return cleanersFor(config, task.apartmentId).map((c) => c.id);
+  const leadIds = (config) => config.leads.map((l) => l.id);
+  const isLead = (config, id) => config.leads.some((l) => l.id === id);
+  const isStaff = (config, id) => config.staff.some((s) => s.id === id);
+  const uniq = (list) => [...new Set(list.filter(Boolean))];
+
+  /** Leitung + ggf. zugewiesene Person (ohne den Auslöser selbst) */
+  function team(config, task, except) {
+    return uniq([...leadIds(config), task.assignedTo]).filter((id) => id !== except);
   }
 
   function notify(to, kind, task, title, body) {
-    return to.map((recipient) => ({ to: recipient, kind, taskId: task.id, title, body }));
+    return uniq(to).map((recipient) => ({ to: recipient, kind, taskId: task.id, title, body }));
   }
 
   function log(task, nowIso, text) {
     task.history.push({ at: nowIso, text });
   }
 
+  function fullyConfirmed(task) {
+    return !!(task.leadConfirmedAt && task.assignedTo && task.staffConfirmedAt);
+  }
+
+  function updateStatus(task) {
+    if (task.status === STATUS.DONE || task.status === STATUS.CANCELLED) return;
+    task.status = fullyConfirmed(task) ? STATUS.CONFIRMED : STATUS.OPEN;
+  }
+
+  const isActive = (t) => t.status === STATUS.OPEN || t.status === STATUS.CONFIRMED;
+
+  function getTask(state, taskId) {
+    const task = state.tasks[taskId];
+    if (!task) throw new Error('Reinigung nicht gefunden');
+    return task;
+  }
+
+  function requireActive(task) {
+    if (task.status === STATUS.CANCELLED) throw new Error('Reinigung wurde abgesagt');
+    if (task.status === STATUS.DONE) throw new Error('Reinigung ist bereits erledigt');
+  }
+
+  /** Neues Datum → alle Bestätigungen zurücksetzen, Fristen neu starten */
+  function resetForNewDate(task, nowIso) {
+    task.changedAt = nowIso;
+    task.confirmFrom = nowIso;
+    task.leadConfirmedAt = null;
+    task.leadConfirmedBy = null;
+    task.staffConfirmedAt = null;
+    task.lateAlerted = false;
+    task.reminded1 = false;
+    task.reminded2 = false;
+    updateStatus(task);
+  }
+
+  function newTask(fields, nowIso) {
+    return Object.assign({
+      manual: false, guest: '', guestPhone: '', note: '',
+      createdAt: nowIso, changedAt: null, confirmFrom: nowIso,
+      status: STATUS.OPEN,
+      leadConfirmedAt: null, leadConfirmedBy: null,
+      assignedTo: null, assignedAt: null, staffConfirmedAt: null,
+      startedAt: null, startedBy: null, doneAt: null, doneBy: null,
+      lateAlerted: false, reminded1: false, reminded2: false,
+      history: [], reports: [],
+    }, fields);
+  }
+
   // ---------------------------------------------------------------------------
-  // Buchungen aus Smoobu verarbeiten
+  // Buchungen aus Smoobu
   // ---------------------------------------------------------------------------
 
-  /**
-   * Wandelt einen Smoobu-Webhook in eine einheitliche Buchung um.
-   * Smoobu schickt { action, data: { id, arrival, departure, apartment, 'guest-name', ... } }.
-   */
-  function fromSmoobuWebhook(payload) {
-    const r = payload.data || {};
-    const actions = {
-      newReservation: 'new',
-      updateReservation: 'update',
-      cancelReservation: 'cancel',
-      deleteReservation: 'cancel',
-    };
-    const action = actions[payload.action];
-    if (!action) return null; // andere Webhooks (z. B. Nachrichten) ignorieren
+  function mapSmoobu(r, action) {
     return {
       action,
       id: String(r.id),
       apartmentId: String(r.apartment && r.apartment.id),
       apartmentName: r.apartment && r.apartment.name,
-      guest: r['guest-name'] || '',
+      guest: r['guest-name'] || [r.firstname, r.lastname].filter(Boolean).join(' '),
+      guestPhone: String(r.phone || '').trim(),
       arrival: r.arrival,
       departure: r.departure,
     };
   }
 
-  /**
-   * Wandelt eine Buchung aus der Smoobu-API (GET /api/reservations) um.
-   * Sperrzeiten (Blocked Bookings) werden ignoriert, Stornos werden zu 'cancel'.
-   */
+  /** Smoobu-Webhook { action, data } → einheitliche Buchung */
+  function fromSmoobuWebhook(payload) {
+    const actions = { newReservation: 'new', updateReservation: 'update', cancelReservation: 'cancel', deleteReservation: 'cancel' };
+    const action = actions[payload.action];
+    if (!action) return null;
+    return mapSmoobu(payload.data || {}, action);
+  }
+
+  /** Buchung aus GET /api/reservations; Sperrzeiten ignorieren, Stornos → cancel */
   function fromSmoobuBooking(r) {
     if (!r || r['is-blocked-booking']) return null;
-    return {
-      action: r.type === 'cancellation' ? 'cancel' : 'update',
-      id: String(r.id),
-      apartmentId: String(r.apartment && r.apartment.id),
-      apartmentName: r.apartment && r.apartment.name,
-      guest: r['guest-name'] || '',
-      arrival: r.arrival,
-      departure: r.departure,
-    };
+    return mapSmoobu(r, r.type === 'cancellation' ? 'cancel' : 'update');
   }
 
-  /** IDs aller noch offenen/bestätigten Reinigungen ab einem Datum. */
+  /** IDs aller aktiven Smoobu-Reinigungen ab einem Datum (manuelle ausgenommen). */
   function activeTaskIds(state, fromDate) {
-    return Object.values(state.tasks)
-      .filter((t) => !t.manual && (t.status === STATUS.OPEN || t.status === STATUS.CONFIRMED) && t.date >= fromDate)
-      .map((t) => t.id);
+    return Object.values(state.tasks).filter((t) => !t.manual && isActive(t) && t.date >= fromDate).map((t) => t.id);
   }
 
   /**
-   * Gleicht den Zustand mit der aktuellen Buchungsliste aus Smoobu ab.
-   * Beim allerersten Abgleich werden alle bestehenden Buchungen still
-   * übernommen (sonst gäbe es dutzende Push-Nachrichten auf einmal).
-   * Alte Einträge (älter als keepDays) werden aufgeräumt.
+   * Neue / geänderte / stornierte Buchung verarbeiten.
+   * booking: { action: 'new'|'update'|'cancel', id, apartmentId, apartmentName, guest, guestPhone, arrival, departure }
+   */
+  function applyBooking(state, booking, now, config, inPlace) {
+    config = withConfig(config);
+    if (!inPlace) state = clone(state);
+    const nowIso = toIso(now);
+    const notifications = [];
+    const id = String(booking.id);
+    const existing = state.tasks[id];
+
+    if (booking.action === 'cancel') {
+      delete state.reservations[id];
+      if (!existing || !isActive(existing)) return { state, notifications };
+      existing.status = STATUS.CANCELLED;
+      existing.changedAt = nowIso;
+      log(existing, nowIso, 'Buchung storniert – Reinigung entfällt');
+      notifications.push(...notify(team(config, existing), 'cancelled', existing, 'Reinigung entfällt',
+        `${existing.apartmentName}: Endreinigung am ${formatDate(existing.date)} entfällt (Buchung storniert).`));
+      return { state, notifications };
+    }
+
+    state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure };
+
+    if (!existing || existing.status === STATUS.CANCELLED) {
+      const task = newTask({
+        id, apartmentId: String(booking.apartmentId),
+        apartmentName: apartmentName(config, booking.apartmentId, booking.apartmentName),
+        guest: booking.guest || '', guestPhone: booking.guestPhone || '',
+        date: booking.departure, source: 'smoobu',
+      }, nowIso);
+      log(task, nowIso, `Aus Smoobu eingetragen für ${formatDate(task.date)}`);
+      state.tasks[id] = task;
+      notifications.push(...notify(leadIds(config), 'new', task, 'Neue Reinigung',
+        `${task.apartmentName}: Endreinigung am ${formatDate(task.date)}. Bitte bestätigen und zuweisen.`));
+      return { state, notifications };
+    }
+
+    // Änderung einer bestehenden Buchung
+    existing.guest = booking.guest || existing.guest;
+    existing.guestPhone = booking.guestPhone || existing.guestPhone || '';
+    if (booking.departure === existing.date || existing.status === STATUS.DONE) return { state, notifications };
+
+    const oldDate = existing.date;
+    const wasConfirmed = existing.status === STATUS.CONFIRMED;
+    existing.date = booking.departure;
+    resetForNewDate(existing, nowIso);
+    const verb = existing.date > oldDate ? 'verlängert' : 'verkürzt';
+    log(existing, nowIso, `Aufenthalt ${verb}: Reinigung ${formatDate(oldDate)} → ${formatDate(existing.date)}`);
+    notifications.push(...notify(team(config, existing), 'rescheduled', existing, 'Reinigung verschoben',
+      `${existing.apartmentName}: Aufenthalt ${verb}. Reinigung jetzt am ${formatDate(existing.date)} statt ${formatDate(oldDate)}. Bitte neu bestätigen.`));
+    if (wasConfirmed) {
+      notifications.push(...notify([config.owner.id], 'rescheduled', existing, 'Bestätigte Reinigung verschoben',
+        `${existing.apartmentName}: ${formatDate(oldDate)} → ${formatDate(existing.date)}. Neue Bestätigung ausstehend.`));
+    }
+    return { state, notifications };
+  }
+
+  /**
+   * Abgleich mit der Buchungsliste aus Smoobu. Beim allerersten Abgleich still
+   * (keine Push-Flut). Alte Einträge (älter als keepDays) werden aufgeräumt.
    */
   function syncFromSmoobu(state, smoobuBookings, now, config, keepDays) {
     config = withConfig(config);
@@ -199,196 +294,324 @@
     for (const t of Object.values(state.tasks)) if (t.date < cutoff) delete state.tasks[t.id];
     for (const r of Object.values(state.reservations)) if (r.departure < cutoff) delete state.reservations[r.id];
     state.initialized = true;
-    state.lastSync = new Date(now).toISOString();
+    state.lastSync = toIso(now);
     return { state, notifications };
   }
 
-  /**
-   * Verarbeitet eine neue / geänderte / stornierte Buchung.
-   * booking: { action: 'new'|'update'|'cancel', id, apartmentId, guest, arrival, departure }
-   * Rückgabe: { state, notifications }
-   */
-  function applyBooking(state, booking, now, config, inPlace) {
+  // ---------------------------------------------------------------------------
+  // Manuelle Reinigungen (Admin)
+  // ---------------------------------------------------------------------------
+
+  function checkDate(date, now, config) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) throw new Error('Bitte ein gültiges Datum wählen');
+    if (date < localParts(now, config.timezone).date) throw new Error('Das Datum liegt in der Vergangenheit');
+  }
+
+  /** input: { id, apartmentId, apartmentName, date, note } */
+  function addManualCleaning(state, input, now, config) {
     config = withConfig(config);
-    if (!inPlace) state = clone(state); // inPlace: nur intern (Abgleich), spart Rechenzeit
-    const nowIso = new Date(now).toISOString();
+    if (!input.apartmentId) throw new Error('Bitte eine Wohnung wählen');
+    checkDate(input.date, now, config);
+    state = clone(state);
+    const id = String(input.id);
+    if (state.tasks[id]) throw new Error('Reinigung existiert bereits');
+    const nowIso = toIso(now);
+    const task = newTask({
+      id, manual: true, source: 'manuell',
+      apartmentId: String(input.apartmentId),
+      apartmentName: apartmentName(config, input.apartmentId, input.apartmentName),
+      note: (input.note || '').trim().slice(0, 500),
+      date: input.date,
+    }, nowIso);
+    log(task, nowIso, `Manuell eingetragen für ${formatDate(task.date)}`);
+    state.tasks[id] = task;
+    const notifications = notify(leadIds(config), 'new', task, 'Zusätzliche Reinigung',
+      `${task.apartmentName}: Reinigung am ${formatDate(task.date)}.${task.note ? ' Hinweis: ' + task.note : ''} Bitte bestätigen und zuweisen.`);
+    return { state, notifications };
+  }
+
+  /** Manuelle Reinigung ändern (Datum, Hinweis). Datum geändert → neu bestätigen. */
+  function editManualCleaning(state, taskId, input, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (!task.manual) throw new Error('Reinigungen aus Smoobu bitte in Smoobu ändern');
+    requireActive(task);
+    const nowIso = toIso(now);
     const notifications = [];
-    const id = String(booking.id);
-    const existing = state.tasks[id];
+    const note = input.note == null ? task.note : String(input.note).trim().slice(0, 500);
+    if (input.date && input.date !== task.date) {
+      checkDate(input.date, now, config);
+      const oldDate = task.date;
+      task.date = input.date;
+      task.note = note;
+      resetForNewDate(task, nowIso);
+      log(task, nowIso, `Verschoben: ${formatDate(oldDate)} → ${formatDate(task.date)}`);
+      notifications.push(...notify(team(config, task), 'rescheduled', task, 'Reinigung verschoben',
+        `${task.apartmentName}: Reinigung jetzt am ${formatDate(task.date)} statt ${formatDate(oldDate)}.${note ? ' Hinweis: ' + note : ''} Bitte neu bestätigen.`));
+    } else if (note !== task.note) {
+      task.note = note;
+      task.changedAt = nowIso;
+      log(task, nowIso, 'Hinweis geändert');
+      notifications.push(...notify(team(config, task), 'edited', task, 'Hinweis geändert',
+        `${task.apartmentName} (${formatDate(task.date)}): ${note || 'Hinweis entfernt'}`));
+    }
+    return { state, notifications };
+  }
 
-    if (booking.action === 'cancel') {
-      delete state.reservations[id];
-      if (!existing || existing.status === STATUS.CANCELLED || existing.status === STATUS.DONE) {
-        return { state, notifications };
+  function cancelManualCleaning(state, taskId, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (!task.manual) throw new Error('Reinigungen aus Smoobu bitte in Smoobu ändern');
+    if (!isActive(task)) return { state, notifications: [] };
+    const nowIso = toIso(now);
+    task.status = STATUS.CANCELLED;
+    task.changedAt = nowIso;
+    log(task, nowIso, 'Vom Admin abgesagt');
+    return { state, notifications: notify(team(config, task), 'cancelled', task, 'Reinigung entfällt',
+      `${task.apartmentName}: Reinigung am ${formatDate(task.date)} entfällt.`) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reinigungsleitung
+  // ---------------------------------------------------------------------------
+
+  /** Info an Admin, sobald eine Reinigung vollständig bestätigt ist. */
+  function confirmedNote(config, task, before) {
+    if (before === STATUS.CONFIRMED || task.status !== STATUS.CONFIRMED) return [];
+    return notify([config.owner.id], 'confirmed', task, 'Reinigung bestätigt',
+      `${task.apartmentName} am ${formatDate(task.date)}: übernimmt ${personName(config, task.assignedTo)}.`);
+  }
+
+  /** Leitung bestätigt den Erhalt. */
+  function leadConfirm(state, taskId, leadId, now, config) {
+    config = withConfig(config);
+    if (!isLead(config, leadId)) throw new Error('Nur die Reinigungsleitung kann das bestätigen');
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    const nowIso = toIso(now);
+    task.leadConfirmedAt = nowIso;
+    task.leadConfirmedBy = leadId;
+    log(task, nowIso, `Erhalt bestätigt von ${personName(config, leadId)} (Leitung)`);
+    const before = task.status;
+    updateStatus(task);
+    return { state, notifications: confirmedNote(config, task, before) };
+  }
+
+  /** Leitung weist die Reinigung einer Mitarbeiterin (oder sich selbst) zu. */
+  function assignCleaning(state, taskId, leadId, assigneeId, now, config) {
+    config = withConfig(config);
+    if (!isLead(config, leadId)) throw new Error('Nur die Reinigungsleitung kann zuweisen');
+    if (!isStaff(config, assigneeId) && !isLead(config, assigneeId)) throw new Error('Bitte eine Mitarbeiterin auswählen');
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    const nowIso = toIso(now);
+    const notifications = [];
+    const previous = task.assignedTo;
+    if (!task.leadConfirmedAt) { // Zuweisen heißt auch: Erhalt bestätigt
+      task.leadConfirmedAt = nowIso;
+      task.leadConfirmedBy = leadId;
+    }
+    if (previous !== assigneeId) {
+      task.assignedTo = assigneeId;
+      task.assignedAt = nowIso;
+      task.staffConfirmedAt = assigneeId === leadId ? nowIso : null; // sich selbst zugewiesen = bestätigt
+      log(task, nowIso, `Zugewiesen an ${personName(config, assigneeId)}`);
+      if (previous) {
+        notifications.push(...notify([previous], 'unassigned', task, 'Reinigung neu vergeben',
+          `${task.apartmentName} (${formatDate(task.date)}) wurde an jemand anderen vergeben.`));
       }
-      existing.status = STATUS.CANCELLED;
-      log(existing, nowIso, 'Buchung storniert');
-      notifications.push(
-        ...notify(recipientsFor(config, existing), 'cancelled', existing,
-          'Reinigung entfällt',
-          `${existing.apartmentName}: Endreinigung am ${formatDate(existing.date)} entfällt (Buchung storniert).`)
-      );
-      return { state, notifications };
+      if (assigneeId !== leadId) {
+        notifications.push(...notify([assigneeId], 'assigned', task, 'Neue Reinigung für dich',
+          `${task.apartmentName}: Reinigung am ${formatDate(task.date)}.${task.note ? ' Hinweis: ' + task.note : ''} Bitte bestätigen.`));
+      }
     }
-
-    state.reservations[id] = {
-      id,
-      apartmentId: String(booking.apartmentId),
-      arrival: booking.arrival,
-      departure: booking.departure,
-    };
-
-    // Neue Buchung (oder Update zu einer uns unbekannten Buchung)
-    if (!existing || existing.status === STATUS.CANCELLED) {
-      const task = {
-        id,
-        apartmentId: String(booking.apartmentId),
-        apartmentName: apartmentName(config, booking.apartmentId, booking.apartmentName),
-        guest: booking.guest || '',
-        date: booking.departure,
-        source: 'smoobu',
-        createdAt: nowIso,
-        status: STATUS.OPEN,
-        assignedTo: null,
-        reminded: false,
-        escalated: false,
-        history: [],
-      };
-      log(task, nowIso, `Reinigung angelegt für ${formatDate(task.date)}`);
-      state.tasks[id] = task;
-      notifications.push(
-        ...notify(recipientsFor(config, task), 'new', task,
-          'Neue Endreinigung',
-          `${task.apartmentName}: Endreinigung am ${formatDate(task.date)}. Bitte in der App bestätigen.`)
-      );
-      return { state, notifications };
-    }
-
-    // Änderung einer bestehenden Buchung
-    existing.guest = booking.guest || existing.guest;
-    if (booking.departure === existing.date || existing.status === STATUS.DONE) {
-      return { state, notifications }; // Abreise unverändert → keine Nachricht
-    }
-
-    const oldDate = existing.date;
-    existing.date = booking.departure;
-    existing.changedAt = nowIso;
-    existing.reminded = false;
-    existing.escalated = false;
-    const wasConfirmed = existing.status === STATUS.CONFIRMED;
-    // Neues Datum muss neu bestätigt werden – die Zuweisung bleibt aber bestehen.
-    existing.status = STATUS.OPEN;
-    log(existing, nowIso, `Datum geändert: ${formatDate(oldDate)} → ${formatDate(existing.date)}`);
-
-    const verb = existing.date > oldDate ? 'verlängert' : 'verkürzt';
-    notifications.push(
-      ...notify(recipientsFor(config, existing), 'rescheduled', existing,
-        'Reinigung verschoben',
-        `${existing.apartmentName}: Aufenthalt ${verb}. Endreinigung jetzt am ${formatDate(existing.date)} ` +
-        `statt ${formatDate(oldDate)}. Bitte neu bestätigen.`)
-    );
-    if (wasConfirmed) {
-      notifications.push(
-        ...notify([config.owner.id], 'rescheduled', existing,
-          'Bestätigte Reinigung verschoben',
-          `${existing.apartmentName}: ${formatDate(oldDate)} → ${formatDate(existing.date)}. Neue Bestätigung ausstehend.`)
-      );
-    }
+    const before = task.status;
+    updateStatus(task);
+    notifications.push(...confirmedNote(config, task, before));
     return { state, notifications };
   }
 
   // ---------------------------------------------------------------------------
-  // Aktionen der Reinigungskraft
+  // Mitarbeiterin
   // ---------------------------------------------------------------------------
 
-  /** Reinigungskraft klickt „Übernehmen / Bestätigen". */
-  function confirmCleaning(state, taskId, cleanerId, now, config) {
-    config = withConfig(config);
-    state = clone(state);
-    const task = state.tasks[taskId];
-    if (!task) throw new Error('Reinigung nicht gefunden');
-    if (task.status === STATUS.CANCELLED) throw new Error('Reinigung wurde storniert');
-    if (task.status === STATUS.DONE) throw new Error('Reinigung ist bereits erledigt');
-    if (task.assignedTo && task.assignedTo !== cleanerId) {
-      throw new Error('Reinigung ist bereits von jemand anderem übernommen');
-    }
-    const cleaner = config.cleaners.find((c) => c.id === cleanerId);
-    if (!cleaner) throw new Error('Unbekannte Reinigungskraft');
-
-    task.status = STATUS.CONFIRMED;
-    task.assignedTo = cleanerId;
-    log(task, new Date(now).toISOString(), `Bestätigt von ${cleaner.name}`);
-    const notifications = notify([config.owner.id], 'confirmed', task,
-      'Reinigung bestätigt',
-      `${cleaner.name} übernimmt ${task.apartmentName} am ${formatDate(task.date)}.`);
-    return { state, notifications };
+  function canWork(config, task, userId) {
+    return task.assignedTo === userId || isLead(config, userId);
   }
 
-  /** Reinigungskraft meldet „Erledigt". */
-  function completeCleaning(state, taskId, cleanerId, now, config) {
+  /** Zugewiesene Mitarbeiterin bestätigt den Erhalt. */
+  function staffConfirm(state, taskId, userId, now, config) {
     config = withConfig(config);
     state = clone(state);
-    const task = state.tasks[taskId];
-    if (!task) throw new Error('Reinigung nicht gefunden');
-    if (task.status !== STATUS.CONFIRMED || task.assignedTo !== cleanerId) {
-      throw new Error('Nur die zugewiesene Reinigungskraft kann eine bestätigte Reinigung abschließen');
-    }
-    const cleaner = config.cleaners.find((c) => c.id === cleanerId);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    if (task.assignedTo !== userId) throw new Error('Diese Reinigung ist dir nicht zugewiesen');
+    const nowIso = toIso(now);
+    task.staffConfirmedAt = nowIso;
+    log(task, nowIso, `Bestätigt von ${personName(config, userId)}`);
+    const before = task.status;
+    updateStatus(task);
+    return { state, notifications: confirmedNote(config, task, before) };
+  }
+
+  /** Beginn der Reinigung erfassen (optional). */
+  function startCleaning(state, taskId, userId, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    if (!canWork(config, task, userId)) throw new Error('Diese Reinigung ist dir nicht zugewiesen');
+    if (task.startedAt) return { state, notifications: [] };
+    const nowIso = toIso(now);
+    task.startedAt = nowIso;
+    task.startedBy = userId;
+    log(task, nowIso, `Reinigung begonnen (${personName(config, userId)})`);
+    return { state, notifications: [] };
+  }
+
+  /** Reinigung erledigt (Ende). */
+  function completeCleaning(state, taskId, userId, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    if (!canWork(config, task, userId)) throw new Error('Diese Reinigung ist dir nicht zugewiesen');
+    const nowIso = toIso(now);
     task.status = STATUS.DONE;
-    log(task, new Date(now).toISOString(), `Erledigt von ${cleaner ? cleaner.name : cleanerId}`);
-    const notifications = notify([config.owner.id], 'done', task,
-      'Reinigung erledigt',
-      `${task.apartmentName} ist sauber (${cleaner ? cleaner.name : cleanerId}).`);
-    return { state, notifications };
+    task.doneAt = nowIso;
+    task.doneBy = userId;
+    const minutes = task.startedAt ? Math.round((Date.parse(nowIso) - Date.parse(task.startedAt)) / 60000) : null;
+    const duration = minutes != null ? ` (Dauer ${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')} Std.)` : '';
+    log(task, nowIso, `Erledigt von ${personName(config, userId)}${duration}`);
+    const to = [config.owner.id, ...leadIds(config)].filter((id) => id !== userId);
+    return { state, notifications: notify(to, 'done', task, 'Reinigung erledigt',
+      `${task.apartmentName} ist sauber – ${personName(config, userId)}${duration}.`) };
   }
 
   // ---------------------------------------------------------------------------
-  // Fristen prüfen (z. B. alle 15 Minuten per Zeitsteuerung aufrufen)
+  // Fristen (alle 15 Minuten prüfen)
   // ---------------------------------------------------------------------------
 
-  /**
-   * Am Reinigungstag:
-   *  - ab reminderTime: Erinnerung an die Reinigungskraft(e)
-   *  - ab escalationTime: Alarm an Reinigungskraft(e) UND Auftraggeber
-   * Jede Stufe wird pro Reinigung nur einmal ausgelöst.
-   */
+  function missingText(config, task) {
+    const missing = [];
+    if (!task.leadConfirmedAt) missing.push('Bestätigung Leitung');
+    if (!task.assignedTo) missing.push('Zuweisung');
+    else if (!task.staffConfirmedAt) missing.push(`Bestätigung ${personName(config, task.assignedTo)}`);
+    return missing.join(', ');
+  }
+
+  function progressText(config, task) {
+    if (task.startedAt) return `läuft seit ${hhmm(task.startedAt, config.timezone)} Uhr`;
+    if (!task.assignedTo) return 'noch niemandem zugewiesen';
+    return `noch nicht begonnen (${personName(config, task.assignedTo)})`;
+  }
+
   function checkDeadlines(state, now, config) {
     config = withConfig(config);
     state = clone(state);
     const { date: today, time } = localParts(now, config.timezone);
-    const nowIso = new Date(now).toISOString();
+    const nowIso = toIso(now);
     const notifications = [];
+    const limit = config.confirmWithinHours * 3600000;
 
     for (const task of Object.values(state.tasks)) {
-      if (task.status !== STATUS.OPEN) continue;
-      const overdue = task.date < today;
-      const isToday = task.date === today;
-      if (!overdue && !isToday) continue;
+      if (!isActive(task)) continue;
 
-      if (!task.escalated && (overdue || time >= config.escalationTime)) {
-        task.escalated = true;
-        task.reminded = true;
-        log(task, nowIso, 'Nicht bestätigt – Auftraggeber alarmiert');
-        notifications.push(
-          ...notify(recipientsFor(config, task), 'escalation', task,
-            'Reinigung nicht bestätigt!',
-            `${task.apartmentName}: Endreinigung ${formatDate(task.date)} ist noch nicht bestätigt. Bitte sofort bestätigen.`),
-          ...notify([config.owner.id], 'escalation', task,
-            'Achtung: Reinigung offen',
-            `${task.apartmentName}: Endreinigung ${formatDate(task.date)} wurde bis ${config.escalationTime} Uhr ` +
-            'nicht bestätigt und kann evtl. nicht durchgeführt werden.')
-        );
-      } else if (!task.reminded && isToday && time >= config.reminderTime) {
-        task.reminded = true;
-        log(task, nowIso, 'Erinnerung verschickt');
-        notifications.push(
-          ...notify(recipientsFor(config, task), 'reminder', task,
-            'Erinnerung: Reinigung bestätigen',
-            `${task.apartmentName}: Endreinigung heute. Bitte bis ${config.escalationTime} Uhr bestätigen.`)
-        );
+      // 1) Nicht innerhalb von 6 Stunden vollständig bestätigt → Admin
+      if (!task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && task.date >= today
+          && Date.parse(nowIso) - Date.parse(task.confirmFrom) >= limit) {
+        task.lateAlerted = true;
+        log(task, nowIso, `Nach ${config.confirmWithinHours} Std. nicht bestätigt – Admin informiert`);
+        notifications.push(...notify([config.owner.id], 'late', task, 'Reinigung nicht bestätigt',
+          `${task.apartmentName} (${formatDate(task.date)}): seit ${config.confirmWithinHours} Std. nicht bestätigt – es fehlt: ${missingText(config, task)}.`));
+      }
+
+      // 2) Reinigungstag 12:00 / 15:00 noch nicht erledigt → Leitung, Mitarbeiterin, Admin
+      const overdue = task.date < today;
+      if (task.date !== today && !overdue) continue;
+      const all = [...team(config, task), config.owner.id];
+      if (!task.reminded2 && (overdue || time >= config.secondReminderTime)) {
+        task.reminded1 = true;
+        task.reminded2 = true;
+        log(task, nowIso, 'Zweite Erinnerung: noch nicht erledigt');
+        notifications.push(...notify(all, 'reminder2', task, 'Reinigung immer noch offen',
+          `${task.apartmentName}: Reinigung ${overdue ? 'vom ' + formatDate(task.date) : 'heute'} ist um ${time} Uhr noch nicht erledigt – ${progressText(config, task)}.`));
+      } else if (!task.reminded1 && time >= config.reminderTime) {
+        task.reminded1 = true;
+        log(task, nowIso, 'Erinnerung: noch nicht erledigt');
+        notifications.push(...notify(all, 'reminder', task, 'Erinnerung: Reinigung heute',
+          `${task.apartmentName}: Reinigung heute noch nicht erledigt – ${progressText(config, task)}.`));
       }
     }
     return { state, notifications };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hinweise / Meldungen mit Fotos (alle Rollen)
+  // ---------------------------------------------------------------------------
+
+  /** user: { id, role: 'owner'|'lead'|'staff' } */
+  function canAccess(config, task, user) {
+    if (user.role === 'owner' || user.role === 'lead') return true;
+    return task.assignedTo === user.id;
+  }
+
+  /** report: { id, text, photos: [photoId, …] } */
+  function addReport(state, taskId, user, report, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (!canAccess(config, task, user)) throw new Error('Keine Berechtigung für diese Reinigung');
+    const text = (report.text || '').trim().slice(0, 2000);
+    const photos = (report.photos || []).slice(0, 10);
+    if (!text && !photos.length) throw new Error('Bitte einen Text eingeben oder ein Foto anhängen');
+    const nowIso = toIso(now);
+    const author = user.role === 'owner' ? config.owner.name : personName(config, user.id);
+    task.reports.push({ id: String(report.id), at: nowIso, by: user.id, byRole: user.role, text, photos, resolved: false });
+    log(task, nowIso, `${user.role === 'owner' ? 'Hinweis' : 'Meldung'} von ${author}`);
+    const summary = text ? (text.length > 120 ? text.slice(0, 117) + '…' : text) : 'Fotos angehängt';
+    const photoText = photos.length ? ` (${photos.length} Foto${photos.length > 1 ? 's' : ''})` : '';
+    const fromOwner = user.role === 'owner';
+    const to = fromOwner ? team(config, task) : [config.owner.id, ...team(config, task, user.id)];
+    const title = fromOwner ? `Hinweis von ${config.owner.name}: ${task.apartmentName}` : `Meldung: ${task.apartmentName}`;
+    return { state, notifications: notify(to, fromOwner ? 'note' : 'report', task, title, `${author}: ${summary}${photoText}`) };
+  }
+
+  /** Foto aus einer Meldung löschen (Verfasser oder Admin). Leere Meldung wird entfernt. */
+  function removePhoto(state, taskId, reportId, photoId, user) {
+    state = clone(state);
+    const task = getTask(state, taskId);
+    const report = task.reports.find((r) => r.id === String(reportId));
+    if (!report || !report.photos.includes(photoId)) throw new Error('Foto nicht gefunden');
+    if (user.role !== 'owner' && report.by !== user.id) throw new Error('Nur eigene Fotos können gelöscht werden');
+    report.photos = report.photos.filter((p) => p !== photoId);
+    if (!report.photos.length && !report.text) task.reports = task.reports.filter((r) => r !== report);
+    return { state, notifications: [] };
+  }
+
+  function resolveReport(state, taskId, reportId, now) {
+    state = clone(state);
+    const task = getTask(state, taskId);
+    const report = task.reports.find((r) => r.id === String(reportId));
+    if (!report) throw new Error('Meldung nicht gefunden');
+    report.resolved = true;
+    report.resolvedAt = toIso(now);
+    return { state, notifications: [] };
+  }
+
+  /** Offene Meldungen der Reinigungskräfte (Hinweise des Admins zählen nicht). */
+  function openReports(state) {
+    const list = [];
+    for (const t of Object.values(state.tasks)) {
+      for (const r of t.reports || []) {
+        if (!r.resolved && r.byRole !== 'owner') list.push(Object.assign({ taskId: t.id, apartmentName: t.apartmentName, date: t.date }, r));
+      }
+    }
+    return list.sort((a, b) => b.at.localeCompare(a.at));
   }
 
   // ---------------------------------------------------------------------------
@@ -396,8 +619,8 @@
   // ---------------------------------------------------------------------------
 
   /**
-   * Liste der Reinigungen, sortiert nach Datum. Optional gefiltert auf eine
-   * Reinigungskraft (zeigt nur, was sie sehen soll) und ab einem Datum.
+   * Reinigungen für eine Person, sortiert nach Datum.
+   * options: { user: { id, role }, from } – Mitarbeiterin sieht nur ihr Zugewiesenes.
    * sameDayArrival = am Reinigungstag reist bereits der nächste Gast an.
    */
   function listCleanings(state, options, config) {
@@ -406,156 +629,23 @@
     const reservations = Object.values(state.reservations);
     return Object.values(state.tasks)
       .filter((t) => !options.from || t.date >= options.from)
-      .filter((t) => {
-        if (!options.cleanerId) return true;
-        if (t.assignedTo) return t.assignedTo === options.cleanerId;
-        return cleanersFor(config, t.apartmentId).some((c) => c.id === options.cleanerId);
-      })
+      .filter((t) => !options.user || canAccess(config, t, options.user))
       .map((t) => Object.assign({}, t, {
-        createdAt: t.createdAt || (t.history[0] && t.history[0].at) || null,
-        source: t.source || (t.manual ? 'manuell' : 'smoobu'),
-        sameDayArrival: reservations.some(
-          (r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id
-        ),
+        reports: t.reports || [],
+        sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
 
-  // ---------------------------------------------------------------------------
-  // Manuelle Reinigungen (vom Auftraggeber eingetragen)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Trägt eine zusätzliche Reinigung ein, z. B. Zwischenreinigung.
-   * input: { id, apartmentId, apartmentName, date: 'YYYY-MM-DD', note }
-   */
-  function addManualCleaning(state, input, now, config) {
-    config = withConfig(config);
-    if (!input.apartmentId) throw new Error('Bitte eine Wohnung wählen');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) throw new Error('Bitte ein gültiges Datum wählen');
-    const today = localParts(now, config.timezone).date;
-    if (input.date < today) throw new Error('Das Datum liegt in der Vergangenheit');
-    state = clone(state);
-    const id = String(input.id);
-    if (state.tasks[id]) throw new Error('Reinigung existiert bereits');
-    const task = {
-      id,
-      manual: true,
-      apartmentId: String(input.apartmentId),
-      apartmentName: apartmentName(config, input.apartmentId, input.apartmentName),
-      guest: '',
-      note: (input.note || '').trim().slice(0, 500),
-      date: input.date,
-      source: 'manuell',
-      createdAt: new Date(now).toISOString(),
-      status: STATUS.OPEN,
-      assignedTo: null,
-      reminded: false,
-      escalated: false,
-      history: [],
-    };
-    log(task, new Date(now).toISOString(), `Manuell eingetragen für ${formatDate(task.date)}`);
-    state.tasks[id] = task;
-    const notifications = notify(recipientsFor(config, task), 'new', task,
-      'Zusätzliche Reinigung',
-      `${task.apartmentName}: Reinigung am ${formatDate(task.date)}.${task.note ? ' Hinweis: ' + task.note : ''} Bitte in der App bestätigen.`);
-    return { state, notifications };
-  }
-
-  /** Manuell eingetragene Reinigung absagen (Smoobu-Reinigungen folgen der Buchung). */
-  function cancelManualCleaning(state, taskId, now, config) {
-    config = withConfig(config);
-    state = clone(state);
-    const task = state.tasks[taskId];
-    if (!task) throw new Error('Reinigung nicht gefunden');
-    if (!task.manual) throw new Error('Reinigungen aus Smoobu bitte in Smoobu ändern');
-    if (task.status === STATUS.CANCELLED || task.status === STATUS.DONE) return { state, notifications: [] };
-    task.status = STATUS.CANCELLED;
-    log(task, new Date(now).toISOString(), 'Vom Auftraggeber abgesagt');
-    const notifications = notify(recipientsFor(config, task), 'cancelled', task,
-      'Reinigung entfällt',
-      `${task.apartmentName}: Reinigung am ${formatDate(task.date)} entfällt.`);
-    return { state, notifications };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Meldungen der Reinigungskraft (Text + optional Fotos)
-  // ---------------------------------------------------------------------------
-
-  /** Darf diese Reinigungskraft die Reinigung sehen/bearbeiten? */
-  function canAccess(config, task, cleanerId) {
-    if (task.assignedTo) return task.assignedTo === cleanerId;
-    return cleanersFor(config, task.apartmentId).some((c) => c.id === cleanerId);
-  }
-
-  /**
-   * Reinigungskraft meldet etwas (fehlt, kaputt, zu tun).
-   * report: { id, text, photos: [photoId, …] }
-   */
-  function addReport(state, taskId, cleanerId, report, now, config) {
-    config = withConfig(config);
-    state = clone(state);
-    const task = state.tasks[taskId];
-    if (!task) throw new Error('Reinigung nicht gefunden');
-    if (!canAccess(config, task, cleanerId)) throw new Error('Keine Berechtigung für diese Reinigung');
-    const text = (report.text || '').trim().slice(0, 2000);
-    const photos = (report.photos || []).slice(0, 10);
-    if (!text && !photos.length) throw new Error('Bitte einen Text eingeben oder ein Foto anhängen');
-    const cleaner = config.cleaners.find((c) => c.id === cleanerId);
-    const nowIso = new Date(now).toISOString();
-    task.reports = task.reports || [];
-    task.reports.push({ id: String(report.id), at: nowIso, by: cleanerId, text, photos, resolved: false });
-    log(task, nowIso, `Meldung von ${cleaner ? cleaner.name : cleanerId}`);
-    const summary = text ? (text.length > 120 ? text.slice(0, 117) + '…' : text) : 'Fotos angehängt';
-    const notifications = notify([config.owner.id], 'report', task,
-      `Meldung: ${task.apartmentName}`,
-      `${cleaner ? cleaner.name : cleanerId}: ${summary}${photos.length ? ` (${photos.length} Foto${photos.length > 1 ? 's' : ''})` : ''}`);
-    return { state, notifications };
-  }
-
-  /** Auftraggeber markiert eine Meldung als behoben. */
-  function resolveReport(state, taskId, reportId, now) {
-    state = clone(state);
-    const task = state.tasks[taskId];
-    const report = task && (task.reports || []).find((r) => r.id === String(reportId));
-    if (!report) throw new Error('Meldung nicht gefunden');
-    report.resolved = true;
-    report.resolvedAt = new Date(now).toISOString();
-    return { state, notifications: [] };
-  }
-
-  /** Alle noch nicht behobenen Meldungen, neueste zuerst. */
-  function openReports(state) {
-    const list = [];
-    for (const t of Object.values(state.tasks)) {
-      for (const r of t.reports || []) if (!r.resolved) list.push(Object.assign({ taskId: t.id, apartmentName: t.apartmentName, date: t.date }, r));
-    }
-    return list.sort((a, b) => b.at.localeCompare(a.at));
-  }
-
   const api = {
-    DEFAULT_CONFIG,
-    STATUS,
-    createState,
-    fromSmoobuWebhook,
-    fromSmoobuBooking,
-    activeTaskIds,
-    syncFromSmoobu,
-    applyBooking,
-    confirmCleaning,
-    completeCleaning,
+    DEFAULT_CONFIG, STATUS,
+    createState, localParts, formatDate, addDays,
+    fromSmoobuWebhook, fromSmoobuBooking, activeTaskIds, applyBooking, syncFromSmoobu,
+    addManualCleaning, editManualCleaning, cancelManualCleaning,
+    leadConfirm, assignCleaning, staffConfirm, startCleaning, completeCleaning,
     checkDeadlines,
-    listCleanings,
-    cleanersFor,
-    canAccess,
-    addManualCleaning,
-    cancelManualCleaning,
-    addReport,
-    resolveReport,
-    openReports,
-    localParts,
-    formatDate,
-    addDays,
+    canAccess, addReport, removePhoto, resolveReport, openReports,
+    listCleanings, fullyConfirmed,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
