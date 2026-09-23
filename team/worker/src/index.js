@@ -128,6 +128,15 @@ async function teamFor(env, list, withCodes) {
 }
 const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late'];
 
+/**
+ * Nach jeder Änderung sofort die Fristen prüfen: Wird eine Reinigung erst nach 12 bzw. 15 Uhr
+ * für heute eingetragen oder auf heute verschoben, kommt die Erinnerung gleich (nicht erst beim nächsten Lauf).
+ */
+function withDeadlines(result, now, cfg) {
+  const d = L.checkDeadlines(result.state, now, cfg, { remindersOnly: true });
+  return { state: d.state, notifications: [...result.notifications, ...d.notifications] };
+}
+
 async function viewFor(env, cfg, settings, state, user, now) {
   const { date: today, time } = L.localParts(now, cfg.timezone);
   const recipient = user.role === 'owner' ? cfg.owner.id : user.id;
@@ -214,7 +223,7 @@ async function handleApi(request, env, url, ctx) {
     const booking = payload && L.fromSmoobuWebhook(payload);
     if (!booking || (payload.data && payload.data['is-blocked-booking'])) return json({ ok: true, ignored: true });
     const result = await mutate(env.DB, (state) =>
-      state.initialized ? L.applyBooking(state, booking, now, cfg) : { state, notifications: [] }, now);
+      state.initialized ? withDeadlines(L.applyBooking(state, booking, now, cfg), now, cfg) : { state, notifications: [] }, now);
     ctx.waitUntil(deliver(env, cfg, result.notifications));
     return json({ ok: true });
   }
@@ -227,7 +236,7 @@ async function handleApi(request, env, url, ctx) {
   const change = async (fn, status = 400) => {
     let result;
     try {
-      result = await mutate(env.DB, fn, now);
+      result = await mutate(env.DB, (st) => withDeadlines(fn(st), now, cfg), now);
     } catch (e) {
       return fail(e.message, status);
     }

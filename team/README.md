@@ -33,7 +33,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Reinigungstag ab **15:00 nicht beendet** → „überfällig“; Erinnerung „Reinigung bitte beenden“ (bzw. „immer noch nicht begonnen“)
 - Erinnerungen gehen an das Reinigungsteam (Leitung + zugewiesene Mitarbeiterin; noch nicht zugewiesen: alle Mitarbeiterinnen)
   **und den Admin**; um 12:00 und um 15:00 sofort, danach **alle 30 Minuten wiederholt**, solange überfällig
-  (bis 20 Uhr); gilt auch für manuelle Reinigungen am selben Tag
+  (bis 22 Uhr); gilt auch für Reinigungen, die erst nach 12 bzw. 15 Uhr für heute eingetragen oder auf heute verschoben
+  werden – dann kommt die Erinnerung sofort
 - Vortag nicht erledigt → einmalige Meldung
 - Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt
 - Zeiten und Abstand einstellbar in `worker/src/config.js` (`startBy`, `finishBy`, `repeatMinutes`, `quietFrom`)

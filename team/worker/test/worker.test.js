@@ -334,7 +334,25 @@ test('Überfällige Reinigung heute: Erinnerung wird verschickt; Versandfehler w
   const report = (await me(admin)).pushReport;
   assert.ok(report.failed >= 3);
   assert.match(report.errors[0].error, /429/);
-  assert.equal((await me(admin)).rules.quietFrom, '20:00');
+  assert.equal((await me(admin)).rules.quietFrom, '22:00');
+});
+
+test('Manuelle Reinigung nach 12 Uhr für heute eingetragen → Erinnerung kommt sofort', async () => {
+  const day = '2099-12-03';
+  const realNow = Date.now;
+  Date.now = () => new Date(`${day}T13:20:00+01:00`).getTime();
+  try {
+    pushes = [];
+    const res = await call('POST', '/api/manual', { session: admin, body: { apartmentId: '1', date: day, note: 'spät' } });
+    assert.equal(res.status, 200);
+    await new Promise((r) => setTimeout(r, 50));
+    const got = pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').map((p) => p.topic);
+    assert.ok(got.includes(await topicOf(admin)));
+    assert.ok(got.includes(await topicOf(lea)));
+    assert.ok(got.includes(await topicOf(mia)), 'noch nicht zugewiesen → alle Mitarbeiterinnen');
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {

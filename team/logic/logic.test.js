@@ -121,8 +121,10 @@ test('Überfällig: begonnen, aber um 15 Uhr nicht beendet → „bitte beenden�
   assert.equal(res.notifications[0].title, 'Reinigung bitte beenden');
   assert.match(res.notifications[0].body, /läuft seit 12:10 Uhr/);
   assert.equal(res.notifications.length, 3);
-  res = L.checkDeadlines(res.state, at(day, '20:05'), CFG);
-  assert.equal(res.notifications.length, 0, 'Nachtruhe ab 20 Uhr');
+  res = L.checkDeadlines(res.state, at(day, '21:55'), CFG);
+  assert.equal(res.notifications.length, 3, 'bis 22 Uhr wird erinnert');
+  res = L.checkDeadlines(res.state, at(day, '22:00'), CFG);
+  assert.equal(res.notifications.length, 0, 'Nachtruhe ab 22 Uhr');
 });
 
 test('15-Uhr-Erinnerung kommt pünktlich, auch wenn um 14:45 noch an den Start erinnert wurde', () => {
@@ -142,6 +144,14 @@ test('Überfällig und noch niemandem zugewiesen → ganzes Reinigungsteam + Adm
   const res = L.checkDeadlines(state, at('2026-10-02', '12:00'), CFG);
   const reminders = res.notifications.filter((n) => n.kind === 'reminder');
   assert.deepEqual(who(reminders), ['ida:reminder', 'lea:reminder', 'mia:reminder', 'owner:reminder']);
+});
+
+test('Nach 15 Uhr für heute eingetragen → Erinnerung sofort beim nächsten Prüfen', () => {
+  let { state } = L.addManualCleaning(L.createState(), { id: 'm2', apartmentId: '7', apartmentName: 'Suite', date: '2026-09-23' }, at('2026-09-23', '17:40'), CFG);
+  const res = L.checkDeadlines(state, at('2026-09-23', '17:40'), CFG);
+  const r = res.notifications.filter((n) => n.kind === 'reminder2');
+  assert.equal(r.length, 4);
+  assert.equal(r[0].title, 'Reinigung immer noch nicht begonnen');
 });
 
 test('Überfällig gilt auch für manuelle Reinigungen am selben Tag', () => {

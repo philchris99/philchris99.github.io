@@ -29,7 +29,7 @@
     startBy: '12:00',            // Reinigungstag: bis dahin muss die Reinigung begonnen sein
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
     repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
-    quietFrom: '20:00',          // ab dann keine Erinnerungen mehr (Nachtruhe)
+    quietFrom: '22:00',          // ab dann keine Erinnerungen mehr (Nachtruhe)
     owner: { id: 'owner', name: 'Apartments Strauss' },
     leads: [],                   // [{ id, name }]
     staff: [],                   // [{ id, name }]
@@ -550,7 +550,8 @@
     return null;
   }
 
-  function checkDeadlines(state, now, config) {
+  /** options.remindersOnly: nur 12/15-Uhr-Erinnerungen (sofort nach einer Änderung), ohne 6-Std.-Alarm */
+  function checkDeadlines(state, now, config, options) {
     config = withConfig(config);
     state = clone(state);
     const { time } = localParts(now, config.timezone);
@@ -564,7 +565,7 @@
       if (!isActive(task)) continue;
 
       // 1) Nicht innerhalb von 6 Stunden vollständig bestätigt → Admin (einmal)
-      if (!task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && task.date >= today
+      if (!(options && options.remindersOnly) && !task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && task.date >= today
           && nowMs - Date.parse(task.confirmFrom) >= limit) {
         task.lateAlerted = true;
         log(task, nowIso, `Nach ${config.confirmWithinHours} Std. nicht bestätigt – Admin informiert`);
