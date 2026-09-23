@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Reinigungsplan Strauß</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #F6F5F2; --card: #FFFFFF; --text: #1C1C1C; --muted: #6B6B6B; --line: #E4E1DC;
+  --accent: #2F6F5E; --accent-text: #FFFFFF;
+  --open: #B7791F; --open-bg: #FDF3E1;
+  --ok: #2F7D4F; --ok-bg: #E4F4EA;
+  --done: #4A5568; --done-bg: #EDF0F4;
+  --bad: #B83232; --bad-bg: #FBE7E7;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151716; --card: #1F2221; --text: #ECECEC; --muted: #A0A4A2; --line: #333836;
+    --accent: #5FB39B; --accent-text: #0E1412;
+    --open: #E8B25A; --open-bg: #3A2E18; --ok: #6FCB93; --ok-bg: #173323;
+    --done: #B0B8C4; --done-bg: #262B31; --bad: #F08A8A; --bad-bg: #3D1C1C;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151716; --card: #1F2221; --text: #ECECEC; --muted: #A0A4A2; --line: #333836;
+  --accent: #5FB39B; --accent-text: #0E1412;
+  --open: #E8B25A; --open-bg: #3A2E18; --ok: #6FCB93; --ok-bg: #173323;
+  --done: #B0B8C4; --done-bg: #262B31; --bad: #F08A8A; --bad-bg: #3D1C1C;
+}
+body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+header { background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; position: sticky; top: 0; z-index: 5; }
+h1 { font-size: 17px; font-weight: 600; }
+h2 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; }
+.clock { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
+.clock strong { color: var(--text); font-variant-numeric: tabular-nums; }
+main { max-width: 760px; margin: 0 auto; padding: 0 16px 48px; }
+nav { display: flex; gap: 4px; margin: 14px 0 4px; overflow-x: auto; }
+nav button { flex: 1; white-space: nowrap; padding: 7px 8px; }
+button, select, input { font: inherit; color: inherit; }
+button { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 11px; cursor: pointer; }
+button.small { padding: 3px 8px; font-size: 13px; }
+button.primary, nav button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.danger { color: var(--bad); }
+select, input { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 9px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.meta { color: var(--muted); font-size: 13px; }
+.badge { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 99px; padding: 2px 9px; }
+.s-offen { color: var(--open); background: var(--open-bg); }
+.s-bestätigt { color: var(--ok); background: var(--ok-bg); }
+.s-erledigt { color: var(--done); background: var(--done-bg); }
+.s-storniert { color: var(--muted); background: var(--done-bg); text-decoration: line-through; }
+.alert { color: var(--bad); background: var(--bad-bg); }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; align-items: end; }
+.form label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+.push { border-left: 3px solid var(--accent); }
+.push.escalation { border-left-color: var(--bad); }
+.push.reminder { border-left-color: var(--open); }
+.empty { color: var(--muted); padding: 12px 0; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+.stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+@media (max-width: 420px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Reinigungsplan Apartment Strauß</h1>
+  <div class="clock">
+    Testversion · Zeit: <strong id="clock"></strong>
+    <button class="small" data-jump="1h">+1 Std</button>
+    <button class="small" data-jump="1d">+1 Tag</button>
+    <button class="small" data-jump="12">12:00</button>
+    <button class="small" data-jump="13">13:00</button>
+    <button class="small" data-jump="now">Jetzt</button>
+  </div>
+</header>
+
+<main>
+  <nav role="tablist">
+    <button data-tab="cleaner">Reinigungskraft</button>
+    <button data-tab="owner">Auftraggeber</button>
+    <button data-tab="smoobu">Smoobu-Test</button>
+  </nav>
+
+  <section id="tab-cleaner">
+    <h2>
+      Angemeldet als
+      <select id="cleanerSelect"></select>
+    </h2>
+    <div id="cleanerList"></div>
+  </section>
+
+  <section id="tab-owner" hidden>
+    <h2>Übersicht</h2>
+    <div class="stats" id="stats"></div>
+    <h2>Alle Reinigungen</h2>
+    <div id="ownerList"></div>
+  </section>
+
+  <section id="tab-smoobu" hidden>
+    <h2>Neue Buchung (wie ein Smoobu-Webhook)</h2>
+    <div class="card">
+      <div class="form">
+        <label>Wohnung <select id="fApt"></select></label>
+        <label>Gast <input id="fGuest" placeholder="Name"></label>
+        <label>Anreise <input id="fArr" type="date"></label>
+        <label>Abreise <input id="fDep" type="date"></label>
+        <button class="primary" id="fAdd">Buchung anlegen</button>
+      </div>
+    </div>
+    <h2>Buchungen</h2>
+    <div id="bookingList"></div>
+    <div class="actions">
+      <button id="demo">Beispieldaten laden</button>
+      <button class="danger" id="reset">Alles zurücksetzen</button>
+    </div>
+  </section>
+
+  <h2 id="pushTitle">Push-Nachrichten</h2>
+  <div id="pushList"></div>
+</main>
+
+<script src="logic.js"></script>
+<script>
+(function () {
+  'use strict';
+  const L = window.CleaningLogic;
+  const CONFIG = L.DEFAULT_CONFIG;
+  const KEY = 'reinigung-demo-v1';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let db = load() || fresh();
+  let tab = 'cleaner';
+  let cleanerId = CONFIG.cleaners[0].id;
+
+  function fresh() {
+    return { state: L.createState(), clock: Date.now(), pushes: [], seq: 1000 };
+  }
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* Demo läuft auch ohne Speicher */ }
+  }
+  function nameOf(id) {
+    if (id === CONFIG.owner.id) return CONFIG.owner.name;
+    const c = CONFIG.cleaners.find((x) => x.id === id);
+    return c ? c.name : id;
+  }
+  function today() { return L.localParts(db.clock, CONFIG.timezone).date; }
+
+  // Ergebnis einer Logik-Funktion übernehmen, Fristen prüfen, neu zeichnen
+  function apply(result) {
+    db.state = result.state;
+    deliver(result.notifications);
+    const deadlines = L.checkDeadlines(db.state, db.clock, CONFIG);
+    db.state = deadlines.state;
+    deliver(deadlines.notifications);
+    save();
+    render();
+  }
+  function deliver(list) {
+    const p = L.localParts(db.clock, CONFIG.timezone);
+    for (const n of list) {
+      db.pushes.unshift(Object.assign({ at: `${L.formatDate(p.date)} ${p.time}` }, n));
+      // Echte Browser-Benachrichtigung für die gerade angemeldete Person (falls erlaubt)
+      const viewer = tab === 'owner' ? CONFIG.owner.id : cleanerId;
+      if (n.to === viewer && 'Notification' in window && Notification.permission === 'granted') {
+        try { new Notification(n.title, { body: n.body }); } catch (e) { /* z. B. iOS ohne PWA */ }
+      }
+    }
+    db.pushes = db.pushes.slice(0, 100);
+  }
+  function safely(fn) {
+    try { apply(fn()); } catch (e) { alert(e.message); }
+  }
+
+  // ---- Aktionen --------------------------------------------------------------
+  function booking(action, r, departure) {
+    return { action, id: r.id, apartmentId: r.apartmentId, guest: r.guest || '', arrival: r.arrival, departure: departure || r.departure };
+  }
+  function addBooking(apartmentId, guest, arrival, departure) {
+    if (!arrival || !departure || departure <= arrival) return alert('Bitte gültige An- und Abreise wählen.');
+    const id = String(++db.seq);
+    safely(() => L.applyBooking(db.state, { action: 'new', id, apartmentId, guest, arrival, departure }, db.clock, CONFIG));
+  }
+  function guestOf(id) { return (db.state.tasks[id] || {}).guest || ''; }
+
+  function loadDemo() {
+    db = fresh();
+    const t = today();
+    const b = [
+      ['1', 'Familie Müller', -3, 0], ['4', 'Herr Schmidt', -2, 0], ['4', 'Frau Weber', 0, 4],
+      ['7', 'Familie Özdemir', -1, 1], ['10', 'Paar Novak', -5, 2], ['12', 'Herr Jansen', 1, 3],
+    ];
+    for (const [apt, guest, a, d] of b) {
+      const id = String(++db.seq);
+      const r = L.applyBooking(db.state, { action: 'new', id, apartmentId: apt, guest, arrival: L.addDays(t, a), departure: L.addDays(t, d) }, db.clock, CONFIG);
+      db.state = r.state; deliver(r.notifications);
+    }
+    apply({ state: db.state, notifications: [] });
+  }
+
+  // ---- Darstellung -----------------------------------------------------------
+  function badge(t) {
+    const alert = t.status === L.STATUS.OPEN && t.escalated;
+    return `<span class="badge ${alert ? 'alert' : 's-' + t.status}">${alert ? 'nicht bestätigt!' : t.status}</span>`;
+  }
+  function taskCard(t, forCleaner) {
+    const isToday = t.date === today();
+    const extra = [
+      t.sameDayArrival ? '<span class="badge alert">Wechseltag – Gast reist heute an</span>' : '',
+      t.assignedTo ? `übernommen von <b>${esc(nameOf(t.assignedTo))}</b>` : '',
+    ].filter(Boolean).join(' · ');
+    let actions = '';
+    if (forCleaner && t.status === L.STATUS.OPEN) actions += `<button class="primary" data-confirm="${t.id}">Bestätigen / Übernehmen</button>`;
+    if (forCleaner && t.status === L.STATUS.CONFIRMED && t.assignedTo === cleanerId) actions += `<button data-done="${t.id}">Erledigt</button>`;
+    return `<div class="card">
+      <div class="row"><b>${esc(t.apartmentName)}</b>${badge(t)}</div>
+      <div class="meta">${isToday ? '<b>Heute</b>, ' : ''}${L.formatDate(t.date)} · Abreise ${esc(t.guest)}${extra ? ' · ' + extra : ''}</div>
+      ${actions ? `<div class="actions">${actions}</div>` : ''}
+      ${forCleaner ? '' : `<details class="meta"><summary>Verlauf</summary>${t.history.map((h) => `<div>${esc(h.text)}</div>`).join('')}</details>`}
+    </div>`;
+  }
+  function list(el, items, html) {
+    el.innerHTML = items.length ? items.map(html).join('') : '<div class="empty">Keine Einträge.</div>';
+  }
+
+  function render() {
+    const p = L.localParts(db.clock, CONFIG.timezone);
+    $('clock').textContent = `${L.formatDate(p.date)} ${p.time} Uhr`;
+    document.querySelectorAll('nav button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+    ['cleaner', 'owner', 'smoobu'].forEach((x) => { $('tab-' + x).hidden = x !== tab; });
+
+    const from = today();
+    list($('cleanerList'), L.listCleanings(db.state, { cleanerId, from }, CONFIG).filter((t) => t.status !== L.STATUS.CANCELLED), (t) => taskCard(t, true));
+
+    const all = L.listCleanings(db.state, { from: L.addDays(from, -7) }, CONFIG);
+    list($('ownerList'), all, (t) => taskCard(t, false));
+    const upcoming = all.filter((t) => t.date >= from);
+    const count = (s) => upcoming.filter((t) => t.status === s).length;
+    $('stats').innerHTML = [
+      ['offen', count(L.STATUS.OPEN)], ['bestätigt', count(L.STATUS.CONFIRMED)],
+      ['erledigt', count(L.STATUS.DONE)], ['Alarme', upcoming.filter((t) => t.escalated && t.status === L.STATUS.OPEN).length],
+    ].map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+
+    const reservations = Object.values(db.state.reservations).sort((a, b) => a.departure.localeCompare(b.departure));
+    list($('bookingList'), reservations, (r) => `<div class="card">
+      <div class="row"><b>${esc(CONFIG.apartments.find((a) => a.id === r.apartmentId).name)}</b><span class="meta">#${r.id}</span></div>
+      <div class="meta">${esc(guestOf(r.id))} · ${L.formatDate(r.arrival)} – ${L.formatDate(r.departure)}</div>
+      <div class="actions">
+        <button class="small" data-extend="${r.id}" data-days="1">+1 Tag verlängern</button>
+        <button class="small" data-extend="${r.id}" data-days="-1">1 Tag verkürzen</button>
+        <button class="small danger" data-cancel="${r.id}">Stornieren</button>
+      </div></div>`);
+
+    const viewer = tab === 'owner' ? CONFIG.owner.id : tab === 'cleaner' ? cleanerId : null;
+    $('pushTitle').textContent = viewer ? `Push-Nachrichten an ${nameOf(viewer)}` : 'Alle Push-Nachrichten';
+    list($('pushList'), db.pushes.filter((n) => !viewer || n.to === viewer).slice(0, 30), (n) => `<div class="card push ${n.kind}">
+      <div class="row"><b>${esc(n.title)}</b><span class="meta">${esc(n.at)}${viewer ? '' : ' → ' + esc(nameOf(n.to))}</span></div>
+      <div class="meta">${esc(n.body)}</div></div>`);
+  }
+
+  // ---- Ereignisse ------------------------------------------------------------
+  $('cleanerSelect').innerHTML = CONFIG.cleaners.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  $('fApt').innerHTML = CONFIG.apartments.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+  $('fArr').value = today();
+  $('fDep').value = L.addDays(today(), 3);
+
+  $('cleanerSelect').onchange = (e) => { cleanerId = e.target.value; render(); };
+  document.querySelector('nav').onclick = (e) => {
+    if (!e.target.dataset.tab) return;
+    tab = e.target.dataset.tab; render();
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  };
+  $('fAdd').onclick = () => addBooking($('fApt').value, $('fGuest').value, $('fArr').value, $('fDep').value);
+  $('demo').onclick = loadDemo;
+  $('reset').onclick = () => { if (confirm('Alle Testdaten löschen?')) { db = fresh(); apply({ state: db.state, notifications: [] }); } };
+
+  document.querySelector('.clock').onclick = (e) => {
+    const j = e.target.dataset.jump;
+    if (!j) return;
+    const d = new Date(db.clock);
+    if (j === '1h') d.setTime(d.getTime() + 3600e3);
+    else if (j === '1d') d.setTime(d.getTime() + 86400e3);
+    else if (j === 'now') d.setTime(Date.now());
+    else {
+      // auf 12:00 / 13:00 Uhr deutscher Zeit am simulierten Tag springen
+      const cur = L.localParts(d, CONFIG.timezone);
+      const [h, m] = cur.time.split(':').map(Number);
+      let minutes = (Number(j) - h) * 60 - m;
+      if (minutes <= 0) minutes += 24 * 60; // schon vorbei → nächster Tag
+      d.setTime(d.getTime() + minutes * 60e3);
+    }
+    db.clock = d.getTime();
+    apply({ state: db.state, notifications: [] });
+  };
+
+  document.body.addEventListener('click', (e) => {
+    const t = e.target.dataset;
+    if (t.confirm) safely(() => L.confirmCleaning(db.state, t.confirm, cleanerId, db.clock, CONFIG));
+    if (t.done) safely(() => L.completeCleaning(db.state, t.done, cleanerId, db.clock, CONFIG));
+    if (t.extend) {
+      const r = db.state.reservations[t.extend];
+      const dep = L.addDays(r.departure, Number(t.days));
+      if (dep <= r.arrival) return alert('Abreise muss nach der Anreise liegen.');
+      safely(() => L.applyBooking(db.state, booking('update', Object.assign({ guest: guestOf(r.id) }, r), dep), db.clock, CONFIG));
+    }
+    if (t.cancel) {
+      const r = db.state.reservations[t.cancel];
+      safely(() => L.applyBooking(db.state, booking('cancel', r), db.clock, CONFIG));
+    }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
