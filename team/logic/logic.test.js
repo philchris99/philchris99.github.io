@@ -125,10 +125,29 @@ test('Überfällig: begonnen, aber um 15 Uhr nicht beendet → „bitte beenden�
   assert.equal(res.notifications.length, 0, 'Nachtruhe ab 20 Uhr');
 });
 
+test('15-Uhr-Erinnerung kommt pünktlich, auch wenn um 14:45 noch an den Start erinnert wurde', () => {
+  const day = '2026-10-02';
+  let res = L.checkDeadlines(confirmedTask(), at(day, '14:45'), CFG);
+  assert.equal(res.notifications[0].title, 'Reinigung muss heute noch gestartet werden');
+  res = L.checkDeadlines(res.state, at(day, '15:00'), CFG);
+  assert.deepEqual(who(res.notifications), ['lea:reminder2', 'mia:reminder2', 'owner:reminder2']);
+  assert.equal(res.notifications[0].title, 'Reinigung immer noch nicht begonnen');
+  res = L.checkDeadlines(res.state, at(day, '15:05'), CFG);
+  assert.equal(res.notifications.length, 0);
+  assert.equal(L.checkDeadlines(res.state, at(day, '15:30'), CFG).notifications.length, 3);
+});
+
+test('Überfällig und noch niemandem zugewiesen → ganzes Reinigungsteam + Admin', () => {
+  const { state } = L.applyBooking(L.createState(), booking(), NOW, CFG);
+  const res = L.checkDeadlines(state, at('2026-10-02', '12:00'), CFG);
+  const reminders = res.notifications.filter((n) => n.kind === 'reminder');
+  assert.deepEqual(who(reminders), ['ida:reminder', 'lea:reminder', 'mia:reminder', 'owner:reminder']);
+});
+
 test('Überfällig gilt auch für manuelle Reinigungen am selben Tag', () => {
   let { state } = L.addManualCleaning(L.createState(), { id: 'm1', apartmentId: '7', apartmentName: 'Suite', date: '2026-09-23' }, at('2026-09-23', '12:30'), CFG);
   const res = L.checkDeadlines(state, at('2026-09-23', '12:30'), CFG);
-  assert.deepEqual(who(res.notifications.filter((n) => n.kind === 'reminder')), ['lea:reminder', 'owner:reminder']);
+  assert.deepEqual(who(res.notifications.filter((n) => n.kind === 'reminder')), ['ida:reminder', 'lea:reminder', 'mia:reminder', 'owner:reminder']);
   assert.match(res.notifications.find((n) => n.kind === 'reminder').body, /noch niemandem zugewiesen/);
 });
 

@@ -31,7 +31,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - 6 Std. nach Eintragung/Verschiebung nicht von Leitung **und** Mitarbeiterin bestätigt → Alarm an Admin
 - Reinigungstag ab **12:00 nicht begonnen** → „überfällig“; Erinnerung „Reinigung muss heute noch gestartet werden“
 - Reinigungstag ab **15:00 nicht beendet** → „überfällig“; Erinnerung „Reinigung bitte beenden“ (bzw. „immer noch nicht begonnen“)
-- Erinnerungen gehen an Leitung, zugewiesene Mitarbeiterin und Admin und werden **alle 30 Minuten wiederholt**, solange überfällig
+- Erinnerungen gehen an das Reinigungsteam (Leitung + zugewiesene Mitarbeiterin; noch nicht zugewiesen: alle Mitarbeiterinnen)
+  **und den Admin**; um 12:00 und um 15:00 sofort, danach **alle 30 Minuten wiederholt**, solange überfällig
   (bis 20 Uhr); gilt auch für manuelle Reinigungen am selben Tag
 - Vortag nicht erledigt → einmalige Meldung
 - Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt

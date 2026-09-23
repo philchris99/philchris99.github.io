@@ -167,6 +167,7 @@
     task.staffConfirmedAt = null;
     task.lateAlerted = false;
     task.lastReminderAt = null;
+    task.lastReminderReason = null;
     task.pastReminded = false;
     updateStatus(task);
   }
@@ -571,10 +572,12 @@
           `${task.apartmentName} (${formatDate(task.date)}): seit ${config.confirmWithinHours} Std. nicht bestätigt – es fehlt: ${missingText(config, task)}.`));
       }
 
-      // 2) Überfällig → Leitung, zugewiesene Mitarbeiterin, Admin
+      // 2) Überfällig → Reinigungsteam (Leitung + zugewiesene Mitarbeiterin; noch nicht
+      //    zugewiesen: alle Mitarbeiterinnen) und Admin
       const reason = overdueReason(task, now, config);
       if (!reason) continue;
-      const all = [...team(config, task), config.owner.id];
+      const crew = task.assignedTo ? team(config, task) : [...leadIds(config), ...config.staff.map((s) => s.id)];
+      const all = [...crew, config.owner.id];
       if (reason === 'past') { // vergangener Tag nicht erledigt: einmal melden
         if (task.pastReminded) continue;
         task.pastReminded = true;
@@ -583,8 +586,11 @@
         continue;
       }
       if (time >= config.quietFrom) continue; // Nachtruhe
-      if (task.lastReminderAt && nowMs - Date.parse(task.lastReminderAt) < config.repeatMinutes * 60000 - 60000) continue;
+      // Neue Stufe (12 Uhr → 15 Uhr) sofort melden, sonst im eingestellten Abstand wiederholen
+      const sameStage = task.lastReminderReason === reason || (!task.lastReminderReason && reason === 'start');
+      if (task.lastReminderAt && sameStage && nowMs - Date.parse(task.lastReminderAt) < config.repeatMinutes * 60000 - 60000) continue;
       task.lastReminderAt = nowIso;
+      task.lastReminderReason = reason;
       task.reminderCount = (task.reminderCount || 0) + 1;
       let title;
       let body;
