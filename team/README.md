@@ -4,8 +4,8 @@ Web-App unter **team.apartments-strauss.de**:
 Buchungen aus Smoobu → Endreinigungen → Bestätigung durch die Reinigungskraft → Push-Nachrichten.
 
 ```
-Smoobu ──(alle 15 Min. + optional Webhook)──▶ Cloudflare Worker „strauss-team“ ──▶ ntfy-Push aufs Handy
-                                               │  D1-Datenbank, Fristen 6 Std. / 12 / 15 Uhr
+Smoobu ──(alle 5 Min. + optional Webhook)──▶ Cloudflare Worker „strauss-team“ ──▶ ntfy-Push aufs Handy
+                                               │  D1-Datenbank, Fristen 6 Std. / überfällig ab 12 / 15 Uhr
 team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶ Worker (Web-App + API)
 ```
 
@@ -27,11 +27,15 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 **Anmeldung**: auf der Startseite 6-stelliger Code (geht nach der 6. Ziffer automatisch weiter); nach 3 falschen Codes 1 Minute gesperrt.
 Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_PASSWORD`.
 
-**Fristen und Erinnerungen** (deutsche Zeit, Push über ntfy)
+**Fristen und Erinnerungen** (deutsche Zeit, Prüfung alle 5 Minuten, Push über ntfy)
 - 6 Std. nach Eintragung/Verschiebung nicht von Leitung **und** Mitarbeiterin bestätigt → Alarm an Admin
-- Reinigungstag 12:00 nicht erledigt → Erinnerung an Leitung, Mitarbeiterin, Admin
-- Reinigungstag 15:00 immer noch nicht erledigt → erneute Erinnerung an alle
+- Reinigungstag ab **12:00 nicht begonnen** → „überfällig“; Erinnerung „Reinigung muss heute noch gestartet werden“
+- Reinigungstag ab **15:00 nicht beendet** → „überfällig“; Erinnerung „Reinigung bitte beenden“ (bzw. „immer noch nicht begonnen“)
+- Erinnerungen gehen an Leitung, zugewiesene Mitarbeiterin und Admin und werden **alle 30 Minuten wiederholt**, solange überfällig
+  (bis 20 Uhr); gilt auch für manuelle Reinigungen am selben Tag
+- Vortag nicht erledigt → einmalige Meldung
 - Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt
+- Zeiten und Abstand einstellbar in `worker/src/config.js` (`startBy`, `finishBy`, `repeatMinutes`, `quietFrom`)
 
 **Weiteres**
 - „Neuigkeiten“ oben: was sich geändert hat (neu, zugewiesen, verlängert/verkürzt, verschoben, abgesagt, Hinweise)
@@ -107,7 +111,7 @@ https://team.apartments-strauss.de, gibt den Code ein, legt die Seite auf den Ho
 
 **8. Optional: sofortige Aktualisierung**
 Die Webhook-Adresse aus „System & Smoobu“ in Smoobu unter *Einstellungen → API → Webhook-URL* eintragen.
-Ohne Webhook kommen Änderungen spätestens nach 15 Minuten an.
+Ohne Webhook kommen Änderungen spätestens nach 5 Minuten an.
 
 ## Entwicklung
 

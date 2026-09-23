@@ -419,7 +419,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (t.status === 'storniert') return '<span class="chip gone">entfällt</span>';
     if (t.status === 'erledigt') out.push(`<span class="chip yes">erledigt ✓ ${t.doneAt ? clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`);
     else {
-      if (t.lateAlerted || t.reminded2) out.push('<span class="chip alert">überfällig</span>');
+      if (t.overdue === 'start') out.push('<span class="chip alert">überfällig – noch nicht begonnen</span>');
+      else if (t.overdue === 'finish') out.push(`<span class="chip alert">überfällig – ${t.startedAt ? 'noch nicht beendet' : 'nicht begonnen'}</span>`);
+      else if (t.overdue === 'past') out.push('<span class="chip alert">überfällig – nicht erledigt</span>');
+      if (t.lateAlerted && t.status === 'offen') out.push('<span class="chip alert">nicht rechtzeitig bestätigt</span>');
       out.push(t.leadConfirmedAt ? '<span class="chip yes">Leitung ✓</span>' : '<span class="chip wait">Leitung offen</span>');
       if (!t.assignedTo) out.push('<span class="chip wait">nicht zugewiesen</span>');
       else out.push(`<span class="chip ${t.staffConfirmedAt ? 'yes' : 'wait'}">${esc(nameOf(t.assignedTo))} ${t.staffConfirmedAt ? '✓' : 'offen'}</span>`);
@@ -490,7 +493,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const active = isActive(t);
     const mineToDo = t.assignedTo === data.user.id;
     const isNew = r === 'staff' ? active && !t.staffConfirmedAt : r === 'lead' ? active && (!t.leadConfirmedAt || !t.assignedTo) : false;
-    const urgent = active && (t.lateAlerted || t.reminded2 || (r === 'owner' && t.status === 'offen' && t.date <= addDays(data.today, 1)));
+    const urgent = active && (t.overdue || t.lateAlerted || (r === 'owner' && t.status === 'offen' && t.date <= addDays(data.today, 1)));
     const cls = ['task', active ? '' : 'muted', isNew ? 'is-new' : '', opts.next ? 'is-next' : '', urgent ? 'urgent' : ''].filter(Boolean).join(' ');
     const actions = [];
     if (r === 'lead' && active && !t.leadConfirmedAt) actions.push(`<button data-lead-confirm="${esc(t.id)}">Erhalt bestätigen</button>`);
@@ -694,11 +697,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const later = tasks.filter((t) => t.date > t14);
     const past = tasks.filter((t) => t.date < t0).reverse();
     const unconfirmed = active.filter((t) => t.status === 'offen' && t.date >= t0);
-    const alarms = active.filter((t) => t.lateAlerted || t.reminded2);
+    const alarms = active.filter((t) => t.overdue || t.lateAlerted);
     const reports = data.openReports || [];
     const apartments = data.apartments || [];
     const urgent = [
-      ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${t.reminded2 ? 'noch nicht erledigt' : 'nicht rechtzeitig bestätigt'}`]),
+      ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${
+        t.overdue === 'start' ? 'noch nicht begonnen' : t.overdue ? (t.startedAt ? 'noch nicht beendet' : 'nicht erledigt') : 'nicht rechtzeitig bestätigt'}`]),
       ...unconfirmed.filter((t) => !t.lateAlerted && t.date <= t1).map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: noch nicht vollständig bestätigt`]),
       ...(!data.hasOwnerCode ? [['team', 'Eigenen 6-stelligen Admin-Code festlegen']] : []),
       ...(!(data.leads || []).length ? [['team', 'Noch keine Reinigungsleitung angelegt']] : []),
@@ -825,7 +829,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function cleaningDetails(id) {
     const c = cal.cleanings.find((x) => x.id === id);
     const a = cal.apartments.find((x) => x.id === c.apartmentId);
-    const state = c.overdue ? '<span class="chip alert">überfällig</span>'
+    const state = c.overdue ? `<span class="chip alert">überfällig – ${c.overdueReason === 'start' ? 'noch nicht begonnen' : c.startedAt ? 'noch nicht beendet' : 'nicht erledigt'}</span>`
       : c.status === 'erledigt' ? '<span class="chip yes">erledigt ✓</span>'
       : c.status === 'bestätigt' ? '<span class="chip yes">bestätigt</span>' : '<span class="chip wait">offen – noch nicht bestätigt</span>';
     openModal(`<div class="eyebrow">${a.number} · ${esc(a.name)}</div>
@@ -884,7 +888,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <span><span class="sym" style="background:#D98A1C">!</span>offen</span>
         <span><span class="sym" style="background:var(--accent)">✓</span>bestätigt</span>
         <span><span class="sym" style="background:#2F6B3F">✓</span>erledigt</span>
-        <span><span class="sym" style="background:var(--bad)">!</span>überfällig</span>
+        <span><span class="sym" style="background:var(--bad)">!</span>überfällig (12 Uhr nicht begonnen / 15 Uhr nicht fertig)</span>
         <span><span class="sym sq" style="background:var(--muted)">■</span>manuelle Reinigung</span>
         <span>● Check-out</span></div>
       ${cal.apartments.length ? `<div class="cal" id="cal-scroll"><div class="cal-grid" style="--days:${cal.days}">

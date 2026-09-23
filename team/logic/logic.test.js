@@ -96,20 +96,46 @@ test('rechtzeitig bestätigt → kein 6-Stunden-Alarm', () => {
   assert.equal(res.notifications.length, 0);
 });
 
-test('Reinigungstag: 12 Uhr und 15 Uhr Erinnerung an Leitung, Mitarbeiterin und Admin, falls nicht erledigt', () => {
+test('Überfällig: ab 12 Uhr nicht begonnen → wiederholte Erinnerung alle 30 Min. an Leitung, Mitarbeiterin, Admin', () => {
   const day = '2026-10-02';
-  let res = L.checkDeadlines(confirmedTask(), at(day, '11:59'), CFG);
+  let res = L.checkDeadlines(confirmedTask(), at(day, '11:55'), CFG);
   assert.equal(res.notifications.length, 0);
+  assert.equal(L.overdueReason(res.state.tasks['100'], at(day, '11:55'), CFG), null);
   res = L.checkDeadlines(res.state, at(day, '12:00'), CFG);
   assert.deepEqual(who(res.notifications), ['lea:reminder', 'mia:reminder', 'owner:reminder']);
-  assert.match(res.notifications[0].body, /noch nicht begonnen \(Mia\)/);
-  res = L.checkDeadlines(res.state, at(day, '14:00'), CFG);
+  assert.equal(res.notifications[0].title, 'Reinigung muss heute noch gestartet werden');
+  assert.equal(L.overdueReason(res.state.tasks['100'], at(day, '12:00'), CFG), 'start');
+  res = L.checkDeadlines(res.state, at(day, '12:15'), CFG);
+  assert.equal(res.notifications.length, 0, 'nicht öfter als alle 30 Min.');
+  res = L.checkDeadlines(res.state, at(day, '12:30'), CFG);
+  assert.equal(res.notifications.length, 3, 'nach 30 Min. erneut');
+});
+
+test('Überfällig: begonnen, aber um 15 Uhr nicht beendet → „bitte beenden“; begonnen vor 15 Uhr → nicht überfällig', () => {
+  const day = '2026-10-02';
+  let { state } = L.startCleaning(confirmedTask(), '100', 'mia', at(day, '12:10'), CFG);
+  assert.equal(L.overdueReason(state.tasks['100'], at(day, '14:59'), CFG), null);
+  let res = L.checkDeadlines(state, at(day, '14:59'), CFG);
   assert.equal(res.notifications.length, 0);
-  ({ state: res.state } = L.startCleaning(res.state, '100', 'mia', at(day, '14:30'), CFG));
   res = L.checkDeadlines(res.state, at(day, '15:00'), CFG);
-  assert.deepEqual(who(res.notifications), ['lea:reminder2', 'mia:reminder2', 'owner:reminder2']);
-  assert.match(res.notifications[0].body, /läuft seit 14:30 Uhr/);
-  res = L.checkDeadlines(res.state, at(day, '16:00'), CFG);
+  assert.equal(res.notifications[0].title, 'Reinigung bitte beenden');
+  assert.match(res.notifications[0].body, /läuft seit 12:10 Uhr/);
+  assert.equal(res.notifications.length, 3);
+  res = L.checkDeadlines(res.state, at(day, '20:05'), CFG);
+  assert.equal(res.notifications.length, 0, 'Nachtruhe ab 20 Uhr');
+});
+
+test('Überfällig gilt auch für manuelle Reinigungen am selben Tag', () => {
+  let { state } = L.addManualCleaning(L.createState(), { id: 'm1', apartmentId: '7', apartmentName: 'Suite', date: '2026-09-23' }, at('2026-09-23', '12:30'), CFG);
+  const res = L.checkDeadlines(state, at('2026-09-23', '12:30'), CFG);
+  assert.deepEqual(who(res.notifications.filter((n) => n.kind === 'reminder')), ['lea:reminder', 'owner:reminder']);
+  assert.match(res.notifications.find((n) => n.kind === 'reminder').body, /noch niemandem zugewiesen/);
+});
+
+test('Vortag nicht erledigt → einmalige Meldung', () => {
+  let res = L.checkDeadlines(confirmedTask(), at('2026-10-03', '08:00'), CFG);
+  assert.deepEqual(who(res.notifications), ['lea:overdue', 'mia:overdue', 'owner:overdue']);
+  res = L.checkDeadlines(res.state, at('2026-10-03', '09:00'), CFG);
   assert.equal(res.notifications.length, 0);
 });
 
@@ -122,6 +148,7 @@ test('erledigt → keine Erinnerungen; Dauer wird aus Start/Ende berechnet', () 
   assert.deepEqual(who(done.notifications), ['lea:done', 'owner:done']);
   assert.match(done.notifications[0].body, /Dauer 1:45 Std\./);
   assert.equal(L.checkDeadlines(done.state, at(day, '15:00'), CFG).notifications.length, 0);
+  assert.equal(L.overdueReason(done.state.tasks['100'], at(day, '16:00'), CFG), null);
 });
 
 test('Verlängerung: Datum neu, Bestätigungen zurückgesetzt, Leitung + Mitarbeiterin + Admin informiert', () => {

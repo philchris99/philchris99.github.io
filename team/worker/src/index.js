@@ -1,6 +1,6 @@
 // Cloudflare Worker für team.apartments-strauss.de (Apartments Strauss)
 //  - fetch:     Web-App (Ordner public/, /admin = Notzugang mit Passwort) + API unter /api/…
-//  - scheduled: alle 15 Minuten Abgleich mit Smoobu + Fristen prüfen
+//  - scheduled: alle 5 Minuten Abgleich mit Smoobu + Fristen prüfen
 import L from '../../logic/logic.js';
 import config from './config.js';
 import {
@@ -127,7 +127,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
   const since = new Date(now - 14 * 86400000).toISOString();
   const base = {
     user: { id: user.id, name: user.name, role: user.role }, today, time, now: new Date(now).toISOString(),
-    reminderTime: cfg.reminderTime, secondReminderTime: cfg.secondReminderTime, confirmWithinHours: cfg.confirmWithinHours,
+    startBy: cfg.startBy, finishBy: cfg.finishBy, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
     leads: await teamFor(env, cfg.leads, user.role === 'owner'),
     staff: await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'),
@@ -140,7 +140,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
   };
   const tasks = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg).map((t) => {
     const { history, ...rest } = t;
-    const out = { ...rest, guestPhone: cfg.showGuestPhone ? t.guestPhone : '' };
+    const out = { ...rest, guestPhone: cfg.showGuestPhone ? t.guestPhone : '', overdue: L.overdueReason(t, now, cfg) };
     if (user.role !== 'owner' && !cfg.showGuestNames) out.guest = '';
     if (user.role !== 'staff') out.history = history;
     return out;
@@ -325,7 +325,7 @@ async function handleApi(request, env, url, ctx) {
     const today = L.localParts(now, cfg.timezone).date;
     const from = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('from') || '') ? url.searchParams.get('from') : L.addDays(today, -3);
     const days = Math.min(62, Math.max(7, Number(url.searchParams.get('days')) || 35));
-    return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames, cfg) });
+    return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames, cfg, now) });
   }
 
   // Foto anzeigen

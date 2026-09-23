@@ -9,9 +9,9 @@ keep_vars = true
 directory = "./public"
 binding = "ASSETS"
 
-# Alle 15 Minuten: Buchungen aus Smoobu holen, Fristen (12/13 Uhr) prüfen
+# Alle 5 Minuten: Buchungen aus Smoobu holen, Fristen prüfen (überfällig ab 12 bzw. 15 Uhr)
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/5 * * * *"]
 
 # Datenbank (Cloudflare → D1)
 [[d1_databases]]

@@ -11,8 +11,10 @@
  *
  * Fristen (deutsche Zeit)
  *  - 6 Stunden nach Eintragung (oder Verschiebung) nicht vollständig bestätigt → Alarm an Admin
- *  - Reinigungstag 12:00 noch nicht erledigt → Erinnerung an Leitung, Mitarbeiterin, Admin
- *  - Reinigungstag 15:00 noch nicht erledigt → erneute Erinnerung an alle
+ *  - Reinigungstag ab 12:00 noch nicht begonnen      → „überfällig“, wiederholte Erinnerung
+ *  - Reinigungstag ab 15:00 noch nicht beendet       → „überfällig“, wiederholte Erinnerung
+ *    (an Leitung, zugewiesene Mitarbeiterin und Admin, alle 30 Min. bis 20 Uhr;
+ *     gilt auch für manuelle Reinigungen am selben Tag)
  *
  * Reine Funktionen ohne Abhängigkeiten: laufen im Browser, in Node (Tests) und im
  * Cloudflare Worker. Jede Funktion bekommt den Zustand und gibt einen NEUEN Zustand
@@ -24,8 +26,10 @@
   const DEFAULT_CONFIG = {
     timezone: 'Europe/Berlin',
     confirmWithinHours: 6,       // so lange nach Eintragung muss alles bestätigt sein
-    reminderTime: '12:00',       // Reinigungstag: erste Erinnerung, falls nicht erledigt
-    secondReminderTime: '15:00', // Reinigungstag: zweite Erinnerung
+    startBy: '12:00',            // Reinigungstag: bis dahin muss die Reinigung begonnen sein
+    finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
+    repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
+    quietFrom: '20:00',          // ab dann keine Erinnerungen mehr (Nachtruhe)
     owner: { id: 'owner', name: 'Apartments Strauss' },
     leads: [],                   // [{ id, name }]
     staff: [],                   // [{ id, name }]
@@ -162,8 +166,8 @@
     task.leadConfirmedBy = null;
     task.staffConfirmedAt = null;
     task.lateAlerted = false;
-    task.reminded1 = false;
-    task.reminded2 = false;
+    task.lastReminderAt = null;
+    task.pastReminded = false;
     updateStatus(task);
   }
 
@@ -175,7 +179,7 @@
       leadConfirmedAt: null, leadConfirmedBy: null,
       assignedTo: null, assignedAt: null, staffConfirmedAt: null,
       startedAt: null, startedBy: null, doneAt: null, doneBy: null,
-      lateAlerted: false, reminded1: false, reminded2: false,
+      lateAlerted: false, lastReminderAt: null, pastReminded: false,
       history: [], reports: [],
     }, fields);
   }
@@ -530,42 +534,72 @@
     return `noch nicht begonnen (${personName(config, task.assignedTo)})`;
   }
 
+  /**
+   * Überfällig: am Reinigungstag ab 12:00 nicht begonnen oder ab 15:00 nicht beendet,
+   * oder ein vergangener Tag und nicht erledigt. Liefert 'start' | 'finish' | 'past' | null.
+   */
+  function overdueReason(task, now, config) {
+    config = withConfig(config);
+    if (!isActive(task)) return null;
+    const { date: today, time } = localParts(now, config.timezone);
+    if (task.date < today) return 'past';
+    if (task.date > today) return null;
+    if (time >= config.finishBy) return 'finish';
+    if (time >= config.startBy && !task.startedAt) return 'start';
+    return null;
+  }
+
   function checkDeadlines(state, now, config) {
     config = withConfig(config);
     state = clone(state);
-    const { date: today, time } = localParts(now, config.timezone);
+    const { time } = localParts(now, config.timezone);
+    const nowMs = Date.parse(toIso(now));
     const nowIso = toIso(now);
     const notifications = [];
     const limit = config.confirmWithinHours * 3600000;
+    const today = localParts(now, config.timezone).date;
 
     for (const task of Object.values(state.tasks)) {
       if (!isActive(task)) continue;
 
-      // 1) Nicht innerhalb von 6 Stunden vollständig bestätigt → Admin
+      // 1) Nicht innerhalb von 6 Stunden vollständig bestätigt → Admin (einmal)
       if (!task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && task.date >= today
-          && Date.parse(nowIso) - Date.parse(task.confirmFrom) >= limit) {
+          && nowMs - Date.parse(task.confirmFrom) >= limit) {
         task.lateAlerted = true;
         log(task, nowIso, `Nach ${config.confirmWithinHours} Std. nicht bestätigt – Admin informiert`);
         notifications.push(...notify([config.owner.id], 'late', task, 'Reinigung nicht bestätigt',
           `${task.apartmentName} (${formatDate(task.date)}): seit ${config.confirmWithinHours} Std. nicht bestätigt – es fehlt: ${missingText(config, task)}.`));
       }
 
-      // 2) Reinigungstag 12:00 / 15:00 noch nicht erledigt → Leitung, Mitarbeiterin, Admin
-      const overdue = task.date < today;
-      if (task.date !== today && !overdue) continue;
+      // 2) Überfällig → Leitung, zugewiesene Mitarbeiterin, Admin
+      const reason = overdueReason(task, now, config);
+      if (!reason) continue;
       const all = [...team(config, task), config.owner.id];
-      if (!task.reminded2 && (overdue || time >= config.secondReminderTime)) {
-        task.reminded1 = true;
-        task.reminded2 = true;
-        log(task, nowIso, 'Zweite Erinnerung: noch nicht erledigt');
-        notifications.push(...notify(all, 'reminder2', task, 'Reinigung immer noch offen',
-          `${task.apartmentName}: Reinigung ${overdue ? 'vom ' + formatDate(task.date) : 'heute'} ist um ${time} Uhr noch nicht erledigt – ${progressText(config, task)}.`));
-      } else if (!task.reminded1 && time >= config.reminderTime) {
-        task.reminded1 = true;
-        log(task, nowIso, 'Erinnerung: noch nicht erledigt');
-        notifications.push(...notify(all, 'reminder', task, 'Erinnerung: Reinigung heute',
-          `${task.apartmentName}: Reinigung heute noch nicht erledigt – ${progressText(config, task)}.`));
+      if (reason === 'past') { // vergangener Tag nicht erledigt: einmal melden
+        if (task.pastReminded) continue;
+        task.pastReminded = true;
+        notifications.push(...notify(all, 'overdue', task, 'Reinigung nicht erledigt',
+          `${task.apartmentName}: Reinigung vom ${formatDate(task.date)} wurde nicht als erledigt gemeldet – ${progressText(config, task)}.`));
+        continue;
       }
+      if (time >= config.quietFrom) continue; // Nachtruhe
+      if (task.lastReminderAt && nowMs - Date.parse(task.lastReminderAt) < config.repeatMinutes * 60000 - 60000) continue;
+      task.lastReminderAt = nowIso;
+      task.reminderCount = (task.reminderCount || 0) + 1;
+      let title;
+      let body;
+      if (reason === 'start') {
+        title = 'Reinigung muss heute noch gestartet werden';
+        body = `${task.apartmentName}: noch nicht begonnen (${task.assignedTo ? personName(config, task.assignedTo) : 'noch niemandem zugewiesen'}). Bitte jetzt starten – bis ${config.finishBy} Uhr fertig.`;
+      } else if (task.startedAt) {
+        title = 'Reinigung bitte beenden';
+        body = `${task.apartmentName}: läuft seit ${hhmm(task.startedAt, config.timezone)} Uhr, aber noch nicht als erledigt gemeldet. Bitte beenden und „Erledigt“ tippen.`;
+      } else {
+        title = 'Reinigung immer noch nicht begonnen';
+        body = `${task.apartmentName}: ${config.finishBy} Uhr vorbei und noch nicht begonnen (${task.assignedTo ? personName(config, task.assignedTo) : 'noch niemandem zugewiesen'}).`;
+      }
+      log(task, nowIso, `Erinnerung: ${title}`);
+      notifications.push(...notify(all, reason === 'start' ? 'reminder' : 'reminder2', task, title, body));
     }
     return { state, notifications };
   }
@@ -661,7 +695,7 @@
    * Belegungskalender: Wohnungen durchnummeriert, Buchungen/Sperrzeiten und Reinigungen
    * im Zeitraum. showNames = Gastname und Telefonnummer anzeigen.
    */
-  function calendar(state, from, days, showNames, config) {
+  function calendar(state, from, days, showNames, config, now) {
     config = withConfig(config);
     const to = addDays(from, days);
     const names = {};
@@ -678,7 +712,7 @@
       .filter((t) => t.date >= from && t.date < to && t.status !== STATUS.CANCELLED)
       .map((t) => ({
         id: t.id, apartmentId: t.apartmentId, apartmentName: t.apartmentName, date: t.date, status: t.status, manual: !!t.manual,
-        note: t.note || '', overdue: !!(isActive(t) && (t.lateAlerted || t.reminded2)),
+        note: t.note || '', overdue: !!overdueReason(t, now || Date.now(), config), overdueReason: overdueReason(t, now || Date.now(), config),
         leadConfirmed: !!t.leadConfirmedAt, assignedTo: t.assignedTo ? personName(config, t.assignedTo) : '',
         staffConfirmed: !!t.staffConfirmedAt, startedAt: t.startedAt, doneAt: t.doneAt,
         guestPhone: t.guestPhone || '', reports: (t.reports || []).length,
@@ -694,7 +728,7 @@
     leadConfirm, assignCleaning, staffConfirm, startCleaning, completeCleaning,
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
-    listCleanings, fullyConfirmed, calendar,
+    listCleanings, fullyConfirmed, calendar, overdueReason,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

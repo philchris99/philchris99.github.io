@@ -5,8 +5,10 @@ export default {
   appUrl: 'https://team.apartments-strauss.de',
   timezone: 'Europe/Berlin',
   confirmWithinHours: 6,       // so lange nach Eintragung müssen Leitung + Mitarbeiterin bestätigt haben
-  reminderTime: '12:00',       // Reinigungstag: Erinnerung, falls noch nicht erledigt
-  secondReminderTime: '15:00', // Reinigungstag: zweite Erinnerung
+  startBy: '12:00',            // Reinigungstag: bis dahin begonnen, sonst „überfällig“ + Erinnerung
+  finishBy: '15:00',           // Reinigungstag: bis dahin erledigt, sonst „überfällig“ + Erinnerung
+  repeatMinutes: 30,           // Erinnerung wiederholen, solange überfällig (Prüfung alle 5 Min.)
+  quietFrom: '20:00',          // ab dann keine Erinnerungen mehr
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)
   showGuestPhone: true,    // Telefonnummer des Gastes (aus Smoobu) als Anruf-Knopf anzeigen
   syncDaysAhead: 365,      // so weit im Voraus werden Buchungen aus Smoobu geholt
