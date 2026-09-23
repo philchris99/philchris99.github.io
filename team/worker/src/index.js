@@ -11,6 +11,8 @@ import { deliver, sendPush } from './notify.js';
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
 const fail = (message, status = 400) => json({ error: message }, status);
+// Leerzeichen/Zeilenumbrüche vom Kopieren entfernen
+const smoobuKey = (env) => (env.SMOOBU_API_KEY || '').trim();
 
 // ---------------------------------------------------------------------------
 // Abgleich mit Smoobu + Fristen
@@ -21,16 +23,16 @@ export async function runSync(env, now = Date.now()) {
   let bookings = null;
   let syncError = null;
 
-  if (env.SMOOBU_API_KEY) {
+  if (smoobuKey(env)) {
     try {
-      bookings = await fetchBookings(env.SMOOBU_API_KEY, from, L.addDays(today, config.syncDaysAhead));
+      bookings = await fetchBookings(smoobuKey(env), from, L.addDays(today, config.syncDaysAhead));
       // Reinigungen, deren Buchung nicht mehr in der Liste auftaucht (gelöscht oder
       // Abreise weit verschoben), einzeln nachfragen.
       const seen = new Set(bookings.map((b) => String(b.id)));
       const { state } = await loadState(env.DB);
       const missing = L.activeTaskIds(state, from).filter((id) => !seen.has(id)).slice(0, 20);
       for (const id of missing) {
-        const single = await fetchBooking(env.SMOOBU_API_KEY, id);
+        const single = await fetchBooking(smoobuKey(env), id);
         bookings.push(single || { id, type: 'cancellation' });
       }
     } catch (e) {
@@ -144,9 +146,9 @@ async function handleApi(request, env, url, ctx) {
   }
 
   if (path === '/api/diagnose' && request.method === 'POST' && user.role === 'owner') {
-    if (!env.SMOOBU_API_KEY) return fail('SMOOBU_API_KEY fehlt', 400);
+    if (!smoobuKey(env)) return fail('SMOOBU_API_KEY fehlt', 400);
     const today = L.localParts(now, config.timezone).date;
-    return json({ results: await diagnose(env.SMOOBU_API_KEY, L.addDays(today, -1), L.addDays(today, config.syncDaysAhead)) });
+    return json({ results: await diagnose(smoobuKey(env), L.addDays(today, -1), L.addDays(today, config.syncDaysAhead)) });
   }
 
   if (path === '/api/sync' && request.method === 'POST' && user.role === 'owner') {
