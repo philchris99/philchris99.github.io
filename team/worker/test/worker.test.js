@@ -29,15 +29,36 @@ class FakeD1 {
 }
 
 // --- Nachgebautes Internet ----------------------------------------------------
+// Das nachgebaute Smoobu akzeptiert den alten Header „Api-Key“ oder eine
+// HMAC-Signatur in einer bestimmten (absichtlich nicht naheliegenden) Form:
+// Body-Hash base64, Pfad mit /api, Zeit ohne ms, keine leere Query-Zeile.
+import { createHmac, createHash } from 'node:crypto';
+const HMAC_KEY = 'hmac-key-123';
+const HMAC_SECRET = 'geheim+secret/abc=';
+function smoobuAuthorized(url, headers) {
+  if (headers['Api-Key'] === 'smoobu-test-key') return true;
+  if (headers['X-API-Key'] !== HMAC_KEY) return false;
+  const u = new URL(url);
+  const query = [...u.searchParams].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('&');
+  const lines = ['GET', u.pathname];
+  if (query) lines.push(query);
+  lines.push(headers['X-Timestamp'], headers['X-Nonce'], createHash('sha256').update('').digest('base64'), HMAC_KEY);
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(headers['X-Timestamp'])) return false;
+  return headers['X-Signature'] === createHmac('sha256', HMAC_SECRET).update(lines.join('\n')).digest('base64');
+}
 let smoobuBookings = [];
 let pushes = [];
+let smoobuCalls = 0;
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
-  if (url.startsWith('https://login.smoobu.com/api/me') || url.startsWith('https://login.smoobu.com/api/apartments')) {
-    return Response.json({ id: 1 });
+  if (url.startsWith('https://login.smoobu.com/api/')) {
+    smoobuCalls++;
+    if (!smoobuAuthorized(url, init.headers)) {
+      return Response.json({ status: 401, title: 'Unauthorized', detail: 'Authentication required' }, { status: 401 });
+    }
   }
+  if (url.startsWith('https://login.smoobu.com/api/apartments')) return Response.json({ apartments: [] });
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) {
-    if (init.headers['Api-Key'] !== 'smoobu-test-key') return Response.json({ status: 401 }, { status: 401 });
     return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
   }
   if (url.startsWith('https://login.smoobu.com/api/reservations/')) {
@@ -150,19 +171,44 @@ test('Smoobu nicht erreichbar → Fehler wird angezeigt, Fristen laufen trotzdem
   env.SMOOBU_API_KEY = 'falscher-key';
   const s = await runSync(env, at('2026-09-26', '09:00'));
   env.SMOOBU_API_KEY = saved;
-  assert.match(s.syncError, /lehnt den API-Schlüssel ab \(401\)/);
+  assert.match(s.syncError, /lehnt die Anmeldung ab \(401\)/);
 });
 
 test('Diagnose meldet Anzahlen und Feldnamen, aber keine Gästedaten', async () => {
   smoobuBookings = [booking(10, '2026-10-10')];
   const res = await call('POST', '/api/diagnose', { user: auth('buero') });
   assert.equal(res.status, 200);
-  assert.equal(res.body.results.length, 7);
-  assert.deepEqual(res.body.results[0].topKeys, ['Länge 15', 'Sonderzeichen: -', 'ohne Leerzeichen']);
-  const ok = res.body.results.find((r) => r.variant === 'Header Api-Key · Buchungen');
-  assert.equal(ok.received, 1);
-  assert.ok(ok.fields.includes('guest-name'));
-  assert.equal(res.body.results.find((r) => r.variant === 'Bearer · Buchungen').status, 401);
+  assert.deepEqual(res.body.results[0].topKeys, ['Key: Länge 15, Sonderzeichen -', 'Secret: fehlt', 'Verfahren: Api-Key (alt, endet 25.09.2026)']);
+  const list = res.body.results.find((r) => r.variant === 'Buchungen abrufen');
+  assert.equal(list.received, 1);
+  assert.ok(list.fields.includes('guest-name'));
   assert.ok(!JSON.stringify(res.body).includes('Müller'));
   assert.equal((await call('POST', '/api/diagnose', { user: auth('kraft1') })).status, 404);
+});
+
+test('HMAC: richtige Signaturform wird automatisch gefunden und wiederverwendet', async () => {
+  const saved = { ...env };
+  env.SMOOBU_API_KEY = ` "${HMAC_KEY}" `; // mit Anführungszeichen/Leerzeichen kopiert
+  env.SMOOBU_API_SECRET = HMAC_SECRET;
+  try {
+    const diag = await call('POST', '/api/diagnose', { user: auth('buero') });
+    const login = diag.body.results.find((r) => r.variant === 'Anmeldung (HMAC)');
+    assert.equal(login.status, 200);
+    assert.match(login.topKeys[0], /funktioniert: Hash base64, Pfad mit \/api, Zeit ohne ms, leere Query-Zeile nein/);
+    assert.equal(diag.body.results.find((r) => r.variant === 'Buchungen abrufen').received, 1);
+
+    // Normaler Abgleich nutzt die gefundene Form direkt (1 Aufruf für die Liste)
+    smoobuCalls = 0;
+    const s = await runSync(env, at('2026-09-26', '10:00'));
+    assert.equal(s.syncError, null);
+    assert.equal(smoobuCalls, 1 + 2, 'Liste + Nachfrage zu Buchung 1 und 3 (fehlen in Liste), keine erneute Erkennung');
+
+    // Falsches Secret → verständlicher Fehler
+    env.SMOOBU_API_SECRET = 'falsch';
+    const bad = await runSync(env, at('2026-09-26', '10:15'));
+    assert.match(bad.syncError, /lehnt die Anmeldung ab \(401\) – bitte API-Key und Secret/);
+  } finally {
+    Object.assign(env, saved);
+    delete env.SMOOBU_API_SECRET;
+  }
 });

@@ -19,5 +19,6 @@ database_id = "db137fcd-ad7d-4aa7-92d4-61985c6657a3"
 
 # Geheimnisse NICHT hier eintragen, sondern im Dashboard unter
 # Worker → Einstellungen → Variablen und Geheimnisse:
-#   SMOOBU_API_KEY  – API-Schlüssel aus Smoobu
+#   SMOOBU_API_KEY    – API-Key aus Smoobu
+#   SMOOBU_API_SECRET – zugehöriges Secret (HMAC-Anmeldung)
 #   APP_SECRET      – langes Zufallspasswort (z. B. 40 Zeichen aus dem Passwortmanager)

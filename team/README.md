@@ -36,7 +36,9 @@ Name `strauss-team`, **Root directory: `worker`**, Deploy-Befehl `npx wrangler d
 
 **3. Geheimnisse eintragen**
 Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ **Secret**:
-- `SMOOBU_API_KEY` – aus Smoobu: *Einstellungen → Entwickler / API-Schlüssel*
+- `SMOOBU_API_KEY` – der **API-Key** aus Smoobu (*Einstellungen → API Keys*)
+- `SMOOBU_API_SECRET` – das zugehörige **Secret** (wird in Smoobu nur einmal beim Erstellen angezeigt)
+  Smoobu verlangt seit 25.09.2026 signierte Anfragen (HMAC); ohne Secret wird das alte Verfahren versucht.
 - `APP_SECRET` – ein langes Zufallspasswort (40+ Zeichen, im Passwortmanager speichern)
 
 **4. Erster Test (noch ohne eigene Adresse)**
