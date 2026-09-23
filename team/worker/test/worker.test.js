@@ -310,6 +310,42 @@ test('ntfy 429: erneuter Versuch, dann verständliche Meldung; mit NTFY_TOKEN wi
   }
 });
 
+test('Überfällige Reinigung heute: Erinnerung wird verschickt; Versandfehler werden für Admin sichtbar', async () => {
+  const day = '2099-12-01';
+  const mk = (h, m) => new Date(`${day}T${h}:${m}:00+01:00`).getTime();
+  smoobuBookings = [booking(70, day, { arrival: '2099-11-28' })];
+  await runSync(env, mk('08', '00'));
+  await call('POST', '/api/tasks/70/assign', { session: lea, body: { to: miaId } });
+  pushes = [];
+  await runSync(env, mk('12', '05'));
+  const titles = pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').map((p) => p.topic).sort();
+  assert.deepEqual(titles, [await topicOf(admin), await topicOf(lea), await topicOf(mia)].sort());
+  pushes = [];
+  await runSync(env, mk('12', '10'));
+  assert.equal(pushes.filter((p) => p.title.startsWith('Reinigung muss')).length, 0, 'erst nach 30 Min. wieder');
+  // Versand scheitert → Fehler in der Admin-Ansicht
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh' ? new Response('x', { status: 429 }) : realFetch(url, init));
+  try {
+    await runSync(env, mk('12', '40'));
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const report = (await me(admin)).pushReport;
+  assert.ok(report.failed >= 3);
+  assert.match(report.errors[0].error, /429/);
+  assert.equal((await me(admin)).rules.quietFrom, '20:00');
+});
+
+test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
+  const { limit } = await import('../src/notify.js');
+  const user = { id: 'u1', name: 'A' };
+  const msgs = Array.from({ length: 30 }, (_, i) => ({ user: i % 2 ? user : { id: 'u2', name: 'B' }, kind: i % 3 ? 'new' : 'late', title: 'T' + i, body: 'B' + i }));
+  const out = limit(msgs, 25);
+  assert.equal(out.length, 2);
+  assert.match(out[0].title, /15 Hinweise/);
+});
+
 test('Neuer Code meldet alte Geräte ab; Entfernen', async () => {
   const res = await call('POST', `/api/team/${miaId}/code`, { session: lea });
   assert.match(res.body.newCode.code, /^\d{6}$/);

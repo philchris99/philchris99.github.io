@@ -69,7 +69,8 @@ export async function runSync(env, now = Date.now(), cfg) {
       // Reinigungen, deren Buchung nicht mehr in der Liste auftaucht, einzeln nachfragen.
       const seen = new Set(bookings.map((b) => String(b.id)));
       const { state } = await loadState(env.DB);
-      const missing = L.activeTaskIds(state, from).filter((id) => !seen.has(id)).slice(0, 20);
+      // max. 5 je Durchlauf (Cloudflare-Limit: 50 Anfragen nach außen; läuft ohnehin alle 5 Min.)
+      const missing = L.activeTaskIds(state, from).filter((id) => !seen.has(id)).slice(0, 5);
       for (const id of missing) {
         const single = await fetchBooking(smoobuCreds(env), id);
         bookings.push(single || { id, type: 'cancellation' });
@@ -99,6 +100,12 @@ export async function runSync(env, now = Date.now(), cfg) {
   }, now);
 
   const delivery = await deliver(env, cfg, result.notifications);
+  // Versandergebnis merken, damit Fehler in der Admin-Ansicht sichtbar sind
+  if (delivery.sent || delivery.failed) {
+    await mutate(env.DB, (state) => ({ state: { ...state, pushReport: {
+      at: new Date(now).toISOString(), sent: delivery.sent, failed: delivery.failed, errors: delivery.errors.slice(0, 5),
+    } }, notifications: [] }), now).catch((e) => console.error(e));
+  }
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
@@ -152,6 +159,8 @@ async function viewFor(env, cfg, settings, state, user, now) {
     hasOwnerCode: !!settings.ownerCode,
     log: (state.log || []).slice(0, 50).map((n) => ({ ...n, toName: n.to === cfg.owner.id ? 'Admin' : (findUser(cfg, n.to) || {}).name || n.to })),
     lastSync: state.lastSync || null, lastSyncCount: state.lastSyncCount ?? null, lastRun: state.lastRun || null, syncError: state.syncError || null,
+    pushReport: state.pushReport || null,
+    rules: { startBy: cfg.startBy, finishBy: cfg.finishBy, repeatMinutes: cfg.repeatMinutes, quietFrom: cfg.quietFrom },
     apartments: apartmentList(state),
     webhookUrl: `${cfg.appUrl}/api/smoobu-webhook/${await webhookToken(env)}`,
   };

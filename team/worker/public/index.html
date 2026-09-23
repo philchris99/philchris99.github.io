@@ -686,6 +686,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <h3>${esc(r.apartmentName)}</h3>${reportHtml({ id: r.taskId }, r)}</article>`).join('') : '<p class="empty">Keine offenen Meldungen.</p>';
   }
 
+  const pushFailedRecently = () => data.pushReport && data.pushReport.failed > 0 && Date.now() - Date.parse(data.pushReport.at) < 3 * 3600000;
+
   // ---- Admin ------------------------------------------------------------------
   function renderOwner() {
     const t0 = data.today, t1 = addDays(t0, 1), t14 = addDays(t0, 14);
@@ -727,6 +729,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </form>`;
     return `
       ${data.syncError ? `<div class="notice bad"><span><b>Abgleich mit Smoobu gestört:</b> ${esc(data.syncError)}</span><button class="small" data-jump="system">Details</button></div>` : ''}
+      ${pushFailedRecently() ? `<div class="notice bad"><span><b>Push-Nachrichten konnten nicht zugestellt werden</b> (${fmtTime(data.pushReport.at)}):
+        ${esc(data.pushReport.errors[0] ? data.pushReport.errors[0].error : '')}</span><button class="small" data-jump="system">Details</button></div>` : ''}
       <div class="greeting greet-row"><div><h1>${fmtLong(t0)}</h1><p class="meta">Stand ${esc(data.time)} Uhr · Smoobu zuletzt ${fmtTime(data.lastSync)}</p></div>
         <button class="primary" data-open-calendar>Kalender</button></div>
       <div class="glance">
@@ -753,6 +757,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <p class="meta">Letzter Smoobu-Abgleich: <b>${fmtTime(data.lastSync)}</b>${data.lastSyncCount != null ? ` · ${data.lastSyncCount} Buchungen` : ''}. Automatisch alle 15 Minuten.</p>
           <div class="actions"><button class="small" data-sync>Jetzt abgleichen</button><button class="small" data-diagnose>Diagnose</button></div>
           <div id="diagnose"></div>
+          <p class="meta" style="margin-top:10px"><b>Erinnerungen:</b> überfällig ab ${esc(data.rules.startBy)} Uhr (nicht begonnen) bzw.
+            ${esc(data.rules.finishBy)} Uhr (nicht beendet), Wiederholung alle ${esc(data.rules.repeatMinutes)} Min., <b>Nachtruhe ab ${esc(data.rules.quietFrom)} Uhr</b>.
+            Letzte Prüfung: ${fmtTime(data.lastRun)} (alle 5 Min.).</p>
+          <p class="meta" style="margin-top:10px"><b>Letzter Push-Versand:</b> ${data.pushReport
+            ? `${fmtTime(data.pushReport.at)} – ${data.pushReport.sent} zugestellt${data.pushReport.failed ? `, <b style="color:var(--bad)">${data.pushReport.failed} fehlgeschlagen</b>` : ''}
+              ${(data.pushReport.errors || []).map((e) => `<br>→ ${esc(e.to)}: ${esc(e.title)} – <span style="color:var(--bad)">${esc(e.error)}</span>`).join('')}`
+            : 'noch keiner'}</p>
           <p class="meta" style="margin-top:10px">Push-Versand (ntfy): ${data.hasNtfyToken ? '<b>mit ntfy-Konto (NTFY_TOKEN) ✓</b>'
             : '<b style="color:var(--bad)">ohne ntfy-Konto</b> – bei „429“ bitte NTFY_TOKEN in Cloudflare eintragen'}</p>
           <p class="meta" style="margin-top:10px">Optional – Webhook-Adresse für Smoobu (sofortige Aktualisierung):<br><code id="hook">${esc(data.webhookUrl)}</code> <button class="small" data-copy="hook">Kopieren</button></p>
