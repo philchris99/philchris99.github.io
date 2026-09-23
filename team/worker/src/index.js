@@ -126,7 +126,7 @@ const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt });
 async function teamFor(env, list, withCodes) {
   return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc) } : {}) })));
 }
-const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late', 'request', 'period'];
+const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late', 'request', 'period', 'keys'];
 
 /**
  * Nach jeder Änderung sofort die Fristen prüfen: Wird eine Reinigung erst nach 12 bzw. 15 Uhr
@@ -154,6 +154,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
     openReports: user.role === 'staff' ? [] : L.openReports(state),
     openRequests: user.role === 'owner' ? L.openPeriodRequests(state) : [],
+    missingKeys: user.role === 'owner' ? L.missingKeys(state) : [],
     maxPeriodDays: cfg.maxPeriodDays,
   };
   const tasks = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg).map((t) => {
@@ -261,7 +262,7 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // ---- Reinigung: Leitung bestätigt / weist zu; Mitarbeiterin bestätigt; Beginn; Erledigt ----
-  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period)$/);
+  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period|keys-resolved)$/);
   if (act && request.method === 'POST') {
     const id = decodeURIComponent(act[1]);
     switch (act[2]) {
@@ -279,9 +280,16 @@ async function handleApi(request, env, url, ctx) {
       case 'start':
         if (role === 'owner') break;
         return change((st) => L.startCleaning(st, id, user.id, now, cfg), 409);
-      case 'done':
+      case 'done': {
         if (role === 'owner') break;
-        return change((st) => L.completeCleaning(st, id, user.id, now, cfg), 409);
+        const body = await readJson();
+        return change((st) => L.completeCleaning(st, id, user.id, now, cfg, { keysInBox: body.keysInBox, keysNote: body.keysNote }), 409);
+      }
+      case 'keys-resolved': {
+        if (role !== 'owner') break;
+        const body = await readJson();
+        return change((st) => L.resolveKeys(st, id, body.note, now), 409);
+      }
       case 'edit': {
         if (role !== 'owner') break;
         const body = await readJson();

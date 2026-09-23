@@ -210,7 +210,23 @@
       channel: (r.channel && r.channel.name) || '',
       arrival: r.arrival,
       departure: r.departure,
+      adults: count(r.adults),
+      children: count(r.children),
     };
+  }
+
+  /** Personenzahl aus Smoobu (fehlt/ungültig → null = unbekannt) */
+  function count(value) {
+    const n = Number(value);
+    return value === '' || value == null || !Number.isFinite(n) || n < 0 ? null : Math.round(n);
+  }
+
+  /** z. B. „2 Erwachsene, 1 Kind“; unbekannt → '' */
+  function guestsText(adults, children) {
+    const parts = [];
+    if (adults != null) parts.push(`${adults} ${adults === 1 ? 'Erwachsener' : 'Erwachsene'}`);
+    if (children) parts.push(`${children} ${children === 1 ? 'Kind' : 'Kinder'}`);
+    return parts.join(', ');
   }
 
   /** Smoobu-Webhook { action, data } → einheitliche Buchung */
@@ -256,7 +272,8 @@
     }
 
     state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure,
-      guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '' };
+      guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '',
+      adults: booking.adults == null ? null : booking.adults, children: booking.children == null ? null : booking.children };
 
     if (!existing || existing.status === STATUS.CANCELLED) {
       const task = newTask({
@@ -508,23 +525,57 @@
     return { state, notifications: [] };
   }
 
-  /** Reinigung erledigt (Ende). */
-  function completeCleaning(state, taskId, userId, now, config) {
+  /**
+   * Reinigung erledigt (Ende). Pflicht-Checkpunkt: input.keysInBox (true/false) –
+   * sind die Gästeschlüssel in der Box? Nein → sofort dringende Push an den Admin.
+   */
+  function completeCleaning(state, taskId, userId, now, config, input) {
     config = withConfig(config);
+    input = input || {};
+    if (typeof input.keysInBox !== 'boolean') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind (Ja/Nein)');
     state = clone(state);
     const task = getTask(state, taskId);
     requireActive(task);
     if (!canWork(config, task, userId)) throw new Error('Diese Reinigung ist dir nicht zugewiesen');
     const nowIso = toIso(now);
+    const keysNote = String(input.keysNote || '').trim().slice(0, 500);
     task.status = STATUS.DONE;
     task.doneAt = nowIso;
     task.doneBy = userId;
+    task.keysInBox = input.keysInBox;
+    task.keysNote = keysNote;
+    task.keysResolvedAt = null;
     const minutes = task.startedAt ? Math.round((Date.parse(nowIso) - Date.parse(task.startedAt)) / 60000) : null;
     const duration = minutes != null ? ` (Dauer ${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')} Std.)` : '';
-    log(task, nowIso, `Erledigt von ${personName(config, userId)}${duration}`);
+    log(task, nowIso, `Erledigt von ${personName(config, userId)}${duration} · Gästeschlüssel ${input.keysInBox ? 'in der Box ✓' : 'NICHT in der Box'}${keysNote ? ': ' + keysNote : ''}`);
     const to = [config.owner.id, ...leadIds(config)].filter((id) => id !== userId);
-    return { state, notifications: notify(to, 'done', task, 'Reinigung erledigt',
-      `${task.apartmentName} ist sauber – ${personName(config, userId)}${duration}.`) };
+    const notifications = notify(to, 'done', task, 'Reinigung erledigt',
+      `${task.apartmentName} ist sauber – ${personName(config, userId)}${duration}. Schlüssel ${input.keysInBox ? 'in der Box ✓' : 'fehlen!'}`);
+    if (!input.keysInBox) {
+      notifications.push(...notify([config.owner.id], 'keys', task, `Schlüssel fehlen: ${task.apartmentName}`,
+        `${personName(config, userId)} meldet: Gästeschlüssel sind NICHT in der Box (${formatDate(task.date)}).${keysNote ? ' ' + keysNote : ''} Bitte umgehend klären.`));
+    }
+    return { state, notifications };
+  }
+
+  /** Admin: fehlende Schlüssel geklärt */
+  function resolveKeys(state, taskId, note, now) {
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (task.keysInBox !== false) throw new Error('Für diese Reinigung fehlen keine Schlüssel');
+    const nowIso = toIso(now);
+    task.keysResolvedAt = nowIso;
+    note = String(note || '').trim().slice(0, 500);
+    log(task, nowIso, `Schlüssel geklärt${note ? ': ' + note : ''}`);
+    return { state, notifications: [] };
+  }
+
+  /** Erledigte Reinigungen mit fehlenden Schlüsseln, noch nicht geklärt (für den Admin) */
+  function missingKeys(state) {
+    return Object.values(state.tasks)
+      .filter((t) => t.status === STATUS.DONE && t.keysInBox === false && !t.keysResolvedAt)
+      .map((t) => ({ taskId: t.id, apartmentName: t.apartmentName, date: t.date, doneAt: t.doneAt, doneBy: t.doneBy, note: t.keysNote || '' }))
+      .sort((a, b) => b.doneAt.localeCompare(a.doneAt));
   }
 
   // ---------------------------------------------------------------------------
@@ -549,6 +600,19 @@
       if (!best || r.arrival < best) best = r.arrival;
     }
     return best;
+  }
+
+  /** Nächste Buchung in dieser Wohnung ab dem Reinigungstag: Anreise und erwartete Gäste */
+  function nextBooking(state, task) {
+    let best = null;
+    for (const r of Object.values(state.reservations || {})) {
+      if (r.apartmentId !== task.apartmentId || r.id === task.id || r.blocked || r.arrival < task.date) continue;
+      if (!best || r.arrival < best.arrival) best = r;
+    }
+    if (!best) return null;
+    const adults = best.adults == null ? null : best.adults;
+    const children = best.children == null ? null : best.children;
+    return { arrival: best.arrival, departure: best.departure, adults, children, guests: guestsText(adults, children) };
   }
 
   function checkUntil(state, task, until, now, config) {
@@ -818,6 +882,7 @@
         reports: t.reports || [],
         sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
         nextArrival: nextArrival(state, t),
+        nextBooking: nextBooking(state, t),
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
@@ -838,7 +903,9 @@
     const bookings = Object.values(state.reservations)
       .filter((r) => r.arrival < to && r.departure > from)
       .map((r) => ({ id: r.id, apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure, blocked: !!r.blocked,
-        channel: r.channel || '', guest: showNames ? r.guest || '' : '', phone: showNames ? r.phone || '' : '' }));
+        channel: r.channel || '', guest: showNames ? r.guest || '' : '', phone: showNames ? r.phone || '' : '',
+        adults: r.adults == null ? null : r.adults, children: r.children == null ? null : r.children,
+        guests: r.blocked ? '' : guestsText(r.adults == null ? null : r.adults, r.children == null ? null : r.children) }));
     const cleanings = Object.values(state.tasks)
       .filter((t) => lastDay(t) >= from && t.date < to && t.status !== STATUS.CANCELLED)
       .map((t) => ({
@@ -846,8 +913,10 @@
         note: t.note || '', overdue: !!overdueReason(t, now || Date.now(), config), overdueReason: overdueReason(t, now || Date.now(), config),
         leadConfirmed: !!t.leadConfirmedAt, assignedTo: t.assignedTo ? personName(config, t.assignedTo) : '',
         staffConfirmed: !!t.staffConfirmedAt, startedAt: t.startedAt, doneAt: t.doneAt,
+        keysInBox: t.keysInBox == null ? null : t.keysInBox, keysResolved: !!t.keysResolvedAt,
         guestPhone: t.guestPhone || '', reports: (t.reports || []).length,
         latestDate: lastDay(t) > t.date ? lastDay(t) : null,
+        nextBooking: nextBooking(state, t),
         periodRequest: t.periodRequest && t.periodRequest.status === 'offen' ? { until: t.periodRequest.until, reason: t.periodRequest.reason } : null,
       }));
     return { from, days, apartments, bookings, cleanings };
@@ -862,6 +931,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
+    resolveKeys, missingKeys, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

@@ -116,6 +116,14 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .chip.run { color: #fff; background: var(--accent); }
 .chip.manual { color: var(--brand); background: transparent; border: 1px solid var(--line); }
 .chip.gone { text-decoration: line-through; }
+.keys-check { margin-top: 10px; padding: 12px; border: 2px solid var(--accent); border-radius: 12px; background: var(--card); }
+.keys-check legend { font-weight: 700; font-size: 16px; padding: 0; }
+.keys-check fieldset { border: 0; margin: 0; padding: 0; }
+.choice { display: flex; gap: 10px; align-items: center; padding: 12px; min-height: 48px; border: 1px solid var(--line); border-radius: 10px; margin-top: 8px; font-size: 16px; cursor: pointer; }
+.choice input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
+.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 650; }
+.choice.no:has(input:checked) { border-color: var(--bad); background: var(--bad-bg); }
+.next-guests { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 15px; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 49px; height: 6px; border-top: 3px dashed var(--accent); pointer-events: none; }
@@ -297,7 +305,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let newCode = null;            // gerade erzeugter Code (nur einmal anzeigen)
   let editPerson = null;         // Person, deren Name bearbeitet wird
   let editTask = null;           // manuelle Reinigung in Bearbeitung
-  let periodTask = null;         // Reinigung mit offenem Zeitraum-Formular
+  let periodTask = null;
+  let doneTask = null;           // Reinigung mit offenem „Beenden“-Checkpunkt (Schlüssel)         // Reinigung mit offenem Zeitraum-Formular
   let lockTimer = null;
   const openForms = new Set();   // Reinigungen mit offenem Hinweis-Formular
   const pending = {};            // ausgewählte, noch nicht gesendete Fotos je Reinigung
@@ -426,7 +435,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function chips(t) {
     const out = [];
     if (t.status === 'storniert') return '<span class="chip gone">entfällt</span>';
-    if (t.status === 'erledigt') out.push(`<span class="chip yes">erledigt ✓ ${t.doneAt ? clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`);
+    if (t.status === 'erledigt') {
+      out.push(`<span class="chip yes">erledigt ✓ ${t.doneAt ? clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`);
+      if (t.keysInBox === true) out.push('<span class="chip yes">Schlüssel in der Box ✓</span>');
+      else if (t.keysInBox === false) out.push(t.keysResolvedAt ? '<span class="chip yes">Schlüssel geklärt ✓</span>' : '<span class="chip alert">Schlüssel NICHT in der Box</span>');
+    }
     else {
       if (t.overdue === 'start') out.push('<span class="chip alert">überfällig – noch nicht begonnen</span>');
       else if (t.overdue === 'finish') out.push(`<span class="chip alert">überfällig – ${t.startedAt ? 'noch nicht beendet' : 'nicht begonnen'}</span>`);
@@ -486,6 +499,30 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <label class="field">Hinweis <input name="note" value="${esc(t.note || '')}" maxlength="500"></label>
       </div>
       <div class="actions"><button class="primary" type="submit">Speichern und Team informieren</button><button type="button" data-edit-cancel>Abbrechen</button></div>
+    </form>`;
+  }
+
+  const shortGuests = (b) => (b.adults == null ? '' : `${b.adults}${b.children ? '+' + b.children : ''} P.`);
+  /** Nächste Anreise in der Wohnung mit erwarteter Gästezahl (zur Vorbereitung) */
+  function nextGuests(t) {
+    if (!isActive(t)) return '';
+    const n = t.nextBooking;
+    if (!n) return '<div class="next-guests meta">Nächste Anreise: noch keine Buchung</div>';
+    const when = ['Heute', 'Morgen'].includes(dayWord(n.arrival)) ? `<b>${dayWord(n.arrival)}</b>, ${fmt(n.arrival)}` : `<b>${fmt(n.arrival)}</b>`;
+    return `<div class="next-guests">Nächste Anreise: ${when} · ${n.guests ? `<b>${esc(n.guests)}</b>` : 'Gästezahl noch unbekannt'}</div>`;
+  }
+
+  /** Pflicht-Checkpunkt vor dem Beenden: Gästeschlüssel in der Box? */
+  function doneForm(t) {
+    return `<form class="keys-check" data-done-form="${esc(t.id)}">
+      <fieldset><legend>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></legend>
+        <label class="choice"><input type="radio" name="keys" value="1" required> Ja, Schlüssel sind in der Box</label>
+        <label class="choice no"><input type="radio" name="keys" value="0"> Nein, Schlüssel fehlen</label>
+      </fieldset>
+      <label class="field" style="margin-top:10px">Bei „Nein“: was ist passiert? (optional)
+        <input name="note" maxlength="500" placeholder="z. B. nur 1 von 2 Schlüsseln, Gast nicht erreichbar"></label>
+      <p class="meta" style="margin-top:6px">Bei „Nein“ wird Apartments Strauss sofort per Push benachrichtigt.</p>
+      <div class="actions"><button class="primary" type="submit">Reinigung beenden</button><button type="button" data-done-cancel>Abbrechen</button></div>
     </form>`;
   }
 
@@ -550,9 +587,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const canWork = active && r !== 'owner' && mineToDo && !!t.staffConfirmedAt;
     if (canWork) {
       if (!t.startedAt) actions.push(`<button class="go" data-start="${esc(t.id)}">Reinigung beginnen</button>`);
-      actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Erledigt melden</button>`);
+      if (doneTask !== t.id) actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Erledigt melden</button>`);
     }
     if (t.status !== 'storniert') actions.push(`<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Schließen' : r === 'owner' ? 'Hinweis / Foto hinzufügen' : 'Hinweis / Problem melden'}</button>`);
+    if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) actions.push(`<button class="go" data-keys-resolved="${esc(t.id)}">Schlüssel geklärt</button>`);
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
     if (active && (r === 'owner' || (!reqOpen && (r === 'lead' || mineToDo)))) {
       actions.push(`<button class="small" data-period="${esc(t.id)}">${periodTask === t.id ? 'Zeitraum schließen'
@@ -571,6 +609,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div>
       <div class="meta">${fmtLong(t.date)}${lastDay(t) > t.date ? ' – ' + fmtLong(lastDay(t)) : ''}${t.guest ? ' · ' + esc(t.guest) : ''}${t.guestPhone && active ? ' · ' + esc(t.guestPhone) : ''}</div>
       <div class="chips">${chips(t)}</div>
+      ${nextGuests(t)}
       <div class="origin">${origin}</div>
       ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
       ${requestBox(t)}
@@ -579,6 +618,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
       ${editTask === t.id ? editForm(t) : ''}
       ${periodTask === t.id ? periodForm(t) : ''}
+      ${doneTask === t.id && canWork ? doneForm(t) : ''}
       ${openForms.has(t.id) ? reportForm(t) : ''}
       ${t.history ? `<details class="meta" style="margin-top:8px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
     </article>`;
@@ -753,6 +793,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const active = tasks.filter(isActive);
     // Reinigungen mit offenem Antrag stehen oben im eigenen Abschnitt (nicht doppelt)
     const requests = data.openRequests || [];
+    const keys = data.missingKeys || [];
     const reqIds = new Set(requests.map((q) => q.taskId));
     const shown = tasks.filter((t) => !reqIds.has(t.id));
     const today = shown.filter((t) => onDay(t, t0));
@@ -765,6 +806,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const reports = data.openReports || [];
     const apartments = data.apartments || [];
     const urgent = [
+      ...keys.map((k) => [`task-${k.taskId}`, `Schlüssel fehlen: ${k.apartmentName} (gemeldet ${clock(k.doneAt)} von ${nameOf(k.doneBy)})${k.note ? ' – ' + k.note : ''}`]),
       ...requests.map((q) => [`task-${q.taskId}`, `Antrag: ${q.apartmentName} – Reinigung bis ${fmt(q.until)} (${nameOf(q.by)})`]),
       ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${
         t.overdue === 'start' ? 'noch nicht begonnen' : t.overdue ? (t.startedAt ? 'noch nicht beendet' : 'nicht erledigt') : 'nicht rechtzeitig bestätigt'}`]),
@@ -894,6 +936,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <dt>Anreise</dt><dd>${fmtLong(b.arrival)}</dd>
         <dt>Abreise</dt><dd>${fmtLong(b.departure)}</dd>
         <dt>Dauer</dt><dd>${nights} ${nights === 1 ? 'Nacht' : 'Nächte'}</dd>
+        ${b.blocked ? '' : `<dt>Gäste</dt><dd>${b.guests ? esc(b.guests) : '<span class="meta">nicht angegeben</span>'}</dd>`}
         ${b.blocked ? '<dt>Art</dt><dd>Sperrzeit aus Smoobu (keine Reinigung)</dd>' : `
         <dt>Telefon</dt><dd>${role() === 'owner' ? telButton(b.phone) : '<span class="meta">nur für Admin</span>'}</dd>
         ${b.channel ? `<dt>Kanal</dt><dd>${esc(b.channel)}</dd>` : ''}`}
@@ -918,6 +961,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <dt>Zugewiesen</dt><dd>${c.assignedTo ? `${esc(c.assignedTo)} ${c.staffConfirmed ? '✓ bestätigt' : '– noch nicht bestätigt'}` : 'noch niemandem'}</dd>
         ${c.startedAt ? `<dt>Begonnen</dt><dd>${clock(c.startedAt)} Uhr</dd>` : ''}
         ${c.doneAt ? `<dt>Erledigt</dt><dd>${clock(c.doneAt)} Uhr${c.startedAt ? ' · ' + duration(c.startedAt, c.doneAt) : ''}</dd>` : ''}
+        ${c.status !== 'erledigt' ? `<dt>Nächste Anreise</dt><dd>${c.nextBooking ? `${fmtLong(c.nextBooking.arrival)} · ${c.nextBooking.guests ? esc(c.nextBooking.guests) : 'Gästezahl unbekannt'}` : 'noch keine Buchung'}</dd>` : ''}
+        ${c.keysInBox != null ? `<dt>Schlüssel</dt><dd>${c.keysInBox ? 'in der Box ✓' : c.keysResolved ? 'fehlten – geklärt ✓' : '<b style="color:var(--bad)">NICHT in der Box</b>'}</dd>` : ''}
         ${c.note ? `<dt>Hinweis</dt><dd>${esc(c.note)}</dd>` : ''}
         ${c.reports ? `<dt>Meldungen</dt><dd>${c.reports}</dd>` : ''}
         ${!c.manual ? `<dt>Gast</dt><dd>${telButton(c.guestPhone)}</dd>` : ''}
@@ -938,8 +983,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const end = Math.min(cal.days, diffDays(cal.from, b.departure) + 0.5);
         if (end <= start) return '';
         const nights = diffDays(b.arrival, b.departure);
-        const label = b.blocked ? 'blockiert' : b.guest || 'Buchung';
-        const info = `${a.name}: ${b.blocked ? 'blockiert' : b.guest || 'Buchung'} · ${fmt(b.arrival)} – ${fmt(b.departure)} (${nights} ${nights === 1 ? 'Nacht' : 'Nächte'})`;
+        const label = b.blocked ? 'blockiert' : [shortGuests(b), b.guest || (shortGuests(b) ? '' : 'Buchung')].filter(Boolean).join(' · ');
+        const info = `${a.name}: ${b.blocked ? 'blockiert' : b.guest || 'Buchung'}${b.guests ? ' · ' + b.guests : ''} · ${fmt(b.arrival)} – ${fmt(b.departure)} (${nights} ${nights === 1 ? 'Nacht' : 'Nächte'})`;
         return `<button type="button" class="cal-bar${b.blocked ? ' blocked' : ''}${diffDays(cal.from, b.arrival) < 0 ? ' cut-l' : ''}${diffDays(cal.from, b.departure) >= cal.days ? ' cut-r' : ''}"
           style="left:${start * W}px;width:${(end - start) * W - 2}px" data-cal-booking="${esc(b.id)}" aria-label="${esc(info)}">${esc(label)}</button>`;
       }).join('');
@@ -960,7 +1005,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div>
       <h1 style="margin-top:14px">Belegungskalender</h1>
       <p class="meta">${fmtLong(cal.from)} – ${fmtLong(addDays(cal.from, cal.days - 1))} · Buchung oder Reinigung antippen für Details</p>
-      <div class="legend"><span><i style="background:var(--brand)"></i>Buchung</span>
+      <div class="legend"><span><i style="background:var(--brand)"></i>Buchung (z. B. „2+1 P.“ = 2 Erwachsene, 1 Kind)</span>
         <span><i style="background:repeating-linear-gradient(135deg,var(--done-bg) 0 4px,var(--line) 4px 8px)"></i>blockiert</span></div>
       <div class="legend" style="margin-top:0"><b style="color:var(--text)">Reinigung:</b>
         <span><span class="sym" style="background:#D98A1C">!</span>offen</span>
@@ -1106,6 +1151,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         editTask = null;
         update(next);
         toast('Gespeichert – das Team wurde informiert');
+      } else if (form.dataset.doneForm) {
+        const choice = form.elements.keys.value;
+        if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
+        const keysInBox = choice === '1';
+        update(await api(`/api/tasks/${encodeURIComponent(form.dataset.doneForm)}/done`, 'POST', { keysInBox, keysNote: form.elements.note.value }));
+        doneTask = null;
+        render();
+        toast(keysInBox ? 'Als erledigt gemeldet – danke!' : 'Erledigt gemeldet – Apartments Strauss wurde sofort wegen der Schlüssel benachrichtigt');
       } else if (form.dataset.periodForm) {
         const id = form.dataset.periodForm;
         const until = form.elements.until.value;
@@ -1224,8 +1277,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.start) {
         b.disabled = true; await taskAction(d.start, 'start', null, 'Beginn erfasst');
       } else if (d.done) {
-        if (!armed(b, 'Wirklich erledigt? Nochmal tippen')) return;
-        await taskAction(d.done, 'done', null, 'Als erledigt gemeldet – danke!');
+        doneTask = d.done; render();
+        const f = document.querySelector(`[data-done-form="${CSS.escape(d.done)}"]`);
+        if (f) f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else if (d.doneCancel !== undefined) {
+        doneTask = null; render();
+      } else if (d.keysResolved) {
+        b.disabled = true;
+        await taskAction(d.keysResolved, 'keys-resolved', {}, 'Als geklärt markiert');
       } else if (d.toggleReport) {
         if (openForms.has(d.toggleReport)) openForms.delete(d.toggleReport); else openForms.add(d.toggleReport);
         render();

@@ -172,8 +172,10 @@ test('erledigt → keine Erinnerungen; Dauer wird aus Start/Ende berechnet', () 
   const day = '2026-10-02';
   let { state } = L.startCleaning(confirmedTask(), '100', 'mia', at(day, '10:00'), CFG);
   assert.throws(() => L.startCleaning(state, '100', 'ida', at(day, '10:00'), CFG), /nicht zugewiesen/);
-  const done = L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG);
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG), /Gästeschlüssel/);
+  const done = L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true });
   assert.equal(done.state.tasks['100'].status, 'erledigt');
+  assert.equal(done.state.tasks['100'].keysInBox, true);
   assert.deepEqual(who(done.notifications), ['lea:done', 'owner:done']);
   assert.match(done.notifications[0].body, /Dauer 1:45 Std\./);
   assert.equal(L.checkDeadlines(done.state, at(day, '15:00'), CFG).notifications.length, 0);
@@ -323,7 +325,7 @@ test('Zeitraum: Mitarbeiterin beantragt mit Begründung → Admin + Leitung; gen
   assert.equal(L.checkDeadlines(res.state, at('2026-10-02', '16:00'), CFG).notifications.length, 0);
   assert.equal(L.overdueReason(res.state.tasks['100'], at('2026-10-03', '12:00'), CFG), 'start');
   // erledigt am ersten Tag ist natürlich auch gut
-  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG);
+  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: true });
   assert.equal(done.state.tasks['100'].status, 'erledigt');
 });
 
@@ -363,4 +365,35 @@ test('Meldung zu einer alten Reinigung ohne Meldungs-/Verlaufsliste (ältere Ver
   const res = L.addReport(state, '100', MIA, { id: 'r1', text: 'Handtücher fehlen', photos: [] }, NOW, CFG);
   assert.equal(res.state.tasks['100'].reports.length, 1);
   assert.equal(res.state.tasks['100'].history.length, 1);
+});
+
+test('Schlüssel nicht in der Box → sofort dringende Nachricht an Admin; Admin klärt', () => {
+  const res = L.completeCleaning(confirmedTask(), '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: false, keysNote: 'Gast hat sie mitgenommen' });
+  assert.deepEqual(who(res.notifications), ['lea:done', 'owner:done', 'owner:keys']);
+  const keys = res.notifications.find((n) => n.kind === 'keys');
+  assert.match(keys.title, /Schlüssel fehlen/);
+  assert.match(keys.body, /Gast hat sie mitgenommen/);
+  assert.equal(L.missingKeys(res.state).length, 1);
+  assert.throws(() => L.resolveKeys(confirmedTask(), '100', '', NOW), /keine Schlüssel/);
+  const ok = L.resolveKeys(res.state, '100', 'Gast bringt sie zurück', NOW);
+  assert.equal(L.missingKeys(ok.state).length, 0);
+  assert.ok(ok.state.tasks['100'].history.some((h) => /Schlüssel geklärt: Gast bringt/.test(h.text)));
+});
+
+test('Gästezahl: aus Smoobu übernommen, im Kalender und bei der Reinigung davor als „nächste Anreise“', () => {
+  const next = L.fromSmoobuBooking({ id: 300, type: 'reservation', arrival: '2026-10-03', departure: '2026-10-06', apartment: { id: '3', name: 'Loft am Markt' },
+    'guest-name': 'Fam. Weber', adults: 2, children: 1 });
+  assert.equal(next.adults, 2);
+  assert.equal(next.children, 1);
+  let { state } = L.applyBooking(confirmedTask(), next, NOW, CFG);
+  const task = L.listCleanings(state, {}, CFG).find((t) => t.id === '100');
+  assert.deepEqual(task.nextBooking, { arrival: '2026-10-03', departure: '2026-10-06', adults: 2, children: 1, guests: '2 Erwachsene, 1 Kind' });
+  const cal = L.calendar(state, '2026-10-01', 7, false, CFG, NOW);
+  assert.equal(cal.bookings.find((b) => b.id === '300').guests, '2 Erwachsene, 1 Kind');
+  assert.equal(cal.cleanings.find((c) => c.id === '100').nextBooking.guests, '2 Erwachsene, 1 Kind');
+  assert.equal(L.guestsText(1, 0), '1 Erwachsener');
+  assert.equal(L.guestsText(null, null), '');
+  // Anzahl unbekannt (Feld fehlt) → leer, Anreise trotzdem bekannt
+  const x = L.fromSmoobuBooking({ id: 301, arrival: '2026-10-10', departure: '2026-10-12', apartment: { id: '9' } });
+  assert.equal(x.adults, null);
 });

@@ -183,9 +183,14 @@ test('Beginn und Ende erfassen; Admin kann nicht abhaken', async () => {
   const s = await call('POST', '/api/tasks/2/start', { session: mia });
   assert.ok(s.body.tasks[0].startedAt);
   pushes = [];
-  const d = await call('POST', '/api/tasks/2/done', { session: mia });
+  assert.equal((await call('POST', '/api/tasks/2/done', { session: mia })).status, 409, 'Schlüssel-Frage ist Pflicht');
+  const d = await call('POST', '/api/tasks/2/done', { session: mia, body: { keysInBox: false, keysNote: 'fehlt' } });
   assert.equal(d.body.tasks[0].status, 'erledigt');
-  assert.deepEqual(who().sort(), ['Reinigung erledigt', 'Reinigung erledigt']);
+  assert.deepEqual(who().sort(), ['Reinigung erledigt', 'Reinigung erledigt', 'Schlüssel fehlen: FeWo Elbblick']);
+  assert.equal(pushes.find((p) => p.title.startsWith('Schlüssel')).priority, 5);
+  assert.equal((await me(admin)).missingKeys.length, 1);
+  assert.equal((await call('POST', '/api/tasks/2/keys-resolved', { session: mia })).status, 403);
+  assert.equal((await call('POST', '/api/tasks/2/keys-resolved', { session: admin, body: { note: 'ok' } })).body.missingKeys.length, 0);
   assert.equal((await me(mia)).tasks[0].status, 'erledigt', 'bleibt sichtbar (grau)');
 });
 

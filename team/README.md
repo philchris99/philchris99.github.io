@@ -50,6 +50,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
 - Beginn und Ende der Reinigung mit Dauer
+- **Checkpunkt Schlüssel (Pflicht)**: Beim Beenden muss angegeben werden, ob die Gästeschlüssel in der Box sind (Ja/Nein,
+  optional mit Hinweis). Bei „Nein“ sofort dringende Push an den Admin; oben unter „Handlungsbedarf“, bis der Admin
+  „Schlüssel geklärt“ tippt
+- **Gästezahl** aus Smoobu (Erwachsene/Kinder): im Kalender an jeder Buchung (z. B. „2+1 P.“) und bei jeder offenen Reinigung
+  als „Nächste Anreise: Fr, 25.09. · 2 Erwachsene, 1 Kind“ zur Vorbereitung
 - **Belegungskalender** (Admin, Leitung): alle Wohnungen durchnummeriert, Tage fortlaufend, Buchungen mit Gastname und
   Telefonnummer (nur Admin), blockierte Zeiträume aus Smoobu; Reinigungen als großes Symbol (Kreis = Check-out,
   Quadrat = manuell; orange offen, grün bestätigt/erledigt, rot überfällig), antippen zeigt alle Details
