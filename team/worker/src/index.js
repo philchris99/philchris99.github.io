@@ -5,7 +5,7 @@ import L from '../../logic/logic.js';
 import config from './config.js';
 import { authenticate, allUsers, findUser, loginLink, topicFor, webhookToken, safeEqual } from './auth.js';
 import { loadState, mutate } from './store.js';
-import { fetchBookings, fetchBooking } from './smoobu.js';
+import { fetchBookings, fetchBooking, diagnose } from './smoobu.js';
 import { deliver, sendPush } from './notify.js';
 
 const json = (data, status = 200) =>
@@ -52,6 +52,7 @@ export async function runSync(env, now = Date.now()) {
     state = deadlines.state;
     state.syncError = syncError;
     state.lastRun = new Date(now).toISOString();
+    if (bookings) state.lastSyncCount = bookings.length;
     return { state, notifications: notifications.concat(deadlines.notifications) };
   }, now);
 
@@ -73,7 +74,7 @@ function viewFor(state, user, now) {
     return { ...base,
       tasks: L.listCleanings(state, { from: L.addDays(today, -7) }, config),
       log: (state.log || []).slice(0, 50).map((n) => ({ ...n, toName: n.to === config.owner.id ? 'Auftraggeber' : (findUser(n.to) || {}).name || n.to })),
-      lastSync: state.lastSync || null, lastRun: state.lastRun || null, syncError: state.syncError || null,
+      lastSync: state.lastSync || null, lastSyncCount: state.lastSyncCount ?? null, lastRun: state.lastRun || null, syncError: state.syncError || null,
       apartments: Object.entries(apartments).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true })),
       cleaners: config.cleaners.map((c) => ({ id: c.id, name: c.name, apartments: c.apartments })),
     };
@@ -140,6 +141,12 @@ async function handleApi(request, env, url, ctx) {
     } catch (e) {
       return fail(e.message, 502);
     }
+  }
+
+  if (path === '/api/diagnose' && request.method === 'POST' && user.role === 'owner') {
+    if (!env.SMOOBU_API_KEY) return fail('SMOOBU_API_KEY fehlt', 400);
+    const today = L.localParts(now, config.timezone).date;
+    return json({ results: await diagnose(env.SMOOBU_API_KEY, L.addDays(today, -1), L.addDays(today, config.syncDaysAhead)) });
   }
 
   if (path === '/api/sync' && request.method === 'POST' && user.role === 'owner') {

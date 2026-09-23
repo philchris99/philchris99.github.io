@@ -200,7 +200,9 @@ details summary { cursor: pointer; }
     const cleanerRows = data.cleaners.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.apartments === 'all' ? 'alle Wohnungen' : esc(c.apartments.join(', '))}</td></tr>`).join('');
     return `
       ${data.syncError ? `<div class="notice bad"><b>Abgleich mit Smoobu gestört:</b> ${esc(data.syncError)}</div>` : ''}
-      <div class="notice info row"><span class="meta">Letzter Smoobu-Abgleich: <b>${fmtTime(data.lastSync)}</b></span><button class="small" data-sync>Jetzt abgleichen</button></div>
+      <div class="notice info row"><span class="meta">Letzter Smoobu-Abgleich: <b>${fmtTime(data.lastSync)}</b>${data.lastSyncCount != null ? ` · <b>${data.lastSyncCount}</b> Buchungen von Smoobu erhalten` : ''}</span>
+        <span class="row" style="gap:6px"><button class="small" data-sync>Jetzt abgleichen</button><button class="small" data-diagnose>Diagnose</button></span></div>
+      <div id="diagnose"></div>
       <h2>Ab heute</h2>
       <div class="stats">
         <div class="stat"><b>${count('offen')}</b><span>offen</span></div>
@@ -241,6 +243,21 @@ details summary { cursor: pointer; }
         data = Object.assign({}, data, next);
         render();
         toast(`Abgleich fertig: ${next.summary.bookings} Buchungen, ${next.summary.notifications} Nachrichten`);
+      } else if (d.diagnose !== undefined) {
+        b.disabled = true;
+        b.textContent = 'Prüfe …';
+        const res = await api('/api/diagnose', 'POST');
+        b.disabled = false;
+        b.textContent = 'Diagnose';
+        $('diagnose').innerHTML = `<div class="card" style="margin-top:8px"><b>Smoobu-Diagnose</b>
+          <p class="meta">Enthält keine Gästedaten – gerne als Screenshot an Claude schicken.</p>
+          <div style="overflow-x:auto"><table>${res.results.map((r) => `<tr>
+            <td><b>${esc(r.variant)}</b></td>
+            <td>Status ${esc(r.status ?? '–')}<br>${esc(r.received ?? 0)} erhalten${r.total != null ? ' von ' + esc(r.total) : ''}${r.pages != null ? ', ' + esc(r.pages) + ' Seiten' : ''}
+            ${r.departures && r.departures.length ? '<br>Abreisen ' + esc(r.departures.join(' … ')) : ''}
+            ${r.topKeys && r.topKeys.length ? '<br><span class="meta">Antwort: ' + esc(r.topKeys.join(', ')) + '</span>' : ''}
+            ${r.fields && r.fields.length ? '<br><span class="meta">Felder: ' + esc(r.fields.join(', ')) + '</span>' : ''}
+            ${r.error ? '<br><span style="color:var(--bad)">' + esc(r.error) + '</span>' : ''}</td></tr>`).join('')}</table></div></div>`;
       } else if (d.test !== undefined) {
         await api('/api/test-push', 'POST');
         toast('Test-Nachricht verschickt');

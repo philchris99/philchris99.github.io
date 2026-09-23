@@ -149,3 +149,14 @@ test('Smoobu nicht erreichbar → Fehler wird angezeigt, Fristen laufen trotzdem
   env.SMOOBU_API_KEY = saved;
   assert.match(s.syncError, /Api-Key|Unerwarteter|expected|Expected/);
 });
+
+test('Diagnose meldet Anzahlen und Feldnamen, aber keine Gästedaten', async () => {
+  smoobuBookings = [booking(10, '2026-10-10')];
+  const res = await call('POST', '/api/diagnose', { user: auth('buero') });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.results.length, 5);
+  assert.equal(res.body.results[0].received, 1);
+  assert.ok(res.body.results[0].fields.includes('guest-name'));
+  assert.ok(!JSON.stringify(res.body).includes('Müller'));
+  assert.equal((await call('POST', '/api/diagnose', { user: auth('kraft1') })).status, 404);
+});
