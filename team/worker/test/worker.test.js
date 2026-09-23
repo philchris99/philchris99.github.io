@@ -385,6 +385,44 @@ test('Zeitraum: Mitarbeiterin beantragt, Admin sieht Antrag und genehmigt; Admin
   assert.equal((await call('POST', '/api/tasks/80/period', { session: admin, body: { until: null } })).body.tasks.find((t) => t.id === '80').latestDate, null);
 });
 
+test('Zugangscodes: Admin hinterlegt (verschlüsselt), zugewiesene Mitarbeiterin ruft mit einem Klick ab (protokolliert)', async () => {
+  smoobuBookings = [booking(95, '2099-11-05'), booking(96, '2099-11-06', { apartment: { id: 222, name: 'Loft' } })];
+  await runSync(env);
+  await call('POST', '/api/tasks/95/assign', { session: lea, body: { to: miaId } });
+  assert.equal((await call('POST', '/api/tasks/95/codes', { session: mia })).status, 404, 'noch keine Codes');
+  assert.equal((await call('GET', '/api/access-codes', { session: lea })).status, 404, 'nur Admin verwaltet');
+  const saved = await call('POST', '/api/access-codes', { session: admin, body: { entries: [
+    { apartmentId: '111', guest: '1111', service: '9999', description: 'EG links' }, { apartmentId: 'unbekannt', guest: '1' }] } });
+  assert.equal(saved.body.codes['111'].guest, '1111');
+  assert.equal(saved.body.codes.unbekannt, undefined);
+  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes('9999'), 'verschlüsselt gespeichert');
+  const c = await call('POST', '/api/tasks/95/codes', { session: mia });
+  assert.deepEqual([c.status, c.body.guest, c.body.service, c.body.description], [200, '1111', '9999', 'EG links']);
+  assert.ok((await me(admin)).tasks.find((t) => t.id === '95').history.some((h) => /Zugangscodes abgerufen von Mia/.test(h.text)));
+  assert.equal((await call('POST', '/api/tasks/96/codes', { session: mia })).status, 403, 'nicht zugewiesen');
+  assert.equal((await call('POST', '/api/tasks/95/codes', { session: lea })).status, 200);
+  // Code ändern → sofort der neue
+  await call('POST', '/api/access-codes', { session: admin, body: { entries: [{ apartmentId: '111', guest: '2222', service: '9999', description: 'EG links' }] } });
+  assert.equal((await call('POST', '/api/tasks/95/codes', { session: mia })).body.guest, '2222');
+  assert.equal((await call('GET', '/api/access-codes', { session: admin })).body.codes['111'].guest, '2222');
+});
+
+test('Systemweite Sperre: 30 falsche Codes pro Stunde (verschiedene Adressen) → Sperre + Push an Admin', async () => {
+  env.DB.db.prepare("DELETE FROM login_attempts WHERE key = 'code:alle'").run();
+  pushes = [];
+  let r;
+  for (let i = 0; i < 30; i++) {
+    r = await call('POST', '/api/login', { body: { code: String(100000 + i * 7) }, headers: { 'CF-Connecting-IP': `198.51.100.${i}` } });
+  }
+  assert.equal(r.status, 401);
+  assert.ok(pushes.some((p) => p.title === 'Viele falsche Anmeldeversuche' && p.priority === 5));
+  r = await call('POST', '/api/login', { body: { code: '482913' }, headers: { 'CF-Connecting-IP': '198.51.100.200' } });
+  assert.equal(r.status, 429, 'auch richtiger Code gesperrt');
+  assert.match(r.body.error, /vorübergehend gesperrt/);
+  assert.equal((await call('POST', '/api/admin-login', { body: { password: 'admin-passwort' } })).status, 200, '/admin geht weiter');
+  env.DB.db.prepare("DELETE FROM login_attempts WHERE key = 'code:alle'").run();
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

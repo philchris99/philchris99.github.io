@@ -124,6 +124,11 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 650; }
 .choice.no:has(input:checked) { border-color: var(--bad); background: var(--bad-bg); }
 .next-guests { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 15px; }
+.codes { margin-top: 10px; padding: 12px; border: 2px solid var(--brand); border-radius: 12px; background: var(--card); }
+.codes .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.codes .big { font-size: 30px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
+.code-table input { width: 100%; min-width: 70px; }
+.code-table td { padding: 4px; vertical-align: top; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 49px; height: 6px; border-top: 3px dashed var(--accent); pointer-events: none; }
@@ -306,7 +311,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let editPerson = null;         // Person, deren Name bearbeitet wird
   let editTask = null;           // manuelle Reinigung in Bearbeitung
   let periodTask = null;
-  let doneTask = null;           // Reinigung mit offenem „Beenden“-Checkpunkt (Schlüssel)         // Reinigung mit offenem Zeitraum-Formular
+  let doneTask = null;
+  const shownCodes = {};         // abgerufene Zugangscodes je Reinigung (nur im Speicher, verschwinden automatisch)
+  let codeEditor = null;         // Admin: Zugangscodes bearbeiten           // Reinigung mit offenem „Beenden“-Checkpunkt (Schlüssel)         // Reinigung mit offenem Zeitraum-Formular
   let lockTimer = null;
   const openForms = new Set();   // Reinigungen mit offenem Hinweis-Formular
   const pending = {};            // ausgewählte, noch nicht gesendete Fotos je Reinigung
@@ -330,7 +337,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   // Beim automatischen Aktualisieren nichts überschreiben, was gerade bearbeitet wird
-  const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!document.querySelector('#app [data-dirty]')
+  const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
     || !$('gallery').hidden || !$('modal').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
   async function refresh(force) {
@@ -512,6 +519,64 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return `<div class="next-guests">Nächste Anreise: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''} · ${n.guests ? `<b>${esc(n.guests)}</b>` : 'Gästezahl in Smoobu nicht angegeben'}</div>`;
   }
 
+  function codesBox(c) {
+    return `<div class="codes"><b>Zugangscodes · ${esc(c.apartmentName)}</b>
+      ${c.description ? `<div class="meta" style="margin-top:4px">📍 ${esc(c.description)}</div>` : ''}
+      <div class="row2">
+        <div><div class="meta">Gäste-Code</div><div class="big">${esc(c.guest || '–')}</div></div>
+        <div><div class="meta">Service-Schlüsselbox</div><div class="big">${esc(c.service || '–')}</div></div>
+      </div>
+      <p class="meta" style="margin-top:6px">Bitte nicht weitergeben. Wird nach 3 Minuten automatisch ausgeblendet.</p></div>`;
+  }
+
+  // ---- Admin: Zugangscodes je Wohnung -----------------------------------------
+  function codeEditorHtml() {
+    if (!codeEditor) {
+      return `<p class="meta">Gäste-Code, Code der Service-Schlüsselbox und Lagebeschreibung je Wohnung. Werden verschlüsselt gespeichert;
+        das Reinigungsteam sieht sie per Knopf „🔑 Zugangscodes“ bei der Reinigung (jeder Abruf steht im Verlauf).</p>
+        <div class="actions"><button class="primary" data-code-editor>Codes anzeigen / bearbeiten</button></div>`;
+    }
+    const rows = codeEditor.apartments.map((a) => { const c = codeEditor.codes[a.id] || {};
+      return `<tr><td><b>${esc(a.name)}</b>${c.updatedAt ? `<div class="meta">geändert ${fmtTime(c.updatedAt)}</div>` : ''}</td>
+        <td><input id="cg-${esc(a.id)}" value="${esc(c.guest || '')}" inputmode="numeric" aria-label="Gäste-Code ${esc(a.name)}"></td>
+        <td><input id="cs-${esc(a.id)}" value="${esc(c.service || '')}" inputmode="numeric" aria-label="Service-Code ${esc(a.name)}"></td>
+        <td><input id="cd-${esc(a.id)}" value="${esc(c.description || '')}" aria-label="Beschreibung ${esc(a.name)}"></td></tr>`; }).join('');
+    return `<div class="panel">
+        <label class="field">Tabelle einfügen (z. B. aus Excel/Word: Wohnung, Gäste, Service, Beschreibung)
+          <textarea id="code-import" rows="4" placeholder="#EINS | Musterstraße 1&#9;1234&#9;5678&#9;EG links"></textarea></label>
+        <div class="actions"><button data-code-import>In die Liste übernehmen</button></div>
+        <div id="code-import-result" class="meta"></div>
+      </div>
+      <div class="panel scroll"><table class="code-table">
+        <tr><th>Wohnung</th><th>Gäste</th><th>Service</th><th>Beschreibung</th></tr>${rows ||
+          '<tr><td colspan="4" class="meta">Wohnungen erscheinen nach dem ersten Abgleich mit Smoobu.</td></tr>'}</table></div>
+      <div class="actions"><button class="primary" data-code-save>Codes speichern</button><button data-code-close>Schließen</button></div>`;
+  }
+
+  /** Eingefügte Tabelle den Wohnungen zuordnen (Kürzel wie „#EINS“ oder Adresse) */
+  function importCodes(text) {
+    const norm = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+    const token = (x) => norm(String(x).split('|')[0]);
+    const address = (x) => norm(String(x).split('|').slice(1).join('|'));
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const done = [], missing = [];
+    for (const line of lines) {
+      const cols = (line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/)).map((c) => c.trim());
+      if (cols.length < 2 || /^wohnung$/i.test(cols[0])) continue;
+      const [name, guest, service, ...rest] = cols;
+      const apt = codeEditor.apartments.find((a) => norm(a.name) === norm(name))
+        || codeEditor.apartments.find((a) => token(a.name) && token(a.name) === token(name))
+        || (address(name) && codeEditor.apartments.find((a) => norm(a.name).includes(address(name))));
+      if (!apt) { missing.push(name); continue; }
+      $('cg-' + apt.id).value = guest || '';
+      $('cs-' + apt.id).value = service || '';
+      $('cd-' + apt.id).value = rest.join(' ').trim();
+      done.push(apt.name);
+    }
+    $('code-import-result').innerHTML = `${done.length} Wohnung(en) übernommen – bitte prüfen und „Codes speichern“ tippen.`
+      + (missing.length ? `<br><b style="color:var(--bad)">Nicht zugeordnet:</b> ${missing.map(esc).join(', ')} – bitte unten von Hand eintragen.` : '');
+  }
+
   /** Pflicht-Checkpunkt vor dem Beenden: Gästeschlüssel in der Box? */
   function doneForm(t) {
     return `<form class="keys-check" data-done-form="${esc(t.id)}">
@@ -599,6 +664,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       if (doneTask !== t.id) actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Erledigt melden</button>`);
     }
     if (t.status !== 'storniert') actions.push(`<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Schließen' : r === 'owner' ? 'Hinweis / Foto hinzufügen' : 'Hinweis / Problem melden'}</button>`);
+    const doneToday = t.status === 'erledigt' && t.doneAt && t.doneAt.slice(0, 10) >= addDays(data.today, -1);
+    if ((active || doneToday) && (r !== 'staff' || mineToDo)) {
+      actions.push(`<button class="small" data-codes="${esc(t.id)}">${shownCodes[t.id] ? 'Codes ausblenden' : '🔑 Zugangscodes'}</button>`);
+    }
     if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) actions.push(`<button class="go" data-keys-resolved="${esc(t.id)}">Schlüssel geklärt</button>`);
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
     if (active && (r === 'owner' || (!reqOpen && (r === 'lead' || mineToDo)))) {
@@ -626,6 +695,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${r === 'lead' && active ? assignControl(t) : ''}
       ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
       ${editTask === t.id ? editForm(t) : ''}
+      ${shownCodes[t.id] ? codesBox(shownCodes[t.id]) : ''}
       ${periodTask === t.id ? periodForm(t) : ''}
       ${doneTask === t.id && canWork ? doneForm(t) : ''}
       ${openForms.has(t.id) ? reportForm(t) : ''}
@@ -864,6 +934,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
       ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
       ${section('manuell', 'Manuelle Reinigung hinzufügen', '', manualForm)}
+      ${section('codes', 'Zugangscodes der Wohnungen', 'verschlüsselt gespeichert', codeEditorHtml())}
       ${section('team', 'Team', '', ownerCode + codeBox()
         + teamList('lead', data.leads || [], 'Reinigungsleitung') + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
       ${pushSetup()}
@@ -1271,7 +1342,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         if (!armed(b, '?')) return toast('Zum Löschen nochmal auf ✕ tippen');
         await taskAction(d.task, `reports/${encodeURIComponent(d.report)}/photos/${encodeURIComponent(d.delphoto)}/delete`, null, 'Foto gelöscht');
       } else if (d.logout !== undefined) {
-        store.set(null); auth = null; data = null; view = 'main'; cal = null;
+        store.set(null); auth = null; data = null; view = 'main'; cal = null; codeEditor = null;
+        for (const k of Object.keys(shownCodes)) delete shownCodes[k];
         history.replaceState(null, '', '/');
         showLogin();
       } else if (d.leadConfirm) {
@@ -1299,6 +1371,27 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         const ta = document.getElementById('text-' + d.toggleReport);
         if (ta) ta.focus();
+      } else if (d.codes) {
+        if (shownCodes[d.codes]) { delete shownCodes[d.codes]; return render(); }
+        b.disabled = true;
+        shownCodes[d.codes] = await api(`/api/tasks/${encodeURIComponent(d.codes)}/codes`, 'POST');
+        render();
+        setTimeout(() => { if (shownCodes[d.codes]) { delete shownCodes[d.codes]; render(); } }, 3 * 60 * 1000);
+      } else if (d.codeEditor !== undefined) {
+        codeEditor = await api('/api/access-codes');
+        render();
+        document.getElementById('codes').scrollIntoView();
+      } else if (d.codeImport !== undefined) {
+        importCodes($('code-import').value);
+      } else if (d.codeSave !== undefined) {
+        const entries = codeEditor.apartments.map((a) => ({ apartmentId: a.id, guest: $('cg-' + a.id).value, service: $('cs-' + a.id).value, description: $('cd-' + a.id).value }));
+        b.disabled = true;
+        codeEditor = await api('/api/access-codes', 'POST', { entries });
+        render();
+        document.getElementById('codes').scrollIntoView();
+        toast('Codes gespeichert');
+      } else if (d.codeClose !== undefined) {
+        codeEditor = null; render();
       } else if (d.period) {
         periodTask = periodTask === d.period ? null : d.period; render();
       } else if (d.periodClose !== undefined) {

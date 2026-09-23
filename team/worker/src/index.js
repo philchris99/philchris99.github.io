@@ -24,6 +24,9 @@ const smoobuCreds = (env) => ({ key: clean(env.SMOOBU_API_KEY), secret: clean(en
 
 // Anmeldung: nach 3 falschen Codes 1 Minute gesperrt; Admin-Passwort 5 Versuche / 15 Min.
 const CODE_LOCK = { max: 3, windowMs: 60 * 1000 };
+// Zusätzlich systemweit (gegen Durchprobieren von vielen Adressen aus): 30 Fehlversuche/Std. → 1 Std. Sperre + Push an Admin.
+// Der Admin kommt über /admin mit Passwort trotzdem hinein.
+const GLOBAL_LOCK = { max: 30, windowMs: 60 * 60 * 1000 };
 const ADMIN_LOCK = { max: 5, windowMs: 15 * 60 * 1000 };
 
 // Admin-Code liegt (gehasht) in settings.ownerCode
@@ -110,6 +113,16 @@ export async function runSync(env, now = Date.now(), cfg) {
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
+/** Zugangscodes je Wohnung (AES-GCM verschlüsselt in settings.accessCodes) */
+async function loadAccessCodes(env, settings) {
+  if (!settings.accessCodes) return {};
+  try {
+    return JSON.parse(await decryptCode(env, settings.accessCodes)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Ansichten
 // ---------------------------------------------------------------------------
@@ -191,11 +204,21 @@ async function handleApi(request, env, url, ctx) {
   // ---- Anmeldung mit 6-stelligem Code (Admin, Leitung, Mitarbeiterin) ----
   if (path === '/api/login' && request.method === 'POST') {
     const key = 'code:' + ip;
+    const globalWait = await lockedFor(env.DB, 'code:alle', now, GLOBAL_LOCK);
+    if (globalWait) {
+      return fail('Anmeldung wegen vieler Fehlversuche vorübergehend gesperrt – bitte später erneut versuchen oder Apartments Strauss anrufen', 429,
+        { retryAfter: globalWait });
+    }
     const wait = await lockedFor(env.DB, key, now, CODE_LOCK);
     if (wait) return fail(`Zu viele falsche Versuche – bitte ${wait} Sekunden warten`, 429, { retryAfter: wait });
     const code = String((await readJson()).code || '').replace(/\D/g, '');
     const match = code.length === 6 ? await findByCode(codeHolders(settings), code) : null;
     if (!match || !env.APP_SECRET) {
+      const total = await recordFailure(env.DB, 'code:alle', now, GLOBAL_LOCK);
+      if (total === GLOBAL_LOCK.max) {
+        ctx.waitUntil(deliver(env, cfg, [{ to: cfg.owner.id, kind: 'security', title: 'Viele falsche Anmeldeversuche',
+          body: `${total} falsche Codes innerhalb einer Stunde – Anmeldung per Code für 1 Stunde gesperrt. Admin-Zugang: /admin mit Passwort.` }]));
+      }
       const count = await recordFailure(env.DB, key, now, CODE_LOCK);
       if (count >= CODE_LOCK.max) return fail('3 × falscher Code – Anmeldung für 1 Minute gesperrt', 429, { retryAfter: 60 });
       return fail(`Code nicht bekannt – noch ${CODE_LOCK.max - count} Versuch${CODE_LOCK.max - count === 1 ? '' : 'e'}`, 401);
@@ -372,6 +395,23 @@ async function handleApi(request, env, url, ctx) {
     return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames, cfg, now) });
   }
 
+  // Zugangscodes der Wohnung zu einer Reinigung (Gäste-Code, Service-Schlüsselbox) – Abruf wird protokolliert
+  const codesOf = path.match(/^\/api\/tasks\/([^/]+)\/codes$/);
+  if (codesOf && request.method === 'POST') {
+    const id = decodeURIComponent(codesOf[1]);
+    const task = (await loadState(env.DB)).state.tasks[id];
+    if (!task || !L.mayViewCodes(cfg, task, user, now)) return fail('Codes für diese Reinigung nicht verfügbar', 403);
+    const entry = (await loadAccessCodes(env, settings))[task.apartmentId];
+    if (!entry || !(entry.guest || entry.service)) return fail('Für diese Wohnung sind noch keine Codes hinterlegt – bitte Apartments Strauss fragen', 404);
+    try {
+      await mutate(env.DB, (st) => L.logCodeAccess(st, id, user, now, cfg), now);
+    } catch (e) {
+      return fail(e.message, 403);
+    }
+    return json({ apartmentName: task.apartmentName, guest: entry.guest || '', service: entry.service || '',
+      description: entry.description || '', updatedAt: entry.updatedAt || null });
+  }
+
   // Foto anzeigen
   const photo = path.match(/^\/api\/photos\/([A-Za-z0-9-]+)$/);
   if (photo && request.method === 'GET') {
@@ -446,6 +486,31 @@ async function handleApi(request, env, url, ctx) {
 
   // ======================= ab hier nur Admin =======================
   if (role !== 'owner') return fail('Nicht gefunden', 404);
+
+  // Zugangscodes verwalten (verschlüsselt in der Datenbank, nie im Programmcode)
+  if (path === '/api/access-codes' && request.method === 'GET') {
+    const { state } = await loadState(env.DB);
+    return json({ apartments: apartmentList(state), codes: await loadAccessCodes(env, settings) });
+  }
+  if (path === '/api/access-codes' && request.method === 'POST') {
+    const body = await readJson();
+    const { state } = await loadState(env.DB);
+    const known = new Set(apartmentList(state).map((a) => a.id));
+    const current = await loadAccessCodes(env, settings);
+    const clean = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    for (const e of Array.isArray(body.entries) ? body.entries : []) {
+      const id = String(e.apartmentId || '');
+      if (!known.has(id)) continue;
+      const next = { guest: clean(e.guest, 40), service: clean(e.service, 40), description: clean(e.description, 200) };
+      const prev = current[id] || { guest: '', service: '', description: '' };
+      if (prev.guest === next.guest && prev.service === next.service && prev.description === next.description) continue;
+      if (!next.guest && !next.service && !next.description) { delete current[id]; continue; }
+      current[id] = { ...next, updatedAt: new Date(now).toISOString() };
+    }
+    settings.accessCodes = await encryptCode(env, JSON.stringify(current));
+    await saveSettings(env.DB, settings);
+    return json({ apartments: apartmentList(state), codes: current });
+  }
 
   const resolve = path.match(/^\/api\/tasks\/([^/]+)\/reports\/([^/]+)\/resolve$/);
   if (resolve && request.method === 'POST') {

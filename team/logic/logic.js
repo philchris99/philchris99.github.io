@@ -579,6 +579,31 @@
     return { state, notifications };
   }
 
+  /**
+   * Zugangscodes (Gäste-Code, Service-Schlüsselbox) dürfen abgerufen werden von: Admin, Reinigungsleitung
+   * und der zugewiesenen Mitarbeiterin – nur solange die Reinigung ansteht (bzw. am Tag der Erledigung).
+   */
+  function mayViewCodes(config, task, user, now) {
+    config = withConfig(config);
+    if (task.status === STATUS.CANCELLED) return false;
+    if (user.role === 'owner') return true;
+    if (user.role === 'staff' && task.assignedTo !== user.id) return false;
+    if (isActive(task)) return true;
+    return task.status === STATUS.DONE && !!task.doneAt
+      && localParts(task.doneAt, config.timezone).date === localParts(now, config.timezone).date;
+  }
+
+  /** Abruf der Codes im Verlauf festhalten (wer, wann) – keine Push-Nachricht */
+  function logCodeAccess(state, taskId, user, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (!mayViewCodes(config, task, user, now)) throw new Error('Codes für diese Reinigung nicht verfügbar');
+    const name = user.role === 'owner' ? config.owner.name : personName(config, user.id);
+    log(task, toIso(now), `Zugangscodes abgerufen von ${name}`);
+    return { state, notifications: [] };
+  }
+
   /** Admin: fehlende Schlüssel geklärt */
   function resolveKeys(state, taskId, note, now) {
     state = clone(state);
@@ -637,18 +662,19 @@
   }
 
   /**
-   * Erster Tag nach dem Check-out, an dem die Wohnung laut Smoobu NICHT frei ist
-   * (Anreise eines Gastes, Aufenthalt oder Sperrzeit). Ein Anreisetag zählt als belegt (Wechseltag).
-   * Liefert { date, blocked, sameDay } oder null (alles frei).
+   * Erster Tag nach dem Check-out, an dem die Wohnung laut Smoobu NICHT frei ist: in der Nacht davor war schon ein
+   * anderer Gast (oder eine Sperrzeit) da. Der Anreisetag selbst ist noch nutzbar (Reinigung bis 15 Uhr, vor dem Check-in).
+   * Liefert { date, arrival, blocked, sameDay } oder null (alles frei).
    */
   function firstOccupied(state, task) {
     const d0 = addDays(task.date, 1);
     let best = null;
     for (const r of Object.values(state.reservations || {})) {
       if (r.apartmentId !== task.apartmentId || r.id === task.id || !r.arrival || !r.departure) continue;
-      const start = r.arrival > d0 ? r.arrival : d0;
-      if (r.departure <= start) continue; // Abreisetag selbst ist frei
-      if (!best || start < best.date) best = { date: start, blocked: !!r.blocked, sameDay: r.arrival <= task.date };
+      const afterArrival = addDays(r.arrival, 1);
+      const start = afterArrival > d0 ? afterArrival : d0;
+      if (r.departure < start) continue; // Nacht vor „start“ nicht belegt
+      if (!best || start < best.date) best = { date: start, arrival: r.arrival, blocked: !!r.blocked, sameDay: r.arrival <= task.date };
     }
     return best;
   }
@@ -662,8 +688,8 @@
     if (occ && addDays(occ.date, -1) < last) {
       last = addDays(occ.date, -1);
       reason = occ.sameDay ? `Am ${formatDate(task.date)} reist bereits der nächste Gast an (Wechseltag)`
-        : occ.blocked ? `Ab ${formatDate(occ.date)} ist die Wohnung in Smoobu blockiert`
-        : `Am ${formatDate(occ.date)} reist der nächste Gast an`;
+        : occ.blocked ? `Ab ${formatDate(occ.arrival)} ist die Wohnung in Smoobu blockiert`
+        : `Am ${formatDate(occ.arrival)} reist der nächste Gast an (Reinigung spätestens an diesem Tag bis ${config.finishBy} Uhr)`;
     }
     return { last: last > task.date ? last : null, reason };
   }
@@ -1018,7 +1044,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, nextBooking, guestsText,
+    resolveKeys, missingKeys, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

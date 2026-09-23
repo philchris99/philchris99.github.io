@@ -41,9 +41,9 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (Push + oben „Anträge“) und genehmigt oder lehnt ab. Der Admin kann den Zeitraum auch direkt festlegen, ändern oder aufheben
   (für Smoobu- und manuelle Reinigungen). Auch am späteren Tag gilt: bis 15 Uhr erledigt (steht im Formular und in den
   Nachrichten). Erinnerungen 12/15 Uhr gelten dann erst am letzten Tag. Grenzen: höchstens
-  `maxPeriodDays` (7) Tage und **nur Tage, an denen die Wohnung laut Smoobu frei ist** – kein Anreisetag, kein Aufenthalt,
-  keine Sperrzeit. Bei Wechseltag (Anreise am Check-out-Tag) oder Anreise am Folgetag ist kein Antrag möglich; die App
-  zeigt den Grund. Kommt später eine Buchung in einen genehmigten Zeitraum, wird er sofort verkürzt/aufgehoben und
+  `maxPeriodDays` (7) Tage und **nur Tage, an denen die Wohnung laut Smoobu frei ist** (in der Nacht davor kein anderer
+  Gast, keine Sperrzeit). Der Anreisetag des nächsten Gastes ist noch möglich (bis 15 Uhr, vor dem Check-in). Bei
+  Wechseltag (Anreise am Check-out-Tag) ist kein Antrag möglich; die App zeigt den Grund. Kommt später eine Buchung in einen genehmigten Zeitraum, wird er sofort verkürzt/aufgehoben und
   Team + Admin bekommen eine Push-Nachricht; offene Anträge, die nicht mehr passen, entfallen. Ändert Smoobu den Check-out,
   entfällt der Zeitraum (neu beantragen/festlegen). Im Kalender als gestrichelte Linie, offener Antrag mit „?“.
 - Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt
@@ -57,6 +57,12 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Checkpunkt Schlüssel (Pflicht)**: Beim Beenden muss angegeben werden, ob die Gästeschlüssel in der Box sind (Ja/Nein,
   optional mit Hinweis). Bei „Nein“ sofort dringende Push an den Admin; oben unter „Handlungsbedarf“, bis der Admin
   „Schlüssel geklärt“ tippt
+- **Zugangscodes** (Gäste-Code, Service-Schlüsselbox, Lage) je Wohnung: Admin trägt sie unter „Zugangscodes der Wohnungen“
+  ein (Tabelle aus Excel/Word einfügen oder von Hand). Gespeichert **verschlüsselt in der Datenbank**, nie im Programmcode.
+  Abruf per Knopf „🔑 Zugangscodes“ bei der Reinigung: Admin, Leitung und die zugewiesene Mitarbeiterin (nur solange die
+  Reinigung ansteht bzw. am Tag der Erledigung); jeder Abruf steht im Verlauf, Anzeige verschwindet nach 3 Minuten
+- **Schutz der Anmeldung**: je Gerät 3 Fehlversuche → 1 Min. Sperre; zusätzlich systemweit 30 Fehlversuche pro Stunde →
+  Code-Anmeldung 1 Std. gesperrt + dringende Push an Admin (Admin kommt über /admin mit Passwort weiter hinein)
 - **Gästezahl** aus Smoobu (Erwachsene/Kinder): im Kalender an jeder Buchung (z. B. „2+1 P.“) und bei jeder offenen Reinigung
   als „Nächste Anreise: Fr, 25.09. ab 16:00 Uhr · 2 Erwachsene, 1 Kind“ zur Vorbereitung (Smoobu-Felder `adults`,
   `children`, `check-in`; „Diagnose“ zeigt, bei wie vielen Buchungen die Gästezahl hinterlegt ist)

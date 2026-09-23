@@ -334,19 +334,18 @@ test('Zeitraum: Mitarbeiterin beantragt mit Begründung → Admin + Leitung; gen
 test('Zeitraum: Ablehnung, Admin legt selbst fest bzw. hebt auf, nächster Gast begrenzt', () => {
   let state = confirmedTask();
   ({ state } = L.applyBooking(state, booking({ id: '200', arrival: '2026-10-04', departure: '2026-10-08' }), NOW, CFG));
-  assert.throws(() => L.setPeriod(state, '100', '2026-10-05', NOW, CFG), /04\.10\.2026 reist der nächste Gast an/);
-  assert.throws(() => L.setPeriod(state, '100', '2026-10-04', NOW, CFG), /spätestens am Sa, 03\.10\.2026/, 'Anreisetag ist nicht frei');
+  assert.throws(() => L.setPeriod(state, '100', '2026-10-05', NOW, CFG), /04\.10\.2026 reist der nächste Gast an.*spätestens am So, 04\.10\.2026 möglich/);
   let res = L.requestPeriod(state, '100', LEAD, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG);
   assert.deepEqual(who(res.notifications), ['owner:request']);
   res = L.decidePeriod(res.state, '100', false, 'Gast kommt früh', NOW, CFG);
   assert.equal(res.state.tasks['100'].latestDate, null);
   assert.equal(res.notifications[0].title, 'Zeitraum abgelehnt');
   // Admin übersteuert direkt
-  res = L.setPeriod(res.state, '100', '2026-10-03', NOW, CFG);
-  assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
+  res = L.setPeriod(res.state, '100', '2026-10-04', NOW, CFG); // Anreisetag erlaubt (bis 15 Uhr)
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-04');
   assert.deepEqual(who(res.notifications), ['lea:period', 'mia:period']);
   const cal = L.calendar(res.state, '2026-10-01', 7, true, CFG, NOW).cleanings.find((c) => c.id === '100');
-  assert.equal(cal.latestDate, '2026-10-03');
+  assert.equal(cal.latestDate, '2026-10-04');
   res = L.setPeriod(res.state, '100', null, NOW, CFG);
   assert.equal(res.state.tasks['100'].latestDate, null);
   assert.equal(res.notifications[0].title, 'Zeitraum aufgehoben');
@@ -409,32 +408,52 @@ test('Späterer Tag nur, wenn die Folgetage frei sind: Wechseltag und Sperrzeit 
   assert.equal(task.periodLimit.last, null);
   assert.match(task.periodLimit.reason, /Wechseltag/);
   assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG), /Wechseltag.*nicht möglich/);
-  // Anreise am Folgetag → ebenfalls kein späterer Tag
+  // Anreise am Folgetag → Antrag für den Anreisetag möglich (bis 15 Uhr), aber nicht darüber hinaus
   ({ state } = L.applyBooking(confirmedTask(), booking({ id: '202', arrival: '2026-10-03', departure: '2026-10-05' }), NOW, CFG));
-  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG), /03\.10\.2026 reist der nächste Gast an – ein späterer Reinigungstag ist nicht möglich/);
-  // Sperrzeit ab 04.10. → bis 03.10. möglich, danach nicht
+  assert.equal(L.listCleanings(state, {}, CFG).find((t) => t.id === '100').periodLimit.last, '2026-10-03');
+  assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.until, '2026-10-03');
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG), /03\.10\.2026 reist der nächste Gast an.*spätestens am Sa, 03\.10\.2026 möglich/);
+  // Sperrzeit ab 04.10. → bis 04.10. möglich, danach nicht
   state = confirmedTask();
   state.reservations.b1 = { id: 'b1', apartmentId: '3', arrival: '2026-10-04', departure: '2026-10-10', blocked: true };
-  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG), /blockiert/);
-  assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.status, 'offen');
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-05', reason: 'Engpass' }, NOW, CFG), /blockiert/);
+  assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.status, 'offen');
+  // ohne Folgebuchung: bis zu 7 Tage
+  state = confirmedTask();
+  assert.equal(L.listCleanings(state, {}, CFG).find((t) => t.id === '100').periodLimit.last, '2026-10-09');
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-10', reason: 'Engpass' }, NOW, CFG), /Höchstens 7 Tage/);
 });
 
 test('Neue Buchung im genehmigten Zeitraum → Zeitraum sofort verkürzt, Team + Admin informiert; offener Antrag entfällt', () => {
   let { state } = L.setPeriod(confirmedTask(), '100', '2026-10-05', NOW, CFG); // Check-out 02.10., Zeitraum bis 05.10.
   let res = L.applyBooking(state, booking({ id: '203', arrival: '2026-10-04', departure: '2026-10-07' }), NOW, CFG);
-  assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-04');
   const n = res.notifications.filter((x) => x.title === 'Zeitraum verkürzt – neue Buchung');
   assert.deepEqual(who(n), ['lea:period', 'mia:period', 'owner:period']);
   assert.match(n[0].body, /04\.10\.2026 reist der nächste Gast an.*bis 15:00 Uhr/);
-  // Anreise direkt am Folgetag → Zeitraum ganz aufgehoben
-  res = L.applyBooking(res.state, booking({ id: '204', arrival: '2026-10-03', departure: '2026-10-04' }), NOW, CFG);
+  // Wechseltag (Anreise am Check-out-Tag) → Zeitraum ganz aufgehoben
+  res = L.applyBooking(res.state, booking({ id: '204', arrival: '2026-10-02', departure: '2026-10-03' }), NOW, CFG);
   assert.equal(res.state.tasks['100'].latestDate, null);
   // offener Antrag, der nicht mehr passt, entfällt (auch über den Abgleich)
-  ({ state } = L.requestPeriod(confirmedTask(), '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG));
+  ({ state } = L.requestPeriod(confirmedTask(), '100', MIA, { until: '2026-10-05', reason: 'Engpass' }, NOW, CFG));
   state.initialized = true;
   const raw = { id: 205, type: 'reservation', arrival: '2026-10-04', departure: '2026-10-06', apartment: { id: '3', name: 'Loft am Markt' } };
   const own = { id: 100, type: 'reservation', arrival: '2026-09-28', departure: '2026-10-02', apartment: { id: '3', name: 'Loft am Markt' } };
   res = L.syncFromSmoobu(state, [own, raw], NOW, CFG, 30);
   assert.equal(res.state.tasks['100'].periodRequest.status, 'hinfällig');
   assert.deepEqual(who(res.notifications.filter((x) => x.title === 'Antrag nicht mehr möglich')), ['mia:period', 'owner:period']);
+});
+
+test('Zugangscodes: nur Admin, Leitung und zugewiesene Mitarbeiterin; nach Erledigung nur am selben Tag', () => {
+  const state = confirmedTask();
+  const t = state.tasks['100'];
+  assert.equal(L.mayViewCodes(CFG, t, MIA, NOW), true);
+  assert.equal(L.mayViewCodes(CFG, t, IDA, NOW), false);
+  assert.equal(L.mayViewCodes(CFG, t, LEAD, NOW), true);
+  const done = L.completeCleaning(state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: true }).state.tasks['100'];
+  assert.equal(L.mayViewCodes(CFG, done, MIA, at('2026-10-02', '18:00')), true);
+  assert.equal(L.mayViewCodes(CFG, done, MIA, at('2026-10-03', '09:00')), false);
+  assert.equal(L.mayViewCodes(CFG, done, OWNER, at('2026-10-03', '09:00')), true);
+  assert.throws(() => L.logCodeAccess(state, '100', IDA, NOW, CFG), /nicht verfügbar/);
+  assert.match(L.logCodeAccess(state, '100', MIA, NOW, CFG).state.tasks['100'].history.at(-1).text, /Zugangscodes abgerufen von Mia/);
 });

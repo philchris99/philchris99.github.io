@@ -3,8 +3,8 @@
 import { allUsers, findUser, topicFor, loginLink } from './auth.js';
 
 // 5 = höchste Stufe (Alarm, durchdringend), 4 = hoch, 3 = normal, 2 = leise
-const PRIORITY = { keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 4, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
-const TAGS = { keys: ['key', 'rotating_light'], late: ['rotating_light'], reminder2: ['rotating_light'], reminder: ['alarm_clock'], overdue: ['rotating_light'], new: ['broom'], assigned: ['broom'],
+const PRIORITY = { security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 4, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
+const TAGS = { security: ['warning'], keys: ['key', 'rotating_light'], late: ['rotating_light'], reminder2: ['rotating_light'], reminder: ['alarm_clock'], overdue: ['rotating_light'], new: ['broom'], assigned: ['broom'],
   rescheduled: ['calendar'], request: ['calendar'], period: ['calendar'], cancelled: ['x'], report: ['memo'], note: ['memo'], confirmed: ['white_check_mark'], done: ['sparkles'] };
 const GROUP_TITLES = { new: 'neue Reinigungen', late: 'Reinigungen nicht bestätigt', reminder: 'Reinigungen noch nicht gestartet',
   reminder2: 'Reinigungen noch nicht beendet', overdue: 'Reinigungen nicht erledigt', rescheduled: 'Reinigungen verschoben', cancelled: 'Reinigungen entfallen', assigned: 'neue Reinigungen für dich' };
