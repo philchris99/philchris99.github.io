@@ -316,8 +316,10 @@ test('Zeitraum: Mitarbeiterin beantragt mit Begründung → Admin + Leitung; gen
   assert.deepEqual(who(res.notifications), ['lea:request', 'owner:request']);
   assert.match(res.notifications[0].body, /02\.10\.2026–Sa, 03\.10\.2026.*Personalengpass/);
   assert.equal(L.openPeriodRequests(res.state).length, 1);
+  assert.match(res.notifications[0].body, /bis 15:00 Uhr/);
   res = L.decidePeriod(res.state, '100', true, 'ok', NOW, CFG);
   assert.deepEqual(who(res.notifications), ['lea:period', 'mia:period']);
+  assert.match(res.notifications[0].body, /auch am späteren Tag bis spätestens 15:00 Uhr erledigt/);
   assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
   assert.equal(L.openPeriodRequests(res.state).length, 0);
   // am 02.10. keine Erinnerung, am 03.10. ab 12 Uhr schon

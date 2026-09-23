@@ -39,7 +39,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Zeitraum statt fester Tag** (z. B. Check-out 01.10., Reinigung am 01. oder 02.10.): Reinigungsleitung/Mitarbeiterin tippt
   „Späteren Tag beantragen“, wählt den letzten möglichen Tag und schreibt eine kurze Begründung → Admin bekommt den Antrag
   (Push + oben „Anträge“) und genehmigt oder lehnt ab. Der Admin kann den Zeitraum auch direkt festlegen, ändern oder aufheben
-  (für Smoobu- und manuelle Reinigungen). Erinnerungen 12/15 Uhr gelten dann erst am letzten Tag. Grenzen: höchstens
+  (für Smoobu- und manuelle Reinigungen). Auch am späteren Tag gilt: bis 15 Uhr erledigt (steht im Formular und in den
+  Nachrichten). Erinnerungen 12/15 Uhr gelten dann erst am letzten Tag. Grenzen: höchstens
   `maxPeriodDays` (7) Tage und nie über die nächste Anreise in derselben Wohnung hinaus. Ändert Smoobu den Check-out,
   entfällt der Zeitraum (neu beantragen/festlegen). Im Kalender als gestrichelte Linie, offener Antrag mit „?“.
 - Viele gleichartige Nachrichten werden zu einer Sammelnachricht gebündelt

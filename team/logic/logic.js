@@ -642,7 +642,7 @@
     const period = `${formatDate(task.date)}–${formatDate(input.until)}`;
     log(task, nowIso, `Zeitraum ${period} beantragt von ${name}: ${reason}`);
     return { state, notifications: notify([config.owner.id, ...leadIds(config).filter((id) => id !== user.id)], 'request', task,
-      `Antrag: ${task.apartmentName} ${period}`, `${name} möchte die Reinigung im Zeitraum ${period} erledigen. Grund: ${reason}`) };
+      `Antrag: ${task.apartmentName} ${period}`, `${name} möchte die Reinigung im Zeitraum ${period} erledigen (am jeweiligen Tag bis ${config.finishBy} Uhr). Grund: ${reason}`) };
   }
 
   /** Admin genehmigt oder lehnt einen Antrag ab. */
@@ -665,7 +665,7 @@
     const period = `${formatDate(task.date)}–${formatDate(req.until)}`;
     log(task, nowIso, `Zeitraum ${period} ${approve ? 'genehmigt' : 'abgelehnt'}${comment ? ': ' + comment : ''}`);
     const body = approve
-      ? `${task.apartmentName}: Reinigung darf im Zeitraum ${period} stattfinden.${comment ? ' ' + comment : ''}`
+      ? `${task.apartmentName}: Reinigung darf im Zeitraum ${period} stattfinden – auch am späteren Tag bis spätestens ${config.finishBy} Uhr erledigt.${comment ? ' ' + comment : ''}`
       : `${task.apartmentName}: Reinigung bleibt am ${formatDate(task.date)}.${comment ? ' ' + comment : ''}`;
     return { state, notifications: notify([...team(config, task), req.by], 'period', task,
       approve ? 'Zeitraum genehmigt' : 'Zeitraum abgelehnt', body) };
@@ -691,7 +691,7 @@
     }
     log(task, nowIso, next ? `Zeitraum festgelegt: ${periodText(task)}` : `Zeitraum aufgehoben – Reinigung am ${formatDate(task.date)}`);
     return { state, notifications: notify(team(config, task), 'period', task, next ? 'Reinigung im Zeitraum' : 'Zeitraum aufgehoben',
-      next ? `${task.apartmentName}: Reinigung darf im Zeitraum ${periodText(task)} stattfinden.`
+      next ? `${task.apartmentName}: Reinigung darf im Zeitraum ${periodText(task)} stattfinden – auch am späteren Tag bis spätestens ${config.finishBy} Uhr erledigt.`
         : `${task.apartmentName}: Reinigung wieder fest am ${formatDate(task.date)}.`) };
   }
 

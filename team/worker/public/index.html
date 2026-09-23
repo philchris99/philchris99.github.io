@@ -536,6 +536,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return `<form class="report-form" data-period-form="${esc(t.id)}">
       <p class="meta">Check-out ${fmtLong(t.date)}. Die Reinigung darf dann an jedem Tag bis einschließlich dem gewählten Datum stattfinden –
         am ${fmt(t.date)} ist natürlich weiterhin gut. Erinnerungen (${esc(data.startBy)}/${esc(data.finishBy)} Uhr) erst am letzten Tag.
+        <br><b style="color:var(--bad)">Wichtig: Auch am späteren Tag muss die Reinigung bis spätestens ${esc(data.finishBy)} Uhr erledigt sein.</b>
         ${t.nextArrival ? `<br><b>Nächster Gast reist am ${fmtLong(t.nextArrival)} an</b> – spätestens bis dahin.` : ''}</p>
       <div class="form-grid">
         <label class="field">Reinigung spätestens am <input type="date" name="until" value="${esc(value)}" min="${esc(min)}" max="${esc(max)}" required></label>
@@ -552,7 +553,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const req = t.periodRequest;
     if (!req || req.status !== 'offen' || !isActive(t)) return '';
     const who = nameOf(req.by);
-    return `<div class="request"><b>Antrag: Reinigung ${esc(fmt(t.date))} – ${esc(fmt(req.until))}</b>
+    return `<div class="request"><b>Antrag: Reinigung ${esc(fmt(t.date))} – ${esc(fmt(req.until))}</b> <span class="meta">(jeweils bis ${esc(data.finishBy)} Uhr)</span>
       <div class="meta">${esc(who)} · ${fmtTime(req.at)}</div><p style="margin:6px 0 0">${esc(req.reason)}</p>
       ${role() === 'owner' ? `<label class="field" style="margin-top:8px">Antwort (optional) <input id="pc-${esc(t.id)}" maxlength="500" placeholder="z. B. ok, aber bis 14 Uhr fertig"></label>
         <div class="actions"><button class="go" data-period-decide="${esc(t.id)}" data-approve="1">Genehmigen</button>
