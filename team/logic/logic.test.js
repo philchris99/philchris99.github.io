@@ -223,3 +223,29 @@ test('Kalender: Sperrzeiten gespeichert, Wohnungen nummeriert, Namen nur für Ad
   assert.equal(state.reservations['801'], undefined);
   assert.ok(state.reservations['800']);
 });
+
+test('Aufgehobene (stornierte) Sperrzeit wird NICHT als blockiert angezeigt', () => {
+  const blockedCancelled = { id: 900, type: 'cancellation', arrival: '2026-10-01', departure: '2026-10-10',
+    apartment: { id: 3, name: 'Wohnung 3' }, 'is-blocked-booking': true };
+  let { state } = L.syncFromSmoobu(L.createState(), [blockedCancelled], NOW, CFG, 30, '2026-09-22');
+  assert.equal(state.reservations['900'], undefined);
+  // vorher gesperrt, dann in Smoobu aufgehoben
+  ({ state } = L.syncFromSmoobu(state, [{ ...blockedCancelled, type: 'reservation' }], NOW, CFG, 30, '2026-09-22'));
+  assert.equal(state.reservations['900'].blocked, true);
+  ({ state } = L.syncFromSmoobu(state, [blockedCancelled], NOW, CFG, 30, '2026-09-22'));
+  assert.equal(state.reservations['900'], undefined);
+});
+
+test('Kalender liefert Reinigungsdetails inkl. manueller Reinigungen, Telefonnummer und Kanal', () => {
+  let { state } = L.applyBooking(L.createState(), { ...booking(), channel: 'Airbnb' }, NOW, CFG);
+  ({ state } = L.assignCleaning(state, '100', 'lea', 'mia', NOW, CFG));
+  ({ state } = L.addManualCleaning(state, { id: 'm1', apartmentId: '3', apartmentName: 'Loft am Markt', date: '2026-10-05', note: 'Fenster' }, NOW, CFG));
+  const cal = L.calendar(state, '2026-09-28', 14, true, CFG);
+  const b = cal.bookings[0];
+  assert.deepEqual([b.guest, b.phone, b.channel], ['Familie Müller', '+49 170 1234567', 'Airbnb']);
+  const c = cal.cleanings.find((x) => x.id === '100');
+  assert.deepEqual([c.date, c.leadConfirmed, c.assignedTo, c.staffConfirmed, c.guestPhone], ['2026-10-02', true, 'Mia', false, '+49 170 1234567']);
+  const m = cal.cleanings.find((x) => x.id === 'm1');
+  assert.deepEqual([m.manual, m.note], [true, 'Fenster']);
+  assert.equal(L.calendar(state, '2026-09-28', 14, false, CFG).bookings[0].phone, '', 'ohne Namen auch keine Nummer');
+});

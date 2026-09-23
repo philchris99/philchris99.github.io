@@ -278,6 +278,38 @@ test('Belegungskalender: Buchungen mit Namen (Admin), Sperrzeiten, nummerierte W
   assert.equal((await me(lea)).tasks.some((t) => t.id === '61'), false, 'Sperrzeit ist keine Reinigung');
 });
 
+test('Push eingerichtet wird je Benutzerkonto gemerkt (auch nach Zurücksetzen)', async () => {
+  assert.equal((await me(mia)).pushOk, false);
+  const r = await call('POST', '/api/push-ok', { session: mia });
+  assert.equal(r.body.pushOk, true);
+  assert.equal((await me(lea)).pushOk, false, 'gilt nur für dieses Konto');
+});
+
+test('ntfy 429: erneuter Versuch, dann verständliche Meldung; mit NTFY_TOKEN wird Token mitgeschickt', async () => {
+  const realFetch = globalThis.fetch;
+  let calls = 0; let authHeader = null;
+  globalThis.fetch = async (url, init) => {
+    if (String(url) === 'https://ntfy.sh') { calls++; authHeader = init.headers.Authorization; return new Response('limit', { status: 429 }); }
+    return realFetch(url, init);
+  };
+  try {
+    const r = await call('POST', '/api/test-push', { session: mia });
+    assert.equal(r.status, 502);
+    assert.match(r.body.error, /NTFY_TOKEN/);
+    assert.equal(calls, 3, 'zwei weitere Versuche');
+    env.NTFY_TOKEN = 'tk_test';
+    globalThis.fetch = async (url, init) => {
+      if (String(url) === 'https://ntfy.sh') { authHeader = init.headers.Authorization; return Response.json({ id: 'x' }); }
+      return realFetch(url, init);
+    };
+    assert.equal((await call('POST', '/api/test-push', { session: mia })).status, 200);
+    assert.equal(authHeader, 'Bearer tk_test');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete env.NTFY_TOKEN;
+  }
+});
+
 test('Neuer Code meldet alte Geräte ab; Entfernen', async () => {
   const res = await call('POST', `/api/team/${miaId}/code`, { session: lea });
   assert.match(res.body.newCode.code, /^\d{6}$/);

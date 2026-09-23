@@ -134,6 +134,8 @@ async function viewFor(env, cfg, settings, state, user, now) {
     // Änderungen der letzten 14 Tage für diese Person (oben „Neuigkeiten“)
     changes: (state.log || []).filter((n) => n.to === recipient && CHANGE_KINDS.includes(n.kind) && n.at >= since).slice(0, 30),
     seenAt: (state.seen || {})[user.id] || null,
+    pushOk: !!(settings.pushOk || {})[user.id], // Push auf diesem Konto eingerichtet (bleibt beim Zurücksetzen)
+    hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
     openReports: user.role === 'staff' ? [] : L.openReports(state),
   };
   const tasks = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg).map((t) => {
@@ -226,6 +228,13 @@ async function handleApi(request, env, url, ctx) {
 
   if (path === '/api/me' && request.method === 'GET') return view((await loadState(env.DB)).state);
 
+  // Push-Nachrichten eingerichtet (Test-Nachricht angekommen) – je Benutzerkonto
+  if (path === '/api/push-ok' && request.method === 'POST') {
+    settings.pushOk = { ...(settings.pushOk || {}), [user.id]: new Date(now).toISOString() };
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
+  }
+
   // „Neuigkeiten“ als gelesen markieren
   if (path === '/api/seen' && request.method === 'POST') {
     return change((st) => ({ state: { ...st, seen: { ...(st.seen || {}), [user.id]: new Date(now).toISOString() } }, notifications: [] }));
@@ -316,7 +325,7 @@ async function handleApi(request, env, url, ctx) {
     const today = L.localParts(now, cfg.timezone).date;
     const from = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('from') || '') ? url.searchParams.get('from') : L.addDays(today, -3);
     const days = Math.min(62, Math.max(7, Number(url.searchParams.get('days')) || 35));
-    return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames) });
+    return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames, cfg) });
   }
 
   // Foto anzeigen

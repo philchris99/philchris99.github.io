@@ -196,7 +196,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 .cal { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); -webkit-overflow-scrolling: touch; }
 .cal-grid { display: grid; grid-template-columns: 132px calc(var(--days) * var(--w)); --w: 42px; width: max-content; }
 .cal-apt, .cal-corner { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  padding: 6px 8px; font-size: 13px; line-height: 1.25; display: flex; align-items: center; gap: 6px; min-height: 46px; }
+  padding: 6px 8px; font-size: 13px; line-height: 1.25; display: flex; align-items: center; gap: 6px; min-height: 72px; }
+.cal-corner { min-height: 46px; }
 .cal-apt b { display: inline-flex; width: 22px; height: 22px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); font-size: 12px; align-items: center; justify-content: center; flex: none; }
 .cal-apt span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .cal-corner { z-index: 3; font-weight: 600; }
@@ -207,16 +208,31 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 .cal-day.today { background: var(--accent-soft); color: var(--accent); }
 .cal-day.today b { color: var(--accent); }
 .cal-day.month { border-left: 2px solid var(--brand); }
-.cal-cell { width: var(--w); flex: none; border-left: 1px solid var(--line); min-height: 46px; }
+.cal-cell { width: var(--w); flex: none; border-left: 1px solid var(--line); min-height: 72px; }
 .cal-cell.we { background: var(--bg); }
 .cal-cell.today { background: var(--accent-soft); }
-.cal-bar { position: absolute; top: 9px; height: 28px; border-radius: 6px; background: var(--brand); color: var(--brand-ink); font-size: 12px; font-weight: 600;
+.cal-bar { position: absolute; top: 6px; height: 26px; border-radius: 6px; background: var(--brand); color: var(--brand-ink); font-size: 12px; font-weight: 600;
   padding: 0 7px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; cursor: pointer; border: 0; min-height: 0; justify-content: flex-start; }
 .cal-bar.blocked { background: repeating-linear-gradient(135deg, var(--done-bg) 0 6px, var(--line) 6px 12px); color: var(--muted); border: 1px solid var(--line); }
 .cal-bar.cut-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .cal-bar.cut-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.cal-clean { position: absolute; bottom: 2px; width: 10px; height: 10px; border-radius: 99px; border: 2px solid var(--card); transform: translateX(-50%); }
-.cal-clean.offen { background: var(--open); } .cal-clean.bestätigt { background: var(--accent); } .cal-clean.erledigt { background: var(--ok); }
+.cal-clean { position: absolute; top: 37px; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 99px; transform: translateX(-50%);
+  border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--line); color: #fff; font-weight: 800; font-size: 15px; line-height: 1; }
+.cal-clean.manual { border-radius: 7px; }
+.cal-clean.offen { background: #D98A1C; } .cal-clean.bestätigt { background: var(--accent); } .cal-clean.erledigt { background: #2F6B3F; }
+.cal-clean.overdue { background: var(--bad); animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cal-clean.overdue { animation: none; } }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(176, 53, 53, .25); } }
+.legend .sym { display: inline-flex; width: 20px; height: 20px; border-radius: 99px; color: #fff; font-weight: 800; font-size: 12px; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; }
+.legend .sym.sq { border-radius: 5px; }
+
+/* Detailfenster */
+.modal { position: fixed; inset: 0; z-index: 25; background: rgba(20, 20, 18, .5); display: flex; align-items: flex-end; justify-content: center; padding: 16px; }
+.sheet { background: var(--card); color: var(--text); border-radius: 16px; width: 100%; max-width: 520px; max-height: 85vh; overflow: auto; padding: 18px 18px calc(18px + env(safe-area-inset-bottom, 0px)); }
+.sheet h3 { font: 600 19px/1.3 var(--sans); }
+.sheet dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin-top: 12px; font-size: 15px; }
+.sheet dt { color: var(--muted); }
+@media (min-width: 700px) { .modal { align-items: center; } }
 
 @media (max-width: 520px) {
   .glance { grid-template-columns: repeat(2, 1fr); }
@@ -238,6 +254,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   <div class="stage" id="g-stage"><img id="g-img" alt="Foto"></div>
   <div class="navs"><button type="button" class="nav" id="g-prev">‹ Zurück</button><button type="button" class="nav" id="g-next">Weiter ›</button></div>
 </div>
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="sheet" id="modal-body"></div></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script>
@@ -300,7 +317,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   // Beim automatischen Aktualisieren nichts überschreiben, was gerade bearbeitet wird
   const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!document.querySelector('#app [data-dirty]')
-    || !$('gallery').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
+    || !$('gallery').hidden || !$('modal').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
   async function refresh(force) {
     if (!auth) return showLogin();
@@ -537,8 +554,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   // ---- Push-Nachrichten einrichten (Schritt für Schritt) -----------------------
   const STORE = { ios: 'https://apps.apple.com/de/app/ntfy/id1625396347', android: 'https://play.google.com/store/apps/details?id=io.heckel.ntfy' };
   const device = /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Android/i.test(navigator.userAgent) ? 'android' : 'other';
-  const pushKey = () => 'push-ok-' + data.user.id;
-  const pushDone = () => { try { return localStorage.getItem(pushKey()) === '1'; } catch (e) { return false; } };
+  const pushDone = () => !!data.pushOk; // wird je Benutzerkonto auf dem Server gemerkt
   let pushTested = false;
 
   function pushGuide(inline) {
@@ -733,6 +749,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <p class="meta">Letzter Smoobu-Abgleich: <b>${fmtTime(data.lastSync)}</b>${data.lastSyncCount != null ? ` · ${data.lastSyncCount} Buchungen` : ''}. Automatisch alle 15 Minuten.</p>
           <div class="actions"><button class="small" data-sync>Jetzt abgleichen</button><button class="small" data-diagnose>Diagnose</button></div>
           <div id="diagnose"></div>
+          <p class="meta" style="margin-top:10px">Push-Versand (ntfy): ${data.hasNtfyToken ? '<b>mit ntfy-Konto (NTFY_TOKEN) ✓</b>'
+            : '<b style="color:var(--bad)">ohne ntfy-Konto</b> – bei „429“ bitte NTFY_TOKEN in Cloudflare eintragen'}</p>
           <p class="meta" style="margin-top:10px">Optional – Webhook-Adresse für Smoobu (sofortige Aktualisierung):<br><code id="hook">${esc(data.webhookUrl)}</code> <button class="small" data-copy="hook">Kopieren</button></p>
         </div>
         <div class="panel scroll"><b>Wohnungen aus Smoobu (${apartments.length})</b><table>
@@ -775,6 +793,57 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     else { view = 'main'; render(); }
   });
 
+  function openModal(html) {
+    $('modal-body').innerHTML = html + '<div class="actions" style="margin-top:16px"><button type="button" data-close-modal>Schließen</button></div>';
+    $('modal').hidden = false;
+    const btn = $('modal-body').querySelector('button, a');
+    if (btn) btn.focus();
+  }
+  function closeModal() { $('modal').hidden = true; $('modal-body').innerHTML = ''; }
+  const telButton = (phone) => phone
+    ? `<a class="phone" href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${PHONE_ICON} ${esc(phone)}</a>` : '<span class="meta">keine Nummer hinterlegt</span>';
+
+  function bookingDetails(id) {
+    const b = cal.bookings.find((x) => x.id === id);
+    const a = cal.apartments.find((x) => x.id === b.apartmentId);
+    const nights = diffDays(b.arrival, b.departure);
+    const cleaning = cal.cleanings.find((c) => c.id === b.id);
+    openModal(`<div class="eyebrow">${a.number} · ${esc(a.name)}</div>
+      <h3 id="modal-title">${b.blocked ? 'Blockiert' : esc(b.guest || 'Buchung')}</h3>
+      <dl>
+        <dt>Anreise</dt><dd>${fmtLong(b.arrival)}</dd>
+        <dt>Abreise</dt><dd>${fmtLong(b.departure)}</dd>
+        <dt>Dauer</dt><dd>${nights} ${nights === 1 ? 'Nacht' : 'Nächte'}</dd>
+        ${b.blocked ? '<dt>Art</dt><dd>Sperrzeit aus Smoobu (keine Reinigung)</dd>' : `
+        <dt>Telefon</dt><dd>${role() === 'owner' ? telButton(b.phone) : '<span class="meta">nur für Admin</span>'}</dd>
+        ${b.channel ? `<dt>Kanal</dt><dd>${esc(b.channel)}</dd>` : ''}`}
+        <dt>Smoobu-Nr.</dt><dd>${esc(b.id)}</dd>
+      </dl>
+      ${cleaning ? `<div class="actions"><button class="primary" data-cal-clean="${esc(cleaning.id)}">Reinigung am ${fmt(cleaning.date)} anzeigen</button></div>` : ''}`);
+  }
+
+  function cleaningDetails(id) {
+    const c = cal.cleanings.find((x) => x.id === id);
+    const a = cal.apartments.find((x) => x.id === c.apartmentId);
+    const state = c.overdue ? '<span class="chip alert">überfällig</span>'
+      : c.status === 'erledigt' ? '<span class="chip yes">erledigt ✓</span>'
+      : c.status === 'bestätigt' ? '<span class="chip yes">bestätigt</span>' : '<span class="chip wait">offen – noch nicht bestätigt</span>';
+    openModal(`<div class="eyebrow">${a.number} · ${esc(a.name)}</div>
+      <h3 id="modal-title">${c.manual ? 'Manuelle Reinigung' : 'Endreinigung (Check-out)'}</h3>
+      <div class="chips">${state}</div>
+      <dl>
+        <dt>Datum</dt><dd>${fmtLong(c.date)}</dd>
+        <dt>Leitung</dt><dd>${c.leadConfirmed ? 'bestätigt ✓' : 'noch nicht bestätigt'}</dd>
+        <dt>Zugewiesen</dt><dd>${c.assignedTo ? `${esc(c.assignedTo)} ${c.staffConfirmed ? '✓ bestätigt' : '– noch nicht bestätigt'}` : 'noch niemandem'}</dd>
+        ${c.startedAt ? `<dt>Begonnen</dt><dd>${clock(c.startedAt)} Uhr</dd>` : ''}
+        ${c.doneAt ? `<dt>Erledigt</dt><dd>${clock(c.doneAt)} Uhr${c.startedAt ? ' · ' + duration(c.startedAt, c.doneAt) : ''}</dd>` : ''}
+        ${c.note ? `<dt>Hinweis</dt><dd>${esc(c.note)}</dd>` : ''}
+        ${c.reports ? `<dt>Meldungen</dt><dd>${c.reports}</dd>` : ''}
+        ${!c.manual ? `<dt>Gast</dt><dd>${telButton(c.guestPhone)}</dd>` : ''}
+      </dl>
+      <div class="actions"><button class="primary" data-goto-task="${esc(c.id)}">Zur Reinigung in der Übersicht</button></div>`);
+  }
+
   function renderCalendar() {
     const days = Array.from({ length: cal.days }, (_, i) => addDays(cal.from, i));
     const cls = (d) => [utc(d).getUTCDay() % 6 === 0 ? 'we' : '', d === cal.today ? 'today' : ''].filter(Boolean).join(' ');
@@ -791,10 +860,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const label = b.blocked ? 'blockiert' : b.guest || 'Buchung';
         const info = `${a.name}: ${b.blocked ? 'blockiert' : b.guest || 'Buchung'} · ${fmt(b.arrival)} – ${fmt(b.departure)} (${nights} ${nights === 1 ? 'Nacht' : 'Nächte'})`;
         return `<button type="button" class="cal-bar${b.blocked ? ' blocked' : ''}${diffDays(cal.from, b.arrival) < 0 ? ' cut-l' : ''}${diffDays(cal.from, b.departure) >= cal.days ? ' cut-r' : ''}"
-          style="left:${start * W}px;width:${(end - start) * W - 2}px" data-info="${esc(info)}" aria-label="${esc(info)}">${esc(label)}</button>`;
+          style="left:${start * W}px;width:${(end - start) * W - 2}px" data-cal-booking="${esc(b.id)}" aria-label="${esc(info)}">${esc(label)}</button>`;
       }).join('');
-      const marks = cal.cleanings.filter((c) => c.apartmentId === a.id).map((c) =>
-        `<span class="cal-clean ${esc(c.status)}" style="left:${(diffDays(cal.from, c.date) + 0.5) * W}px" title="Reinigung ${esc(c.status)}"></span>`).join('');
+      const marks = cal.cleanings.filter((c) => c.apartmentId === a.id).map((c) => {
+        const sym = c.overdue ? '!' : c.status === 'erledigt' ? '✓' : c.status === 'bestätigt' ? '✓' : '!';
+        return `<button type="button" class="cal-clean ${esc(c.status)}${c.manual ? ' manual' : ''}${c.overdue ? ' overdue' : ''}"
+          style="left:${(diffDays(cal.from, c.date) + 0.5) * W}px" data-cal-clean="${esc(c.id)}"
+          aria-label="Reinigung ${esc(a.name)} ${fmt(c.date)}: ${esc(c.status)}">${sym}</button>`;
+      }).join('');
       return `<div class="cal-apt"><b>${a.number}</b><span>${esc(a.name)}</span></div>
         <div class="cal-row">${days.map((d) => `<div class="cal-cell ${cls(d)}"></div>`).join('')}${bars}${marks}</div>`;
     }).join('');
@@ -804,12 +877,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <div class="cal-nav"><button class="small" data-cal-shift="-14">‹ 2 Wochen</button><button class="small" data-cal-shift="0">Heute</button><button class="small" data-cal-shift="14">2 Wochen ›</button></div>
       </div>
       <h1 style="margin-top:14px">Belegungskalender</h1>
-      <p class="meta">${fmtLong(cal.from)} – ${fmtLong(addDays(cal.from, cal.days - 1))} · Balken antippen für Details</p>
+      <p class="meta">${fmtLong(cal.from)} – ${fmtLong(addDays(cal.from, cal.days - 1))} · Buchung oder Reinigung antippen für Details</p>
       <div class="legend"><span><i style="background:var(--brand)"></i>Buchung</span>
-        <span><i style="background:repeating-linear-gradient(135deg,var(--done-bg) 0 4px,var(--line) 4px 8px)"></i>blockiert</span>
-        <span><i style="background:var(--open);width:10px;height:10px;border-radius:99px"></i>Reinigung offen</span>
-        <span><i style="background:var(--accent);width:10px;height:10px;border-radius:99px"></i>bestätigt</span>
-        <span><i style="background:var(--ok);width:10px;height:10px;border-radius:99px"></i>erledigt</span></div>
+        <span><i style="background:repeating-linear-gradient(135deg,var(--done-bg) 0 4px,var(--line) 4px 8px)"></i>blockiert</span></div>
+      <div class="legend" style="margin-top:0"><b style="color:var(--text)">Reinigung:</b>
+        <span><span class="sym" style="background:#D98A1C">!</span>offen</span>
+        <span><span class="sym" style="background:var(--accent)">✓</span>bestätigt</span>
+        <span><span class="sym" style="background:#2F6B3F">✓</span>erledigt</span>
+        <span><span class="sym" style="background:var(--bad)">!</span>überfällig</span>
+        <span><span class="sym sq" style="background:var(--muted)">■</span>manuelle Reinigung</span>
+        <span>● Check-out</span></div>
       ${cal.apartments.length ? `<div class="cal" id="cal-scroll"><div class="cal-grid" style="--days:${cal.days}">
         <div class="cal-corner">Wohnung</div><div class="cal-days">${head}</div>
         ${rows}
@@ -858,7 +935,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     gallery.x = null;
     if (Math.abs(dx) > 40 && gallery.ids.length > 1) step(dx < 0 ? 1 : -1);
   });
+  $('modal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeModal(); });
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('modal').hidden) return closeModal();
     if ($('gallery').hidden) return;
     if (e.key === 'Escape') closeGallery();
     if (e.key === 'ArrowRight') step(1);
@@ -1004,11 +1083,22 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.calShift) {
         calFrom = Number(d.calShift) === 0 ? addDays(data.today, -3) : addDays(calFrom, Number(d.calShift));
         await openCalendar(false);
-      } else if (b.classList.contains('cal-bar')) {
-        toast(d.info);
+      } else if (d.calBooking) {
+        bookingDetails(d.calBooking);
+      } else if (d.calClean) {
+        cleaningDetails(d.calClean);
+      } else if (d.closeModal !== undefined) {
+        closeModal();
+      } else if (d.gotoTask) {
+        closeModal();
+        closeCalendar();
+        setTimeout(() => {
+          const el = document.getElementById('task-' + d.gotoTask);
+          if (el) { const det = el.closest('details'); if (det) det.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+          else toast('Diese Reinigung liegt außerhalb der Übersicht (älter als 7 Tage)');
+        }, 50);
       } else if (d.pushOk !== undefined) {
-        try { localStorage.setItem(pushKey(), '1'); } catch (err) { /* ohne Speicher */ }
-        render();
+        update(await api('/api/push-ok', 'POST'));
         toast('Super – Push-Nachrichten sind eingerichtet');
       } else if (d.pushHelp !== undefined) {
         $('push-help').hidden = false;

@@ -16,19 +16,37 @@ function expand(cfg, to) {
   return user ? [user] : [];
 }
 
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Eine Nachricht an ntfy schicken. Mit NTFY_TOKEN (kostenloses ntfy.sh-Konto) zählt
+ * ntfy pro Konto statt pro Server-Adresse – Cloudflare teilt sich Adressen mit vielen
+ * anderen, daher sonst häufig „429 Too Many Requests“.
+ */
 export async function sendPush(env, user, { title, body, kind }) {
-  const res = await fetch(env.NTFY_URL || 'https://ntfy.sh', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      topic: await topicFor(env, user),
-      title,
-      message: body,
-      priority: PRIORITY[kind] || 3,
-      tags: TAGS[kind] || [],
-      click: await loginLink(env, user),
-    }),
+  const headers = { 'Content-Type': 'application/json' };
+  const token = (env.NTFY_TOKEN || '').trim();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const payload = JSON.stringify({
+    topic: await topicFor(env, user),
+    title,
+    message: body,
+    priority: PRIORITY[kind] || 3,
+    tags: TAGS[kind] || [],
+    click: await loginLink(env, user),
   });
+  let res;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(env.NTFY_URL || 'https://ntfy.sh', { method: 'POST', headers, body: payload });
+    if (res.status !== 429 && res.status < 500) break;
+    await wait(1000 * (attempt + 1)); // kurz warten und erneut versuchen
+  }
+  if (res.status === 429) {
+    throw new Error(token
+      ? 'ntfy.sh meldet „zu viele Nachrichten“ (429) – Tageslimit des ntfy-Kontos erreicht'
+      : 'ntfy.sh meldet „zu viele Nachrichten“ (429) – bitte NTFY_TOKEN in Cloudflare eintragen (siehe Anleitung)');
+  }
+  if (res.status === 401 || res.status === 403) throw new Error(`ntfy lehnt den Zugang ab (${res.status}) – NTFY_TOKEN prüfen`);
   if (!res.ok) throw new Error(`ntfy antwortet mit ${res.status}`);
 }
 

@@ -38,10 +38,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
 - Beginn und Ende der Reinigung mit Dauer
-- **Belegungskalender** (Admin, Leitung): alle Wohnungen durchnummeriert, Tage fortlaufend, Buchungen mit Gastname (nur Admin)
-  und blockierte Zeiträume aus Smoobu, Reinigungsstatus als Punkt am Abreisetag
-- **Push einrichten**: Schritt-für-Schritt-Anleitung mit direktem Link zu ntfy im App Store / bei Google Play, bleibt oben sichtbar,
-  bis „Test-Nachricht angekommen“ bestätigt ist
+- **Belegungskalender** (Admin, Leitung): alle Wohnungen durchnummeriert, Tage fortlaufend, Buchungen mit Gastname und
+  Telefonnummer (nur Admin), blockierte Zeiträume aus Smoobu; Reinigungen als großes Symbol (Kreis = Check-out,
+  Quadrat = manuell; orange offen, grün bestätigt/erledigt, rot überfällig), antippen zeigt alle Details
+- **Push einrichten**: Schritt-für-Schritt-Anleitung mit direktem Link zu ntfy im App Store / bei Google Play; oben nur, solange
+  das jeweilige Benutzerkonto „Test-Nachricht angekommen“ noch nicht bestätigt hat (gilt geräteübergreifend), sonst unten
 - **Anmeldecodes** sind in der Team-Liste jederzeit sichtbar (Admin: alle, Leitung: ihre Mitarbeiterinnen), verschlüsselt gespeichert
 - Testphase: „Alles zurücksetzen“ (Team bleibt). Danach `allowReset: false` in `worker/src/config.js`.
 
@@ -76,6 +77,9 @@ Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ
   Smoobu verlangt seit 25.09.2026 signierte Anfragen (HMAC); ohne Secret wird das alte Verfahren versucht.
 - `APP_SECRET` – ein langes Zufallspasswort (40+ Zeichen, im Passwortmanager speichern)
 - `ADMIN_PASSWORD` – Passwort für /admin (ohne dieses gilt APP_SECRET)
+- `NTFY_TOKEN` – Zugangstoken eines kostenlosen ntfy.sh-Kontos (ntfy.sh → Konto anlegen → *Account → Access tokens*).
+  Ohne Token zählt ntfy.sh die Nachrichten pro Server-Adresse; Cloudflare teilt sich Adressen mit vielen anderen,
+  deshalb kommt sonst oft „429 zu viele Nachrichten“.
 
 > Immer Typ **Secret** wählen: einfache Variablen löscht Cloudflare bei neuen Versionen
 > (zusätzlich abgesichert durch `keep_vars = true` in `wrangler.toml`).

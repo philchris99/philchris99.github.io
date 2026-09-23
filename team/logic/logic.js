@@ -192,6 +192,7 @@
       apartmentName: r.apartment && r.apartment.name,
       guest: r['guest-name'] || [r.firstname, r.lastname].filter(Boolean).join(' '),
       guestPhone: String(r.phone || '').trim(),
+      channel: (r.channel && r.channel.name) || '',
       arrival: r.arrival,
       departure: r.departure,
     };
@@ -239,7 +240,8 @@
       return { state, notifications };
     }
 
-    state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure, guest: booking.guest || '' };
+    state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure,
+      guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '' };
 
     if (!existing || existing.status === STATUS.CANCELLED) {
       const task = newTask({
@@ -288,6 +290,10 @@
     for (const raw of smoobuBookings) {
       if (!raw) continue;
       seen.add(String(raw.id));
+      if (raw['is-blocked-booking'] && raw.type === 'cancellation') { // aufgehobene Sperrzeit
+        delete state.reservations[String(raw.id)];
+        continue;
+      }
       if (raw['is-blocked-booking']) { // Sperrzeit: nur für den Kalender merken, keine Reinigung
         state.reservations[String(raw.id)] = { id: String(raw.id), apartmentId: String(raw.apartment && raw.apartment.id),
           arrival: raw.arrival, departure: raw.departure, guest: '', blocked: true };
@@ -652,10 +658,11 @@
   }
 
   /**
-   * Belegungskalender: Wohnungen durchnummeriert, Buchungen/Sperrzeiten im Zeitraum.
-   * showNames = Gastnamen anzeigen (Admin).
+   * Belegungskalender: Wohnungen durchnummeriert, Buchungen/Sperrzeiten und Reinigungen
+   * im Zeitraum. showNames = Gastname und Telefonnummer anzeigen.
    */
-  function calendar(state, from, days, showNames) {
+  function calendar(state, from, days, showNames, config) {
+    config = withConfig(config);
     const to = addDays(from, days);
     const names = {};
     for (const t of Object.values(state.tasks)) names[t.apartmentId] = t.apartmentName;
@@ -666,10 +673,16 @@
     const bookings = Object.values(state.reservations)
       .filter((r) => r.arrival < to && r.departure > from)
       .map((r) => ({ id: r.id, apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure, blocked: !!r.blocked,
-        guest: showNames ? r.guest || '' : '' }));
+        channel: r.channel || '', guest: showNames ? r.guest || '' : '', phone: showNames ? r.phone || '' : '' }));
     const cleanings = Object.values(state.tasks)
       .filter((t) => t.date >= from && t.date < to && t.status !== STATUS.CANCELLED)
-      .map((t) => ({ id: t.id, apartmentId: t.apartmentId, date: t.date, status: t.status, manual: !!t.manual }));
+      .map((t) => ({
+        id: t.id, apartmentId: t.apartmentId, apartmentName: t.apartmentName, date: t.date, status: t.status, manual: !!t.manual,
+        note: t.note || '', overdue: !!(isActive(t) && (t.lateAlerted || t.reminded2)),
+        leadConfirmed: !!t.leadConfirmedAt, assignedTo: t.assignedTo ? personName(config, t.assignedTo) : '',
+        staffConfirmed: !!t.staffConfirmedAt, startedAt: t.startedAt, doneAt: t.doneAt,
+        guestPhone: t.guestPhone || '', reports: (t.reports || []).length,
+      }));
     return { from, days, apartments, bookings, cleanings };
   }
 
