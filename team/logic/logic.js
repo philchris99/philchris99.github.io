@@ -41,9 +41,25 @@
   // Datum / Zeit
   // ---------------------------------------------------------------------------
 
-  /** Liefert { date: 'YYYY-MM-DD', time: 'HH:MM' } in der gewünschten Zeitzone. */
+  /** Letzter Sonntag eines Monats um 01:00 UTC (EU-Sommerzeitregel). */
+  function lastSundayUtc(year, month) {
+    const last = new Date(Date.UTC(year, month + 1, 0, 1));
+    return last.getTime() - last.getUTCDay() * 86400000;
+  }
+
+  /**
+   * Liefert { date: 'YYYY-MM-DD', time: 'HH:MM' } in der gewünschten Zeitzone.
+   * Für Europe/Berlin ohne Intl gerechnet: Das erste Intl.DateTimeFormat kostet
+   * ~12 ms Rechenzeit, im kostenlosen Cloudflare-Tarif sind nur 10 ms erlaubt.
+   */
   function localParts(now, timezone) {
     const d = now instanceof Date ? now : new Date(now);
+    if (timezone === 'Europe/Berlin') {
+      const y = d.getUTCFullYear();
+      const summer = d.getTime() >= lastSundayUtc(y, 2) && d.getTime() < lastSundayUtc(y, 9);
+      const local = new Date(d.getTime() + (summer ? 2 : 1) * 3600000).toISOString();
+      return { date: local.slice(0, 10), time: local.slice(11, 16) };
+    }
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -172,14 +188,13 @@
     config = withConfig(config);
     const silent = !state.initialized;
     const notifications = [];
+    state = clone(state); // einmal kopieren, dann direkt ändern (Cloudflare-Rechenzeitlimit)
     for (const raw of smoobuBookings) {
       const booking = fromSmoobuBooking(raw);
       if (!booking) continue;
-      const res = applyBooking(state, booking, now, config);
-      state = res.state;
+      const res = applyBooking(state, booking, now, config, true);
       if (!silent) notifications.push(...res.notifications);
     }
-    state = clone(state);
     const cutoff = addDays(localParts(now, config.timezone).date, -(keepDays || 30));
     for (const t of Object.values(state.tasks)) if (t.date < cutoff) delete state.tasks[t.id];
     for (const r of Object.values(state.reservations)) if (r.departure < cutoff) delete state.reservations[r.id];
@@ -193,9 +208,9 @@
    * booking: { action: 'new'|'update'|'cancel', id, apartmentId, guest, arrival, departure }
    * Rückgabe: { state, notifications }
    */
-  function applyBooking(state, booking, now, config) {
+  function applyBooking(state, booking, now, config, inPlace) {
     config = withConfig(config);
-    state = clone(state);
+    if (!inPlace) state = clone(state); // inPlace: nur intern (Abgleich), spart Rechenzeit
     const nowIso = new Date(now).toISOString();
     const notifications = [];
     const id = String(booking.id);
