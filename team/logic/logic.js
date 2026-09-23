@@ -1,5 +1,5 @@
 /*
- * Reinigungs-Logik für Apartment Strauß (Smoobu → Reinigungskräfte)
+ * Reinigungs-Logik für Apartment Strauss (Smoobu → Reinigungskräfte)
  *
  * Reine Funktionen ohne Abhängigkeiten: laufen im Browser (index.html),
  * in Node (Tests) und später z. B. in Google Apps Script oder einem
@@ -18,7 +18,7 @@
     timezone: 'Europe/Berlin',
     reminderTime: '12:00',   // Erinnerung an die Reinigungskräfte
     escalationTime: '13:00', // Alarm an Reinigungskräfte UND Auftraggeber
-    owner: { id: 'owner', name: 'Apartment Strauß' },
+    owner: { id: 'owner', name: 'Apartment Strauss' },
     apartments: Array.from({ length: 13 }, (_, i) => ({
       id: String(i + 1),       // hier später die Smoobu-Apartment-ID eintragen
       name: 'Wohnung ' + (i + 1),
@@ -246,6 +246,8 @@
         apartmentName: apartmentName(config, booking.apartmentId, booking.apartmentName),
         guest: booking.guest || '',
         date: booking.departure,
+        source: 'smoobu',
+        createdAt: nowIso,
         status: STATUS.OPEN,
         assignedTo: null,
         reminded: false,
@@ -270,6 +272,7 @@
 
     const oldDate = existing.date;
     existing.date = booking.departure;
+    existing.changedAt = nowIso;
     existing.reminded = false;
     existing.escalated = false;
     const wasConfirmed = existing.status === STATUS.CONFIRMED;
@@ -409,6 +412,8 @@
         return cleanersFor(config, t.apartmentId).some((c) => c.id === options.cleanerId);
       })
       .map((t) => Object.assign({}, t, {
+        createdAt: t.createdAt || (t.history[0] && t.history[0].at) || null,
+        source: t.source || (t.manual ? 'manuell' : 'smoobu'),
         sameDayArrival: reservations.some(
           (r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id
         ),
@@ -441,6 +446,8 @@
       guest: '',
       note: (input.note || '').trim().slice(0, 500),
       date: input.date,
+      source: 'manuell',
+      createdAt: new Date(now).toISOString(),
       status: STATUS.OPEN,
       assignedTo: null,
       reminded: false,

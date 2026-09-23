@@ -2,6 +2,8 @@
 name = "strauss-team"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+# Im Dashboard eingetragene Variablen bei neuen Versionen NICHT löschen
+keep_vars = true
 
 [assets]
 directory = "./public"
@@ -21,4 +23,5 @@ database_id = "db137fcd-ad7d-4aa7-92d4-61985c6657a3"
 # Worker → Einstellungen → Variablen und Geheimnisse:
 #   SMOOBU_API_KEY    – API-Key aus Smoobu
 #   SMOOBU_API_SECRET – zugehöriges Secret (HMAC-Anmeldung)
-#   APP_SECRET      – langes Zufallspasswort (z. B. 40 Zeichen aus dem Passwortmanager)
+#   APP_SECRET        – langes Zufallspasswort (signiert Anmeldungen, 40+ Zeichen)
+#   ADMIN_PASSWORD    – Passwort für /admin (Auftraggeber); ohne dieses gilt APP_SECRET

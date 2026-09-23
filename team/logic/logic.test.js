@@ -213,3 +213,16 @@ test('Meldung mit Text/Fotos geht an Auftraggeber und kann als behoben markiert 
   assert.equal(L.openReports(resolved.state).length, 0);
   assert.equal(resolved.state.tasks['100'].reports[0].resolved, true);
 });
+
+test('Reinigungen merken sich, wann und woher sie eingetragen wurden', () => {
+  let { state } = L.applyBooking(L.createState(), booking(), NOW);
+  assert.equal(state.tasks['100'].source, 'smoobu');
+  assert.equal(state.tasks['100'].createdAt, NOW.toISOString());
+  const later = at('2026-09-24', '08:00');
+  ({ state } = L.applyBooking(state, booking({ action: 'update', departure: '2026-10-03' }), later));
+  assert.equal(state.tasks['100'].createdAt, NOW.toISOString(), 'Eintragungszeit bleibt');
+  assert.equal(state.tasks['100'].changedAt, later.toISOString());
+  ({ state } = L.addManualCleaning(state, { id: 'm1', apartmentId: '2', date: '2026-10-01' }, NOW));
+  const list = L.listCleanings(state);
+  assert.deepEqual(list.map((t) => [t.id, t.source]), [['m1', 'manuell'], ['100', 'smoobu']]);
+});

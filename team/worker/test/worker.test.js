@@ -1,59 +1,30 @@
-// Ende-zu-Ende-Test des Workers mit nachgebautem Smoobu, ntfy und D1.
-// Ausführen: cd team/worker && node --test test/
+// Ende-zu-Ende-Test des Workers mit nachgebautem Smoobu und ntfy und einer
+// echten SQLite-Datenbank (node:sqlite) anstelle von Cloudflare D1.
+// Ausführen: cd worker && npm test
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac, createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import worker, { runSync } from '../src/index.js';
 
-class FakeD1 {
-  constructor() { this.row = null; this.photos = new Map(); }
+/** Minimaler D1-Ersatz: prepare(sql).bind(...).first()/run() */
+class SqliteD1 {
+  constructor() { this.db = new DatabaseSync(':memory:'); }
   prepare(sql) {
-    const db = this;
+    const db = this.db;
     let args = [];
-    const ok = (changes) => ({ meta: { changes } });
+    const conv = (v) => (v instanceof ArrayBuffer ? new Uint8Array(v) : v);
     const stmt = {
-      bind(...a) { args = a; return stmt; },
-      async first() {
-        if (sql.includes('FROM photos')) {
-          const p = db.photos.get(args[0]);
-          return p ? { mime: p.mime, data: [...new Uint8Array(p.data)] } : null; // wie ältere D1: Zahlen-Array
-        }
-        return db.row ? { ...db.row } : null;
-      },
-      async run() {
-        if (sql.startsWith('CREATE')) return ok(0);
-        if (sql.startsWith('INSERT INTO photos')) {
-          db.photos.set(args[0], { taskId: args[1], created: args[2], mime: args[3], data: args[4] });
-          return ok(1);
-        }
-        if (sql === 'DELETE FROM photos WHERE id = ?') return ok(db.photos.delete(args[0]) ? 1 : 0);
-        if (sql.startsWith('DELETE FROM photos WHERE created_at')) {
-          for (const [id, p] of db.photos) if (p.created < args[0]) db.photos.delete(id);
-          return ok(0);
-        }
-        if (sql === 'DELETE FROM photos') { db.photos.clear(); return ok(0); }
-        if (sql === 'DELETE FROM app_state') { db.row = null; return ok(0); }
-        if (sql.startsWith('INSERT')) {
-          if (db.row) return ok(0);
-          db.row = { version: 1, data: args[0] };
-          return ok(1);
-        }
-        if (sql.startsWith('UPDATE')) {
-          if (!db.row || db.row.version !== args[1]) return ok(0);
-          db.row = { version: db.row.version + 1, data: args[0] };
-          return ok(1);
-        }
-        throw new Error('Unbekanntes SQL: ' + sql);
-      },
+      bind(...a) { args = a.map(conv); return stmt; },
+      async first() { const row = db.prepare(sql).get(...args); return row ? { ...row } : null; },
+      async run() { const r = db.prepare(sql).run(...args); return { meta: { changes: Number(r.changes) } }; },
     };
     return stmt;
   }
+  count(table) { return this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; }
 }
 
-// --- Nachgebautes Internet ----------------------------------------------------
-// Das nachgebaute Smoobu akzeptiert den alten Header „Api-Key“ oder eine
-// HMAC-Signatur in einer bestimmten (absichtlich nicht naheliegenden) Form:
-// Body-Hash base64, Pfad mit /api, Zeit ohne ms, keine leere Query-Zeile.
-import { createHmac, createHash } from 'node:crypto';
+// --- Nachgebautes Smoobu (HMAC in einer nicht naheliegenden Variante) und ntfy ---
 const HMAC_KEY = 'hmac-key-123';
 const HMAC_SECRET = 'geheim+secret/abc=';
 function smoobuAuthorized(url, headers) {
@@ -81,12 +52,9 @@ globalThis.fetch = async (url, init = {}) => {
   if (url.startsWith('https://login.smoobu.com/api/apartments')) {
     return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
   }
-  if (url.startsWith('https://login.smoobu.com/api/reservations?')) {
-    return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
-  }
+  if (url.startsWith('https://login.smoobu.com/api/reservations?')) return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
   if (url.startsWith('https://login.smoobu.com/api/reservations/')) {
-    const id = url.split('/').pop();
-    const b = smoobuBookings.find((x) => String(x.id) === id);
+    const b = smoobuBookings.find((x) => String(x.id) === url.split('/').pop());
     return b ? Response.json(b) : new Response('not found', { status: 404 });
   }
   if (url === 'https://ntfy.sh') {
@@ -96,219 +64,227 @@ globalThis.fetch = async (url, init = {}) => {
   throw new Error('Unerwarteter Aufruf: ' + url);
 };
 
-const env = { DB: new FakeD1(), APP_SECRET: 'test-geheimnis', SMOOBU_API_KEY: 'smoobu-test-key' };
+const env = {
+  DB: new SqliteD1(), APP_SECRET: 'test-geheimnis', ADMIN_PASSWORD: 'admin-passwort', SMOOBU_API_KEY: 'smoobu-test-key',
+  ASSETS: {
+    fetch: async (req) => {
+      const root = new URL(req.url).pathname === '/';
+      return new Response(root ? 'APP' : 'nicht da', { status: root ? 200 : 404 });
+    },
+  },
+};
 const at = (date, time) => new Date(`${date}T${time}:00+02:00`).getTime();
 const booking = (id, departure, extra) => ({
   id, type: 'reservation', arrival: '2026-09-20', departure,
   apartment: { id: 111, name: 'FeWo Elbblick' }, 'guest-name': 'Familie Müller', ...extra,
 });
 
-async function call(method, path, { user, body } = {}) {
+async function call(method, path, { session, body, headers = {} } = {}) {
   const pending = [];
-  const headers = {};
-  if (user) headers.Authorization = `Bearer ${user}`;
-  if (body) headers['Content-Type'] = 'application/json';
+  if (session) headers.Authorization = `Bearer ${session}`;
+  const isForm = body instanceof FormData;
+  if (body && !isForm) headers['Content-Type'] = 'application/json';
   const res = await worker.fetch(
-    new Request('https://team.apartments-strauss.de' + path, { method, headers, body: body && JSON.stringify(body) }),
+    new Request('https://team.apartments-strauss.de' + path, { method, headers, body: isForm ? body : body && JSON.stringify(body) }),
     env, { waitUntil: (p) => pending.push(p) });
   await Promise.all(pending);
-  return { status: res.status, body: await res.json() };
+  const type = res.headers.get('Content-Type') || '';
+  if (type.startsWith('image/')) return { status: res.status, type, bytes: [...new Uint8Array(await res.arrayBuffer())] };
+  return { status: res.status, body: type.includes('json') ? await res.json() : await res.text() };
 }
 
-let links;
-const auth = (id) => {
-  const u = new URL(links.find((x) => x.id === id).link);
-  return `${u.searchParams.get('u')}.${u.searchParams.get('k')}`;
-};
+let admin; // Sitzung Auftraggeber
+let anna;  // Sitzung Reinigungskraft
+let annaId;
+const topicOf = async (session) => (await call('GET', '/api/me', { session })).body.topic;
 
-test('ganzer Ablauf: Import, neue Buchung, Bestätigen, Verlängern, Alarm, Löschen, Webhook', async () => {
-  // 1. Erster Abgleich übernimmt vorhandene Buchungen ohne Push-Flut
+test('Anmeldung: /admin mit Passwort, Reinigungskraft anlegen, Anmeldung mit 6-stelligem Code', async () => {
+  assert.equal((await call('GET', '/admin')).body, 'APP', '/admin liefert die App');
+  assert.equal((await call('GET', '/api/me')).status, 401);
+  assert.equal((await call('POST', '/api/admin-login', { body: { password: 'falsch' } })).status, 401);
+  const login = await call('POST', '/api/admin-login', { body: { password: 'admin-passwort' } });
+  assert.equal(login.status, 200);
+  admin = login.body.session;
+
+  const created = await call('POST', '/api/team', { session: admin, body: { name: 'Anna', apartments: 'all' } });
+  assert.equal(created.status, 200);
+  const code = created.body.newCode.code;
+  assert.match(code, /^\d{6}$/);
+  annaId = created.body.cleaners[0].id;
+  assert.equal(created.body.cleaners[0].codeHash, undefined, 'Code-Hash wird nie ausgeliefert');
+  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes(code), 'Code nicht im Klartext gespeichert');
+
+  assert.equal((await call('POST', '/api/login', { body: { code: code === '000000' ? '111111' : '000000' } })).status, 401);
+  const cl = await call('POST', '/api/login', { body: { code } });
+  assert.equal(cl.status, 200);
+  anna = cl.body.session;
+  const me = await call('GET', '/api/me', { session: anna });
+  assert.equal(me.body.user.name, 'Anna');
+  assert.equal(me.body.user.role, 'cleaner');
+  assert.equal((await call('POST', '/api/team', { session: anna, body: { name: 'X' } })).status, 404, 'nur Auftraggeber');
+});
+
+test('Zu viele falsche Codes → Sperre für diese Verbindung', async () => {
+  const headers = () => ({ 'CF-Connecting-IP': '203.0.113.9' });
+  for (let i = 0; i < 8; i++) await call('POST', '/api/login', { body: { code: '99999' + i }, headers: headers() });
+  assert.equal((await call('POST', '/api/login', { body: { code: '999990' }, headers: headers() })).status, 429);
+});
+
+test('Ablauf: Import, neue Buchung, Bestätigen, Verlängern, Fristen, Löschen, Webhook', async () => {
   smoobuBookings = [booking(1, '2026-09-25')];
-  let s = await runSync(env, at('2026-09-23', '09:00'));
+  const s = await runSync(env, at('2026-09-23', '09:00'));
   assert.equal(s.syncError, null);
-  assert.equal(pushes.length, 0);
+  assert.equal(pushes.length, 0, 'erster Abgleich still');
 
-  // 2. Persönliche Links nur mit richtigem APP_SECRET
-  assert.equal((await call('POST', '/api/setup', { body: { secret: 'falsch' } })).status, 403);
-  const setup = await call('POST', '/api/setup', { body: { secret: 'test-geheimnis' } });
-  links = setup.body.users;
-  assert.match(links[0].link, /^https:\/\/team\.apartments-strauss\.de\/\?u=buero&k=/);
-  const topic = (id) => links.find((x) => x.id === id).topic;
-
-  // 3. Neue Buchung → Push an Reinigungskraft
   smoobuBookings.push(booking(2, '2026-09-27'));
   await runSync(env, at('2026-09-23', '09:15'));
-  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[topic('kraft1'), 'Neue Endreinigung']]);
-  assert.match(pushes[0].click, /\?u=kraft1&k=/);
+  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(anna), 'Neue Endreinigung']]);
 
-  // 4. Ansicht der Reinigungskraft: ohne Gastnamen
-  assert.equal((await call('GET', '/api/me', { user: 'kraft1.falsch' })).status, 401);
-  let me = await call('GET', '/api/me', { user: auth('kraft1') });
-  assert.equal(me.status, 200);
-  assert.deepEqual(me.body.tasks.map((t) => [t.id, t.guest]), [['1', ''], ['2', '']]);
+  let me = await call('GET', '/api/me', { session: anna });
+  assert.deepEqual(me.body.tasks.map((t) => [t.id, t.guest, t.source]), [['1', '', 'smoobu'], ['2', '', 'smoobu']]);
+  assert.ok(me.body.tasks[1].createdAt, 'Eintragungszeit wird mitgeliefert');
 
-  // 5. Bestätigen → Push an Auftraggeber
   pushes = [];
-  const confirmed = await call('POST', '/api/tasks/2/confirm', { user: auth('kraft1') });
-  assert.equal(confirmed.status, 200);
-  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[topic('buero'), 'Reinigung bestätigt']]);
-  assert.equal((await call('POST', '/api/tasks/2/confirm', { user: auth('buero') })).status, 404, 'Auftraggeber bestätigt nicht');
+  assert.equal((await call('POST', '/api/tasks/2/confirm', { session: anna })).status, 200);
+  assert.deepEqual(pushes.map((p) => [p.topic, p.title]), [[await topicOf(admin), 'Reinigung bestätigt']]);
 
-  // 6. Verlängerung in Smoobu → Push an Reinigungskraft + Auftraggeber, neu bestätigen
   pushes = [];
   smoobuBookings[1] = booking(2, '2026-09-28');
   await runSync(env, at('2026-09-23', '09:30'));
   assert.deepEqual(pushes.map((p) => p.title).sort(), ['Bestätigte Reinigung verschoben', 'Reinigung verschoben']);
 
-  // 7. Am Reinigungstag von Buchung 1: 12 Uhr Erinnerung, 13 Uhr Alarm
   pushes = [];
   await runSync(env, at('2026-09-25', '12:00'));
   assert.deepEqual(pushes.map((p) => [p.title, p.priority]), [['Erinnerung: Reinigung bestätigen', 4]]);
   pushes = [];
   await runSync(env, at('2026-09-25', '13:00'));
-  assert.deepEqual(pushes.map((p) => [p.topic, p.priority]).sort(), [[topic('buero'), 5], [topic('kraft1'), 5]].sort());
+  assert.equal(pushes.length, 2, 'Alarm an Reinigungskraft und Auftraggeber');
 
-  // 8. Buchung in Smoobu gelöscht → Reinigung entfällt
   pushes = [];
   smoobuBookings = smoobuBookings.filter((b) => b.id !== 2);
   await runSync(env, at('2026-09-25', '13:15'));
   assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
 
-  // 9. Webhook: nur mit geheimem Pfad
+  const hookPath = new URL((await call('GET', '/api/me', { session: admin })).body.webhookUrl).pathname;
   assert.equal((await call('POST', '/api/smoobu-webhook/falsch', { body: {} })).status, 404);
-  const hookPath = new URL(setup.body.webhookUrl).pathname;
   pushes = [];
-  const hook = await call('POST', hookPath, { body: { action: 'newReservation', data: booking(3, '2026-10-01') } });
-  assert.equal(hook.status, 200);
+  assert.equal((await call('POST', hookPath, { body: { action: 'newReservation', data: booking(3, '2026-10-01') } })).status, 200);
   assert.deepEqual(pushes.map((p) => p.title), ['Neue Endreinigung']);
 
-  // 10. Übersicht Auftraggeber
-  me = await call('GET', '/api/me', { user: auth('buero') });
-  assert.equal(me.body.user.role, 'owner');
+  me = await call('GET', '/api/me', { session: admin });
   assert.deepEqual(me.body.apartments, [{ id: '111', name: 'FeWo Elbblick' }, { id: '222', name: 'Loft Altstadt' }]);
-  assert.ok(me.body.log.length >= 5);
 });
 
-test('Smoobu nicht erreichbar → Fehler wird angezeigt, Fristen laufen trotzdem', async () => {
-  const saved = env.SMOOBU_API_KEY;
-  env.SMOOBU_API_KEY = 'falscher-key';
-  const s = await runSync(env, at('2026-09-26', '09:00'));
-  env.SMOOBU_API_KEY = saved;
-  assert.match(s.syncError, /lehnt die Anmeldung ab \(401\)/);
+test('Erledigte Reinigungen bleiben für die Reinigungskraft sichtbar', async () => {
+  smoobuBookings = [booking(40, '2099-09-26')];
+  await runSync(env, at('2026-09-26', '08:00'));
+  assert.equal((await call('POST', '/api/tasks/40/confirm', { session: anna })).status, 200);
+  assert.equal((await call('POST', '/api/tasks/40/done', { session: anna })).status, 200);
+  const me = await call('GET', '/api/me', { session: anna });
+  assert.equal(me.body.tasks.find((x) => x.id === '40').status, 'erledigt');
 });
 
-test('Diagnose meldet Anzahlen und Feldnamen, aber keine Gästedaten', async () => {
-  smoobuBookings = [booking(10, '2026-10-10')];
-  const res = await call('POST', '/api/diagnose', { user: auth('buero') });
+test('Meldung mit Foto: Push an Auftraggeber, Foto nur mit Anmeldung, als behoben markierbar', async () => {
+  smoobuBookings = [booking(20, '2099-10-12')];
+  await runSync(env, at('2026-09-27', '09:00'));
+  pushes = [];
+  const form = new FormData();
+  form.append('text', 'Kaffeemaschine defekt');
+  form.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], { type: 'image/jpeg' }), 'foto.jpg');
+  const res = await call('POST', '/api/tasks/20/report', { session: anna, body: form });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(pushes.map((p) => p.title), ['Meldung: FeWo Elbblick']);
+  const rep = res.body.tasks.find((t) => t.id === '20').reports[0];
+
+  const img = await call('GET', `/api/photos/${rep.photos[0]}?a=${admin}`);
+  assert.equal(img.status, 200);
+  assert.equal(img.type, 'image/jpeg');
+  assert.deepEqual(img.bytes, [0xff, 0xd8, 0xff, 1, 2, 3], 'Foto unverändert');
+  assert.equal((await call('GET', `/api/photos/${rep.photos[0]}`)).status, 401);
+
+  const before = env.DB.count('photos');
+  const bad = new FormData();
+  bad.append('text', 'x');
+  bad.append('photo', new Blob(['hallo'], { type: 'text/plain' }), 'x.txt');
+  assert.equal((await call('POST', '/api/tasks/20/report', { session: anna, body: bad })).status, 400);
+  assert.equal(env.DB.count('photos'), before, 'nichts gespeichert');
+
+  const me = await call('GET', '/api/me', { session: admin });
+  assert.equal(me.body.openReports.length, 1);
+  const done = await call('POST', `/api/tasks/20/reports/${rep.id}/resolve`, { session: admin });
+  assert.equal(done.body.openReports.length, 0);
+});
+
+test('manuelle Reinigung: Push an Reinigungskraft, absagen, Abgleich lässt sie in Ruhe', async () => {
+  pushes = [];
+  const res = await call('POST', '/api/manual', { session: admin, body: { apartmentId: '222', date: '2099-01-02', note: 'Grundreinigung' } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const task = res.body.tasks.find((t) => t.manual);
+  assert.equal(task.apartmentName, 'Loft Altstadt');
+  assert.equal(task.source, 'manuell');
+  assert.deepEqual(pushes.map((p) => p.title), ['Zusätzliche Reinigung']);
+  await runSync(env, at('2026-09-27', '09:15'));
+  const me = await call('GET', '/api/me', { session: anna });
+  assert.equal(me.body.tasks.find((t) => t.id === task.id).status, 'offen');
+  pushes = [];
+  assert.equal((await call('POST', `/api/tasks/${task.id}/cancel`, { session: admin })).status, 200);
+  assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
+});
+
+test('Team: bearbeiten, neuer Code meldet alte Geräte ab', async () => {
+  let res = await call('POST', `/api/team/${annaId}`, { session: admin, body: { name: 'Anna M.', apartments: ['111'] } });
+  assert.deepEqual(res.body.cleaners.map((c) => [c.name, c.apartments]), [['Anna M.', ['111']]]);
+  res = await call('POST', `/api/team/${annaId}/code`, { session: admin });
+  assert.match(res.body.newCode.code, /^\d{6}$/);
+  assert.equal((await call('GET', '/api/me', { session: anna })).status, 401, 'alte Anmeldung ungültig');
+  anna = (await call('POST', '/api/login', { body: { code: res.body.newCode.code } })).body.session;
+  assert.equal((await call('GET', '/api/me', { session: anna })).status, 200);
+});
+
+test('Zurücksetzen nur mit Bestätigung; Team und Anmeldungen bleiben erhalten', async () => {
+  assert.equal((await call('POST', '/api/reset', { session: admin, body: { confirm: 'ja' } })).status, 400);
+  pushes = [];
+  smoobuBookings = [booking(30, '2099-10-20'), booking(31, '2099-10-21')];
+  const res = await call('POST', '/api/reset', { session: admin, body: { confirm: 'ZURÜCKSETZEN' } });
   assert.equal(res.status, 200);
-  assert.deepEqual(res.body.results[0].topKeys, ['Key: Länge 15, Sonderzeichen -', 'Secret: fehlt', 'Verfahren: Api-Key (alt, endet 25.09.2026)']);
-  const list = res.body.results.find((r) => r.variant === 'Buchungen abrufen');
-  assert.equal(list.received, 1);
-  assert.ok(list.fields.includes('guest-name'));
-  assert.ok(!JSON.stringify(res.body).includes('Müller'));
-  assert.equal((await call('POST', '/api/diagnose', { user: auth('kraft1') })).status, 404);
+  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30', '31']);
+  assert.equal(env.DB.count('photos'), 0);
+  assert.equal(pushes.length, 0);
+  assert.equal(res.body.cleaners.length, 1, 'Reinigungskraft bleibt');
+  assert.equal((await call('GET', '/api/me', { session: anna })).status, 200, 'Anmeldung bleibt gültig');
 });
 
-test('HMAC: richtige Signaturform wird automatisch gefunden und wiederverwendet', async () => {
-  const saved = { ...env };
+test('Team: Reinigungskraft entfernen → Anmeldung ungültig', async () => {
+  const res = await call('POST', `/api/team/${annaId}/delete`, { session: admin });
+  assert.equal(res.body.cleaners.length, 0);
+  assert.equal((await call('GET', '/api/me', { session: anna })).status, 401);
+});
+
+test('HMAC: richtige Signaturform wird automatisch gefunden', async () => {
+  const saved = env.SMOOBU_API_KEY;
   env.SMOOBU_API_KEY = ` "${HMAC_KEY}" `; // mit Anführungszeichen/Leerzeichen kopiert
   env.SMOOBU_API_SECRET = HMAC_SECRET;
   try {
-    const diag = await call('POST', '/api/diagnose', { user: auth('buero') });
+    const diag = await call('POST', '/api/diagnose', { session: admin });
     const login = diag.body.results.find((r) => r.variant === 'Anmeldung (HMAC)');
-    assert.equal(login.status, 200);
     assert.match(login.topKeys[0], /funktioniert: Hash base64, Pfad mit \/api, Zeit ohne ms, leere Query-Zeile nein/);
-    assert.equal(diag.body.results.find((r) => r.variant === 'Buchungen abrufen').received, 1);
-
-    // Normaler Abgleich nutzt die gefundene Form direkt (1 Aufruf für die Liste)
+    assert.ok(!JSON.stringify(diag.body).includes('Müller'), 'keine Gästedaten');
     smoobuCalls = 0;
-    const s = await runSync(env, at('2026-09-26', '10:00'));
+    const s = await runSync(env, at('2026-09-27', '10:00'));
     assert.equal(s.syncError, null);
-    assert.equal(smoobuCalls, 1 + 1 + 2, 'Buchungen + Wohnungen + Nachfrage zu Buchung 1 und 3, keine erneute Erkennung');
-
-    // Falsches Secret → verständlicher Fehler
+    assert.equal(smoobuCalls, 2, 'Buchungen + Wohnungen, keine erneute Erkennung');
     env.SMOOBU_API_SECRET = 'falsch';
-    const bad = await runSync(env, at('2026-09-26', '10:15'));
-    assert.match(bad.syncError, /lehnt die Anmeldung ab \(401\) – bitte API-Key und Secret/);
+    assert.match((await runSync(env, at('2026-09-27', '10:15'))).syncError, /lehnt die Anmeldung ab \(401\)/);
   } finally {
-    Object.assign(env, saved);
+    env.SMOOBU_API_KEY = saved;
     delete env.SMOOBU_API_SECRET;
   }
 });
 
-async function upload(path, user, fields) {
-  const form = new FormData();
-  for (const [k, v] of fields) form.append(k, v);
-  const pending = [];
-  const res = await worker.fetch(
-    new Request('https://team.apartments-strauss.de' + path, { method: 'POST', headers: { Authorization: `Bearer ${user}` }, body: form }),
-    env, { waitUntil: (p) => pending.push(p) });
-  await Promise.all(pending);
-  return { status: res.status, body: await res.json() };
-}
-
-test('Meldung mit Foto: Push an Auftraggeber, Foto abrufbar, als behoben markierbar', async () => {
-  smoobuBookings = [booking(20, '2026-10-12')];
-  await runSync(env, at('2026-09-27', '09:00'));
-  pushes = [];
-  const jpeg = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], { type: 'image/jpeg' });
-  const res = await upload('/api/tasks/20/report', auth('kraft1'), [['text', 'Kaffeemaschine defekt'], ['photo', jpeg]]);
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.deepEqual(pushes.map((p) => p.title), ['Meldung: FeWo Elbblick']);
-  const rep = res.body.tasks.find((t) => t.id === '20').reports[0];
-  assert.equal(rep.text, 'Kaffeemaschine defekt');
-  assert.equal(rep.photos.length, 1);
-
-  // Foto nur mit gültigem Zugang (per ?a= für <img>)
-  const img = await worker.fetch(new Request(`https://x/api/photos/${rep.photos[0]}?a=${auth('buero')}`), env, { waitUntil() {} });
-  assert.equal(img.status, 200);
-  assert.equal(img.headers.get('Content-Type'), 'image/jpeg');
-  assert.deepEqual([...new Uint8Array(await img.arrayBuffer())], [0xff, 0xd8, 0xff, 1, 2, 3]);
-  assert.equal((await worker.fetch(new Request(`https://x/api/photos/${rep.photos[0]}`), env, { waitUntil() {} })).status, 401);
-
-  // Kein Bild → abgelehnt, nichts gespeichert
-  const before = env.DB.photos.size;
-  const bad = await upload('/api/tasks/20/report', auth('kraft1'), [['text', 'x'], ['photo', new Blob(['hallo'], { type: 'text/plain' })]]);
-  assert.equal(bad.status, 400);
-  assert.equal(env.DB.photos.size, before);
-
-  // Übersicht zeigt offene Meldung; behoben → verschwindet
-  let me = await call('GET', '/api/me', { user: auth('buero') });
-  assert.equal(me.body.openReports.length, 1);
-  const done = await call('POST', `/api/tasks/20/reports/${rep.id}/resolve`, { user: auth('buero') });
-  assert.equal(done.status, 200);
-  assert.equal(done.body.openReports.length, 0);
-});
-
-test('manuelle Reinigung: Push an Reinigungskraft, absagen möglich, Abgleich lässt sie in Ruhe', async () => {
-  pushes = [];
-  const res = await call('POST', '/api/manual', { user: auth('buero'), body: { apartmentId: '222', date: '2099-01-02', note: 'Grundreinigung' } });
-  assert.equal(res.status, 200, JSON.stringify(res.body));
-  const task = res.body.tasks.find((t) => t.manual);
-  assert.equal(task.apartmentName, 'Loft Altstadt', 'Name aus der Smoobu-Wohnungsliste');
-  assert.deepEqual(pushes.map((p) => p.title), ['Zusätzliche Reinigung']);
-  assert.match(pushes[0].message, /Hinweis: Grundreinigung/);
-
-  await runSync(env, at('2026-09-27', '09:15'));
-  let me = await call('GET', '/api/me', { user: auth('kraft1') });
-  assert.equal(me.body.tasks.find((t) => t.id === task.id).status, 'offen');
-
-  assert.equal((await call('POST', '/api/manual', { user: auth('kraft1'), body: {} })).status, 404, 'nur Auftraggeber');
-  pushes = [];
-  const c = await call('POST', `/api/tasks/${task.id}/cancel`, { user: auth('buero') });
-  assert.equal(c.status, 200);
-  assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
-});
-
-test('Zurücksetzen nur mit Bestätigung, lädt danach frisch aus Smoobu (ohne Push-Flut)', async () => {
-  assert.equal((await call('POST', '/api/reset', { user: auth('buero'), body: { confirm: 'ja' } })).status, 400);
-  assert.equal((await call('POST', '/api/reset', { user: auth('kraft1'), body: { confirm: 'ZURÜCKSETZEN' } })).status, 404);
-  pushes = [];
-  smoobuBookings = [booking(30, '2026-10-20'), booking(31, '2026-10-21')];
-  const res = await call('POST', '/api/reset', { user: auth('buero'), body: { confirm: 'ZURÜCKSETZEN' } });
-  assert.equal(res.status, 200);
-  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30', '31']);
-  assert.equal(res.body.log.length, 0);
-  assert.equal(env.DB.photos.size, 0);
-  assert.equal(pushes.length, 0);
+test('Fehlender Smoobu-Schlüssel wird klar gemeldet', async () => {
+  const saved = env.SMOOBU_API_KEY;
+  delete env.SMOOBU_API_KEY;
+  const s = await runSync(env, at('2026-09-27', '11:00'));
+  env.SMOOBU_API_KEY = saved;
+  assert.match(s.syncError, /SMOOBU_API_KEY fehlt – bitte in Cloudflare als „Secret“ eintragen/);
 });

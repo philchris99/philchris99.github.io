@@ -1,4 +1,4 @@
-# Team Strauß – Reinigungsplan mit Smoobu
+# Team Strauss – Reinigungsplan mit Smoobu
 
 Web-App unter **team.apartments-strauss.de**:
 Buchungen aus Smoobu → Endreinigungen → Bestätigung durch die Reinigungskraft → Push-Nachrichten.
@@ -18,13 +18,18 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 
 ## Funktionen
 
-- **Heute-Übersicht**: alle Check-outs und Reinigungen des Tages mit Smoobu-Namen der Einheiten, Status und Wechseltag
-- **Bestätigen / Erledigt** durch die Reinigungskraft, Fristen 12:00 (Erinnerung) und 13:00 (Alarm)
-- **Meldungen**: Hinweis-Text + bis zu 5 Fotos pro Reinigung (werden auf dem Handy verkleinert, nach 45 Tagen gelöscht);
-  Push an den Auftraggeber, dort „Als behoben markieren“
-- **Manuelle Reinigungen** (Zwischenreinigung usw.) durch den Auftraggeber inkl. Push an die Reinigungskraft, absagbar
-- **Testphase**: „Alles zurücksetzen“ (Eingabe ZURÜCKSETZEN) löscht alles und lädt frisch aus Smoobu.
-  Nach der Testphase in `worker/src/config.js` `allowReset: false` setzen.
+- **Anmeldung**
+  - Reinigungskräfte: auf https://team.apartments-strauss.de mit persönlichem **6-stelligem Code** (bleibt auf dem Handy angemeldet)
+  - Auftraggeber: **https://team.apartments-strauss.de/admin** mit `ADMIN_PASSWORD`
+  - Nach 8 Fehlversuchen 15 Minuten Sperre
+- **Team** (in der Admin-Ansicht): Reinigungskräfte anlegen, zuständige Wohnungen wählen, Code erzeugen
+  (wird nur einmal angezeigt, nur als Hash gespeichert), neuer Code = alte Geräte abgemeldet, entfernen
+- **Startseite Auftraggeber**: Kacheln (Check-outs heute, unbestätigt, Meldungen, Alarme), Handlungsbedarf, Heute, Meldungen, Morgen, 14 Tage
+- **Startseite Reinigungskraft**: „Neu – bitte bestätigen“ (rot markiert), „Als Nächstes“, Plan nach Tagen; erledigte bleiben grau sichtbar
+- Jede Reinigung zeigt, **wann** und **wie** sie eingetragen wurde (automatisch aus Smoobu / manuell) und ggf. Datumsänderung
+- **Meldungen** mit Text + bis zu 5 Fotos (Galerie mit Wischen), Push an Auftraggeber, „Als behoben markieren“
+- **Manuelle Reinigungen** inkl. Push an die Reinigungskraft, absagbar
+- **Testphase**: „Alles zurücksetzen“ (Eingabe ZURÜCKSETZEN); Team bleibt erhalten. Danach `allowReset: false` in `worker/src/config.js`.
 
 ## Design / Logo
 
@@ -56,10 +61,14 @@ Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ
 - `SMOOBU_API_SECRET` – das zugehörige **Secret** (wird in Smoobu nur einmal beim Erstellen angezeigt)
   Smoobu verlangt seit 25.09.2026 signierte Anfragen (HMAC); ohne Secret wird das alte Verfahren versucht.
 - `APP_SECRET` – ein langes Zufallspasswort (40+ Zeichen, im Passwortmanager speichern)
+- `ADMIN_PASSWORD` – Passwort für /admin (ohne dieses gilt APP_SECRET)
+
+> Immer Typ **Secret** wählen: einfache Variablen löscht Cloudflare bei neuen Versionen
+> (zusätzlich abgesichert durch `keep_vars = true` in `wrangler.toml`).
 
 **4. Erster Test (noch ohne eigene Adresse)**
-`https://strauss-team.<euer-konto>.workers.dev/setup.html` öffnen → APP_SECRET eingeben → Link „Apartment Strauß“ öffnen →
-„Jetzt abgleichen“. Die Buchungen und Wohnungen (mit Smoobu-IDs) sollten erscheinen. Der erste Abgleich verschickt absichtlich keine Nachrichten.
+`https://strauss-team.<euer-konto>.workers.dev/admin` öffnen → ADMIN_PASSWORD → „Jetzt abgleichen“ (unter „System & Smoobu“).
+Unter „Team“ Reinigungskräfte anlegen und die Codes weitergeben.
 
 **5. Pages für die eigene Adresse**
 *Workers & Pages → Create → Pages → Import a Git repository* → dasselbe Repository →
@@ -73,13 +82,13 @@ Bei **goneo**: Kundencenter → *Domains* → `apartments-strauss.de` → *DNS-E
 neuer Eintrag: Name `team`, Typ **CNAME**, Ziel `strauss-team-web.pages.dev`.
 Nach einigen Minuten bis Stunden zeigt Cloudflare „Active“; dann funktioniert https://team.apartments-strauss.de.
 
-**7. Links verteilen**
-`https://team.apartments-strauss.de/setup.html` → APP_SECRET → pro Person den **persönlichen Link** einzeln schicken.
-Jede Person: Link öffnen → *Teilen → Zum Home-Bildschirm* → in der App unter „Push-Nachrichten einrichten“
-die App **ntfy** installieren, den angezeigten Kanal abonnieren, „Test-Nachricht senden“.
+**7. Reinigungskräfte einladen**
+Admin → „Team“ → Reinigungskraft anlegen → Code persönlich weitergeben. Die Reinigungskraft öffnet
+https://team.apartments-strauss.de, gibt den Code ein, legt die Seite auf den Home-Bildschirm und richtet unter
+„Push-Nachrichten einrichten“ die App **ntfy** ein.
 
 **8. Optional: sofortige Aktualisierung**
-Die Webhook-Adresse von der Einrichtungsseite in Smoobu unter *Einstellungen → API → Webhook-URL* eintragen.
+Die Webhook-Adresse aus „System & Smoobu“ in Smoobu unter *Einstellungen → API → Webhook-URL* eintragen.
 Ohne Webhook kommen Änderungen spätestens nach 15 Minuten an.
 
 ## Entwicklung

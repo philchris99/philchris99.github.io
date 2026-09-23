@@ -37,7 +37,52 @@ export async function pruneOldPhotos(db, olderThan) {
   await db.prepare('DELETE FROM photos WHERE created_at < ?').bind(olderThan).run();
 }
 
-/** Testphase: alles löschen (Reinigungen, Meldungen, Fotos, Protokoll). */
+// ---- Einstellungen (Team) – bleiben beim Zurücksetzen erhalten ---------------
+async function ensureSettings(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)').run();
+}
+
+export async function loadSettings(db) {
+  await ensureSettings(db);
+  const row = await db.prepare('SELECT data FROM settings WHERE id = 1').first();
+  return row ? JSON.parse(row.data) : { cleaners: [] };
+}
+
+export async function saveSettings(db, settings) {
+  await ensureSettings(db);
+  await db.prepare('INSERT OR REPLACE INTO settings (id, data) VALUES (1, ?)').bind(JSON.stringify(settings)).run();
+}
+
+// ---- Schutz gegen Durchprobieren von Codes/Passwort ----------------------------
+const WINDOW = 15 * 60 * 1000;
+const MAX_FAILS = 8;
+
+async function ensureAttempts(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, count INTEGER NOT NULL, since INTEGER NOT NULL)').run();
+}
+
+export async function tooManyAttempts(db, key, now) {
+  await ensureAttempts(db);
+  const row = await db.prepare('SELECT count, since FROM login_attempts WHERE key = ?').bind(key).first();
+  return !!row && now - row.since < WINDOW && row.count >= MAX_FAILS;
+}
+
+export async function recordFailure(db, key, now) {
+  await ensureAttempts(db);
+  const row = await db.prepare('SELECT count, since FROM login_attempts WHERE key = ?').bind(key).first();
+  if (!row || now - row.since >= WINDOW) {
+    await db.prepare('INSERT OR REPLACE INTO login_attempts (key, count, since) VALUES (?, 1, ?)').bind(key, now).run();
+  } else {
+    await db.prepare('UPDATE login_attempts SET count = count + 1 WHERE key = ?').bind(key).run();
+  }
+}
+
+export async function clearAttempts(db, key) {
+  await ensureAttempts(db);
+  await db.prepare('DELETE FROM login_attempts WHERE key = ?').bind(key).run();
+}
+
+/** Testphase: alles löschen (Reinigungen, Meldungen, Fotos, Protokoll). Team bleibt. */
 export async function resetAll(db) {
   await ensureTable(db);
   await ensurePhotos(db);
