@@ -173,6 +173,51 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 .login input.pin { font: 600 32px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .35em; text-align: center; padding-left: .35em; }
 .login .hint { margin-top: 12px; }
 .toast { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: 520px; margin: 0 auto; background: var(--text); color: var(--bg); border-radius: 12px; padding: 12px 16px; font-weight: 600; z-index: 30; }
+/* Push einrichten */
+.guide { margin-top: 14px; border: 2px solid var(--accent); border-radius: 14px; padding: 14px 16px; background: var(--card); }
+.guide ol { list-style: none; display: grid; gap: 14px; margin-top: 10px; counter-reset: s; }
+.guide li { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: start; counter-increment: s; }
+.guide li::before { content: counter(s); width: 34px; height: 34px; border-radius: 99px; background: var(--accent); color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.guide .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.guide .row > * { flex: 1 1 140px; }
+.btn.store { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }
+.btn.store.other { background: var(--card); color: var(--text); border-color: var(--line); font-weight: 400; }
+.topicline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.topicline code { font-size: 14px; padding: 6px 8px; }
+.codeline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.codeline .code { font: 600 22px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .1em; color: var(--brand); }
+
+/* Kalender */
+.greet-row { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.cal-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.cal-nav { display: flex; gap: 6px; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 10px 0; }
+.legend i { display: inline-block; width: 22px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.cal { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); -webkit-overflow-scrolling: touch; }
+.cal-grid { display: grid; grid-template-columns: 132px calc(var(--days) * var(--w)); --w: 42px; width: max-content; }
+.cal-apt, .cal-corner { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 6px 8px; font-size: 13px; line-height: 1.25; display: flex; align-items: center; gap: 6px; min-height: 46px; }
+.cal-apt b { display: inline-flex; width: 22px; height: 22px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); font-size: 12px; align-items: center; justify-content: center; flex: none; }
+.cal-apt span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.cal-corner { z-index: 3; font-weight: 600; }
+.cal-days, .cal-row { position: relative; display: flex; border-bottom: 1px solid var(--line); }
+.cal-day { width: var(--w); flex: none; text-align: center; font-size: 11px; line-height: 1.2; padding: 4px 0; color: var(--muted); border-left: 1px solid var(--line); }
+.cal-day b { display: block; font-size: 14px; color: var(--text); }
+.cal-day.we { background: var(--bg); }
+.cal-day.today { background: var(--accent-soft); color: var(--accent); }
+.cal-day.today b { color: var(--accent); }
+.cal-day.month { border-left: 2px solid var(--brand); }
+.cal-cell { width: var(--w); flex: none; border-left: 1px solid var(--line); min-height: 46px; }
+.cal-cell.we { background: var(--bg); }
+.cal-cell.today { background: var(--accent-soft); }
+.cal-bar { position: absolute; top: 9px; height: 28px; border-radius: 6px; background: var(--brand); color: var(--brand-ink); font-size: 12px; font-weight: 600;
+  padding: 0 7px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; cursor: pointer; border: 0; min-height: 0; justify-content: flex-start; }
+.cal-bar.blocked { background: repeating-linear-gradient(135deg, var(--done-bg) 0 6px, var(--line) 6px 12px); color: var(--muted); border: 1px solid var(--line); }
+.cal-bar.cut-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.cal-bar.cut-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.cal-clean { position: absolute; bottom: 2px; width: 10px; height: 10px; border-radius: 99px; border: 2px solid var(--card); transform: translateX(-50%); }
+.cal-clean.offen { background: var(--open); } .cal-clean.bestätigt { background: var(--accent); } .cal-clean.erledigt { background: var(--ok); }
+
 @media (max-width: 520px) {
   .glance { grid-template-columns: repeat(2, 1fr); }
   .glance.three { grid-template-columns: repeat(3, 1fr); }
@@ -263,6 +308,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     try {
       data = Object.assign({}, data, await api('/api/me'));
       if (ADMIN && data.user.role !== 'owner') return showLogin();
+      if (view === 'calendar') { // Kalender bleibt offen, nur Kopfzeile aktualisieren
+        renderWho();
+        if (!cal) openCalendar(false).catch((e) => toast(e.message));
+        return;
+      }
       render();
     } catch (e) {
       if (e.status === 401) { store.set(null); auth = null; return showLogin(); }
@@ -484,15 +534,41 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </div>`;
   }
 
-  function pushSetup() {
-    return `<details class="more"><summary>Push-Nachrichten einrichten (iPhone, Android, Computer)</summary><div class="panel">
-      <ol style="margin-left:18px; display:grid; gap:8px">
-        <li>App <b>ntfy</b> installieren – iPhone: App Store, Android: Google Play. Am Computer geht auch <b>ntfy.sh/app</b> im Browser.</li>
-        <li>In ntfy auf „+“ tippen und diesen Kanal abonnieren:<br><code id="topic">${esc(data.topic)}</code> <button class="small" data-copy="topic">Kopieren</button></li>
-        <li>Mitteilungen für ntfy erlauben. iPhone: Einstellungen → ntfy → Mitteilungen → „Erlauben“ und „Sofortige Mitteilungen“ an. Android: Benachrichtigungen erlauben, Akku-Optimierung für ntfy ausschalten.</li>
-        <li><button class="small" data-test>Test-Nachricht senden</button></li>
+  // ---- Push-Nachrichten einrichten (Schritt für Schritt) -----------------------
+  const STORE = { ios: 'https://apps.apple.com/de/app/ntfy/id1625396347', android: 'https://play.google.com/store/apps/details?id=io.heckel.ntfy' };
+  const device = /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Android/i.test(navigator.userAgent) ? 'android' : 'other';
+  const pushKey = () => 'push-ok-' + data.user.id;
+  const pushDone = () => { try { return localStorage.getItem(pushKey()) === '1'; } catch (e) { return false; } };
+  let pushTested = false;
+
+  function pushGuide(inline) {
+    const stores = [['ios', 'App Store (iPhone)'], ['android', 'Google Play (Android)']];
+    if (device === 'android') stores.reverse(); // passender Store zuerst
+    return `<div class="guide"${inline ? '' : ' id="push"'}>
+      <b style="font-size:17px">Push-Nachrichten einrichten</b>
+      <p class="meta">Damit du neue Reinigungen und Erinnerungen sofort aufs Handy bekommst – dauert 2 Minuten.</p>
+      <ol>
+        <li><div><b>App „ntfy“ herunterladen</b> (kostenlos)
+          <div class="row">${stores.map(([k, label]) => `<a class="btn store${k === device || device === 'other' ? '' : ' other'}" href="${STORE[k]}" target="_blank" rel="noopener">${label}</a>`).join('')}</div></div></li>
+        <li><div><b>App öffnen, Mitteilungen erlauben</b>
+          <p class="meta">Beim ersten Start fragt die App – bitte „Erlauben“ tippen.</p></div></li>
+        <li><div><b>Deinen Kanal abonnieren</b>
+          <p class="meta">In ntfy unten rechts auf „+“ tippen, diesen Namen einfügen und „Abonnieren“ tippen:</p>
+          <div class="topicline"><code id="topic">${esc(data.topic)}</code><button class="small" data-copy="topic">Kopieren</button></div>
+          ${device === 'android' ? `<div class="row"><a class="btn small" href="ntfy://ntfy.sh/${esc(data.topic)}">Direkt in ntfy öffnen</a></div>` : ''}</div></li>
+        <li><div><b>Testen</b>
+          <div class="row"><button class="go" data-test>Test-Nachricht senden</button></div>
+          ${pushTested ? `<p class="meta" style="margin-top:8px">Ist die Nachricht auf dem Handy angekommen?</p>
+            <div class="row"><button class="primary" data-push-ok>Ja, angekommen ✓</button><button data-push-help>Nein</button></div>` : ''}
+          <p class="meta" id="push-help" hidden style="margin-top:8px">Tipps: Kanalname genau so eingetragen? In den Handy-Einstellungen → ntfy → Mitteilungen erlauben
+            (iPhone zusätzlich „Sofortige Mitteilungen“). Android: Akku-Optimierung für ntfy ausschalten. Danach nochmals testen.</p></div></li>
       </ol>
-      <p class="meta" style="margin-top:8px">Den Kanalnamen nicht weitergeben – wer ihn kennt, kann die Nachrichten mitlesen.</p></div></details>`;
+    </div>`;
+  }
+  /** Oben als Hinweis, bis bestätigt wurde, dass die Test-Nachricht ankommt; sonst unten aufklappbar */
+  const pushBanner = () => (pushDone() ? '' : pushGuide(false));
+  function pushSetup() {
+    return pushDone() ? `<details class="more"><summary>Push-Nachrichten (eingerichtet ✓)</summary>${pushGuide(true)}</details>` : '';
   }
 
   // ---- Team -------------------------------------------------------------------
@@ -503,6 +579,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-edit-cancel>Abbrechen</button></div>
       </form>` : `
       <div class="panel"><div class="person"><b style="font-size:17px">${esc(p.name)}</b><span class="meta">${kind === 'lead' ? 'Reinigungsleitung' : 'Mitarbeiterin'}</span></div>
+        ${'code' in p ? `<div class="codeline"><span class="meta">Anmeldecode:</span>${p.code
+          ? `<span class="code" id="code-${esc(p.id)}">${esc(p.code.slice(0, 3))} ${esc(p.code.slice(3))}</span><button class="small" data-copy="code-${esc(p.id)}">Kopieren</button>`
+          : '<span class="meta">nicht mehr sichtbar – bitte „Neuen Code erzeugen“</span>'}</div>` : ''}
         <div class="actions">
           <button class="small" data-edit-person="${esc(p.id)}">Name ändern</button>
           <button class="small" data-newcode="${esc(p.id)}">Neuen Code erzeugen</button>
@@ -519,8 +598,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function codeBox() {
     return newCode ? `<div class="codebox"><div class="eyebrow">Anmeldecode für ${esc(newCode.name)}</div>
       <div class="code">${esc(newCode.code.slice(0, 3))} ${esc(newCode.code.slice(3))}</div>
-      <p class="meta">Jetzt notieren und persönlich weitergeben – der Code wird nur einmal angezeigt. Anmeldung unter <b>${esc(location.host)}</b>.
-      Ein neuer Code meldet alle bisherigen Geräte dieser Person ab.</p>
+      <p class="meta">Persönlich weitergeben. Anmeldung unter <b>${esc(location.host)}</b>. Der Code bleibt unten in der Liste jederzeit sichtbar.
+      „Neuen Code erzeugen“ meldet alle bisherigen Geräte dieser Person ab.</p>
       <div class="actions"><button class="small" data-hide-code>Verstanden, ausblenden</button></div></div>` : '';
   }
 
@@ -540,6 +619,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${tile('plan', today.length ? `${today.filter((t) => t.status === 'erledigt').length}/${today.length}` : '0', today.length ? 'heute erledigt' : 'heute nichts')}
         ${tile(next ? 'task-' + next.id : 'plan', next ? esc(next.apartmentName) : '–', next ? 'als Nächstes · ' + esc(dayWord(next.date)) : 'nichts geplant', false, true)}
       </div>
+      ${pushBanner()}
       ${newsPanel()}
       ${fresh.length ? section('neu', 'Neu – bitte bestätigen', fresh.length + ' offen', list(fresh, '', next && next.id), 'key') : ''}
       ${section('plan', 'Mein Plan', 'bestätigt & erledigt', byDay(planned, next && next.id) || `<p class="empty">${fresh.length ? 'Bitte oben bestätigen.' : 'Keine Reinigungen zugewiesen.'}</p>`, 'key')}
@@ -561,13 +641,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const past = rest.filter((t) => t.date < t0).reverse();
     const reports = data.openReports || [];
     return `
-      <div class="greeting"><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">Reinigungsleitung · ${fmtLong(t0)}</p></div>
+      <div class="greeting greet-row"><div><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">Reinigungsleitung · ${fmtLong(t0)}</p></div>
+        <button class="primary" data-open-calendar>Kalender</button></div>
       <div class="glance">
         ${tile('neu', todo.length, 'zu bestätigen / zuweisen', todo.length > 0)}
         ${tile('heute', waiting.length, 'warten auf Mitarbeiterin', waiting.some((t) => t.date <= t1))}
         ${tile('heute', data.tasks.filter((t) => t.date === t0 && t.status !== 'storniert').length, 'Reinigungen heute')}
         ${tile('meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
       </div>
+      ${pushBanner()}
       ${newsPanel()}
       ${todo.length ? section('neu', 'Neu – bestätigen & zuweisen', todo.length + ' offen', list(todo, ''), 'key') : ''}
       ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine weiteren Reinigungen an.'), 'key')}
@@ -625,13 +707,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </form>`;
     return `
       ${data.syncError ? `<div class="notice bad"><span><b>Abgleich mit Smoobu gestört:</b> ${esc(data.syncError)}</span><button class="small" data-jump="system">Details</button></div>` : ''}
-      <div class="greeting"><h1>${fmtLong(t0)}</h1><p class="meta">Stand ${esc(data.time)} Uhr · Smoobu zuletzt ${fmtTime(data.lastSync)}</p></div>
+      <div class="greeting greet-row"><div><h1>${fmtLong(t0)}</h1><p class="meta">Stand ${esc(data.time)} Uhr · Smoobu zuletzt ${fmtTime(data.lastSync)}</p></div>
+        <button class="primary" data-open-calendar>Kalender</button></div>
       <div class="glance">
         ${tile('heute', today.filter((t) => t.status !== 'storniert').length, 'Reinigungen heute')}
         ${tile('heute', unconfirmed.length, 'nicht bestätigt', unconfirmed.some((t) => t.date <= t1))}
         ${tile('meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
         ${tile('heute', alarms.length, 'überfällig', alarms.length > 0)}
       </div>
+      ${pushBanner()}
       ${urgent.length ? `<div class="todo"><b>Handlungsbedarf</b><ul>${urgent.map(([id, text]) => `<li><button type="button" data-jump="${esc(id)}">${esc(text)}</button></li>`).join('')}</ul></div>` : ''}
       ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine Reinigungen an.'), 'key')}
       ${section('meldungen', 'Offene Meldungen', reports.length ? reports.length + ' offen' : '', reportsBlock(reports))}
@@ -663,10 +747,88 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div></section>` : ''}`;
   }
 
+  // ---- Belegungskalender ------------------------------------------------------
+  let view = location.pathname.replace(/\/+$/, '') === '/kalender' ? 'calendar' : 'main';
+  let cal = null;
+  let calFrom = null;
+  const CAL_DAYS = 35;
+  const diffDays = (a, b) => Math.round((utc(b) - utc(a)) / 86400000);
+
+  async function openCalendar(push) {
+    if (push) history.pushState({ view: 'calendar' }, '', '/kalender');
+    view = 'calendar';
+    if (!calFrom) calFrom = addDays(data.today, -3);
+    $('app').innerHTML = '<p class="empty" style="margin-top:24px">Kalender wird geladen …</p>';
+    cal = await api(`/api/calendar?from=${calFrom}&days=${CAL_DAYS}`);
+    renderCalendar();
+  }
+  function closeCalendar() {
+    view = 'main';
+    if (history.state && history.state.view === 'calendar') history.back();
+    else history.replaceState(null, '', '/');
+    render();
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener('popstate', () => {
+    if (!data) return;
+    if (location.pathname.replace(/\/+$/, '') === '/kalender') openCalendar(false).catch((e) => toast(e.message));
+    else { view = 'main'; render(); }
+  });
+
+  function renderCalendar() {
+    const days = Array.from({ length: cal.days }, (_, i) => addDays(cal.from, i));
+    const cls = (d) => [utc(d).getUTCDay() % 6 === 0 ? 'we' : '', d === cal.today ? 'today' : ''].filter(Boolean).join(' ');
+    const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+    const head = days.map((d, i) => { const u = utc(d); const first = u.getUTCDate() === 1 || i === 0;
+      return `<div class="cal-day ${cls(d)}${u.getUTCDate() === 1 ? ' month' : ''}">${first ? MON[u.getUTCMonth()] : WD[u.getUTCDay()]}<b>${u.getUTCDate()}</b></div>`; }).join('');
+    const W = 42;
+    const rows = cal.apartments.map((a) => {
+      const bars = cal.bookings.filter((b) => b.apartmentId === a.id).map((b) => {
+        const start = Math.max(0, diffDays(cal.from, b.arrival) + 0.5);
+        const end = Math.min(cal.days, diffDays(cal.from, b.departure) + 0.5);
+        if (end <= start) return '';
+        const nights = diffDays(b.arrival, b.departure);
+        const label = b.blocked ? 'blockiert' : b.guest || 'Buchung';
+        const info = `${a.name}: ${b.blocked ? 'blockiert' : b.guest || 'Buchung'} · ${fmt(b.arrival)} – ${fmt(b.departure)} (${nights} ${nights === 1 ? 'Nacht' : 'Nächte'})`;
+        return `<button type="button" class="cal-bar${b.blocked ? ' blocked' : ''}${diffDays(cal.from, b.arrival) < 0 ? ' cut-l' : ''}${diffDays(cal.from, b.departure) >= cal.days ? ' cut-r' : ''}"
+          style="left:${start * W}px;width:${(end - start) * W - 2}px" data-info="${esc(info)}" aria-label="${esc(info)}">${esc(label)}</button>`;
+      }).join('');
+      const marks = cal.cleanings.filter((c) => c.apartmentId === a.id).map((c) =>
+        `<span class="cal-clean ${esc(c.status)}" style="left:${(diffDays(cal.from, c.date) + 0.5) * W}px" title="Reinigung ${esc(c.status)}"></span>`).join('');
+      return `<div class="cal-apt"><b>${a.number}</b><span>${esc(a.name)}</span></div>
+        <div class="cal-row">${days.map((d) => `<div class="cal-cell ${cls(d)}"></div>`).join('')}${bars}${marks}</div>`;
+    }).join('');
+    $('app').innerHTML = `
+      <div class="cal-top">
+        <button data-close-calendar>‹ Zurück zur Übersicht</button>
+        <div class="cal-nav"><button class="small" data-cal-shift="-14">‹ 2 Wochen</button><button class="small" data-cal-shift="0">Heute</button><button class="small" data-cal-shift="14">2 Wochen ›</button></div>
+      </div>
+      <h1 style="margin-top:14px">Belegungskalender</h1>
+      <p class="meta">${fmtLong(cal.from)} – ${fmtLong(addDays(cal.from, cal.days - 1))} · Balken antippen für Details</p>
+      <div class="legend"><span><i style="background:var(--brand)"></i>Buchung</span>
+        <span><i style="background:repeating-linear-gradient(135deg,var(--done-bg) 0 4px,var(--line) 4px 8px)"></i>blockiert</span>
+        <span><i style="background:var(--open);width:10px;height:10px;border-radius:99px"></i>Reinigung offen</span>
+        <span><i style="background:var(--accent);width:10px;height:10px;border-radius:99px"></i>bestätigt</span>
+        <span><i style="background:var(--ok);width:10px;height:10px;border-radius:99px"></i>erledigt</span></div>
+      ${cal.apartments.length ? `<div class="cal" id="cal-scroll"><div class="cal-grid" style="--days:${cal.days}">
+        <div class="cal-corner">Wohnung</div><div class="cal-days">${head}</div>
+        ${rows}
+      </div></div>` : '<p class="empty">Noch keine Wohnungen – bitte zuerst mit Smoobu abgleichen.</p>'}
+      <div class="actions" style="margin-top:16px"><button data-close-calendar>‹ Zurück zur Übersicht</button></div>`;
+    const idx = diffDays(cal.from, cal.today);
+    const box = $('cal-scroll');
+    if (box && idx > 1) box.scrollLeft = (idx - 1) * W;
+  }
+
   function render() {
+    if (view === 'calendar' && cal) return renderCalendar();
+    renderWho();
+    $('app').innerHTML = role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff();
+  }
+
+  function renderWho() {
     const label = { owner: 'Admin', lead: 'Reinigungsleitung', staff: 'Mitarbeiterin' }[role()];
     $('who').innerHTML = `<b>${esc(data.user.name)}</b>${label} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`;
-    $('app').innerHTML = role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff();
   }
 
   // ---- Galerie ----------------------------------------------------------------
@@ -834,6 +996,22 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       if (d.jump) {
         const el = document.getElementById(d.jump);
         if (el) { if (el.tagName === 'DETAILS') el.open = true; const det = el.closest('details'); if (det) det.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      } else if (d.openCalendar !== undefined) {
+        calFrom = null;
+        await openCalendar(true);
+      } else if (d.closeCalendar !== undefined) {
+        closeCalendar();
+      } else if (d.calShift) {
+        calFrom = Number(d.calShift) === 0 ? addDays(data.today, -3) : addDays(calFrom, Number(d.calShift));
+        await openCalendar(false);
+      } else if (b.classList.contains('cal-bar')) {
+        toast(d.info);
+      } else if (d.pushOk !== undefined) {
+        try { localStorage.setItem(pushKey(), '1'); } catch (err) { /* ohne Speicher */ }
+        render();
+        toast('Super – Push-Nachrichten sind eingerichtet');
+      } else if (d.pushHelp !== undefined) {
+        $('push-help').hidden = false;
       } else if (d.gallery) {
         openGallery(d.gallery.split(','), Number(d.index));
       } else if (d.unpick) {
@@ -845,7 +1023,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         if (!armed(b, '?')) return toast('Zum Löschen nochmal auf ✕ tippen');
         await taskAction(d.task, `reports/${encodeURIComponent(d.report)}/photos/${encodeURIComponent(d.delphoto)}/delete`, null, 'Foto gelöscht');
       } else if (d.logout !== undefined) {
-        store.set(null); auth = null; data = null;
+        store.set(null); auth = null; data = null; view = 'main'; cal = null;
+        history.replaceState(null, '', '/');
         showLogin();
       } else if (d.leadConfirm) {
         b.disabled = true; await taskAction(d.leadConfirm, 'lead-confirm', null, 'Erhalt bestätigt');
@@ -907,9 +1086,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
             ${r.error ? '<br><span style="color:var(--bad)">' + esc(r.error) + '</span>' : ''}</td></tr>`).join('')}</table></div>`;
       } else if (d.test !== undefined) {
         await api('/api/test-push', 'POST');
-        toast('Test-Nachricht verschickt');
+        pushTested = true;
+        render();
+        toast('Test-Nachricht verschickt – bitte aufs Handy schauen');
       } else if (d.copy) {
-        const text = $(d.copy).textContent;
+        const text = d.copy.startsWith('code-') ? $(d.copy).textContent.replace(/\s/g, '') : $(d.copy).textContent;
         try { await navigator.clipboard.writeText(text); toast('Kopiert'); } catch (err) {
           const r = document.createRange(); r.selectNodeContents($(d.copy));
           const s = getSelection(); s.removeAllRanges(); s.addRange(r);

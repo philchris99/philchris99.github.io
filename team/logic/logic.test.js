@@ -206,3 +206,20 @@ test('Wechseltag wird erkannt', () => {
   assert.equal(list[0].sameDayArrival, true);
   assert.equal(list[1].sameDayArrival, false);
 });
+
+test('Kalender: Sperrzeiten gespeichert, Wohnungen nummeriert, Namen nur für Admin', () => {
+  const sm = (o) => Object.assign({ id: 800, type: 'reservation', arrival: '2026-09-25', departure: '2026-09-29',
+    apartment: { id: 5, name: 'B-Loft' }, 'guest-name': 'Frau Weber', 'is-blocked-booking': false }, o);
+  let { state } = L.syncFromSmoobu(L.createState(), [sm(), sm({ id: 801, apartment: { id: 6, name: 'A-Suite' }, 'is-blocked-booking': true, arrival: '2026-09-26', departure: '2026-09-30' })], NOW, CFG, 30, '2026-09-22');
+  state.apartments = [{ id: '5', name: 'B-Loft' }, { id: '6', name: 'A-Suite' }, { id: '7', name: 'C-Studio' }];
+  assert.equal(state.tasks['801'], undefined, 'Sperrzeit ist keine Reinigung');
+  const cal = L.calendar(state, '2026-09-22', 14, true);
+  assert.deepEqual(cal.apartments.map((a) => [a.number, a.name]), [[1, 'A-Suite'], [2, 'B-Loft'], [3, 'C-Studio']]);
+  assert.deepEqual(cal.bookings.map((b) => [b.id, b.guest, b.blocked]).sort(), [['800', 'Frau Weber', false], ['801', '', true]]);
+  assert.deepEqual(cal.cleanings.map((c) => [c.id, c.date]), [['800', '2026-09-29']]);
+  assert.equal(L.calendar(state, '2026-09-22', 14, false).bookings.find((b) => b.id === '800').guest, '');
+  // Sperrzeit in Smoobu aufgehoben → verschwindet beim nächsten Abgleich
+  ({ state } = L.syncFromSmoobu(state, [sm()], NOW, CFG, 30, '2026-09-22'));
+  assert.equal(state.reservations['801'], undefined);
+  assert.ok(state.reservations['800']);
+});

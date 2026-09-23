@@ -106,12 +106,12 @@ function listOf(data) {
   return data.bookings || data.reservations || data.data || [];
 }
 
-/** Alle Buchungen (inkl. Stornos) mit Abreise im Zeitraum. */
+/** Alle Buchungen (inkl. Stornos und Sperrzeiten für den Kalender) mit Abreise im Zeitraum. */
 export async function fetchBookings(creds, departureFrom, departureTo) {
   const bookings = [];
   for (let page = 1; page <= 50; page++) {
     const data = await call(creds, '/reservations', {
-      departureFrom, departureTo, showCancellation: 'true', excludeBlocked: 'true', pageSize: '100', page: String(page),
+      departureFrom, departureTo, showCancellation: 'true', pageSize: '100', page: String(page),
     });
     bookings.push(...listOf(data));
     if (!data || page >= (data.page_count || 1)) break;

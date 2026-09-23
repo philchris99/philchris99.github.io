@@ -86,6 +86,29 @@ export async function hashCode(code, salt) {
   return [...hash].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Codes zusätzlich verschlüsselt speichern (AES-GCM, Schlüssel aus APP_SECRET),
+// damit Admin/Leitung sie jederzeit wieder anzeigen können.
+const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const unb64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+async function codeKey(env) {
+  const raw = await crypto.subtle.digest('SHA-256', encoder.encode(`${env.APP_SECRET}:codes`));
+  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+export async function encryptCode(env, code) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await codeKey(env), encoder.encode(code)));
+  return `${b64(iv)}.${b64(data)}`;
+}
+export async function decryptCode(env, enc) {
+  if (!enc) return null;
+  try {
+    const [iv, data] = enc.split('.').map(unb64);
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await codeKey(env), data));
+  } catch (e) {
+    return null;
+  }
+}
+
 /** Sucht die Person zu einem Code (Codes sind eindeutig). */
 export async function findByCode(cleaners, code) {
   for (const c of cleaners) {

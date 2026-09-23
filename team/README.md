@@ -5,7 +5,7 @@ Buchungen aus Smoobu → Endreinigungen → Bestätigung durch die Reinigungskra
 
 ```
 Smoobu ──(alle 15 Min. + optional Webhook)──▶ Cloudflare Worker „strauss-team“ ──▶ ntfy-Push aufs Handy
-                                               │  D1-Datenbank, Fristen 12/13 Uhr
+                                               │  D1-Datenbank, Fristen 6 Std. / 12 / 15 Uhr
 team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶ Worker (Web-App + API)
 ```
 
@@ -38,6 +38,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
 - Beginn und Ende der Reinigung mit Dauer
+- **Belegungskalender** (Admin, Leitung): alle Wohnungen durchnummeriert, Tage fortlaufend, Buchungen mit Gastname (nur Admin)
+  und blockierte Zeiträume aus Smoobu, Reinigungsstatus als Punkt am Abreisetag
+- **Push einrichten**: Schritt-für-Schritt-Anleitung mit direktem Link zu ntfy im App Store / bei Google Play, bleibt oben sichtbar,
+  bis „Test-Nachricht angekommen“ bestätigt ist
+- **Anmeldecodes** sind in der Team-Liste jederzeit sichtbar (Admin: alle, Leitung: ihre Mitarbeiterinnen), verschlüsselt gespeichert
 - Testphase: „Alles zurücksetzen“ (Team bleibt). Danach `allowReset: false` in `worker/src/config.js`.
 
 ## Design / Logo

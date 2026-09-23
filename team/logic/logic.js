@@ -205,7 +205,7 @@
     return mapSmoobu(payload.data || {}, action);
   }
 
-  /** Buchung aus GET /api/reservations; Sperrzeiten ignorieren, Stornos → cancel */
+  /** Buchung aus GET /api/reservations; Sperrzeiten → null (keine Reinigung), Stornos → cancel */
   function fromSmoobuBooking(r) {
     if (!r || r['is-blocked-booking']) return null;
     return mapSmoobu(r, r.type === 'cancellation' ? 'cancel' : 'update');
@@ -239,7 +239,7 @@
       return { state, notifications };
     }
 
-    state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure };
+    state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure, guest: booking.guest || '' };
 
     if (!existing || existing.status === STATUS.CANCELLED) {
       const task = newTask({
@@ -279,16 +279,30 @@
    * Abgleich mit der Buchungsliste aus Smoobu. Beim allerersten Abgleich still
    * (keine Push-Flut). Alte Einträge (älter als keepDays) werden aufgeräumt.
    */
-  function syncFromSmoobu(state, smoobuBookings, now, config, keepDays) {
+  function syncFromSmoobu(state, smoobuBookings, now, config, keepDays, windowFrom) {
     config = withConfig(config);
     const silent = !state.initialized;
     const notifications = [];
     state = clone(state); // einmal kopieren, dann direkt ändern (Cloudflare-Rechenzeitlimit)
+    const seen = new Set();
     for (const raw of smoobuBookings) {
+      if (!raw) continue;
+      seen.add(String(raw.id));
+      if (raw['is-blocked-booking']) { // Sperrzeit: nur für den Kalender merken, keine Reinigung
+        state.reservations[String(raw.id)] = { id: String(raw.id), apartmentId: String(raw.apartment && raw.apartment.id),
+          arrival: raw.arrival, departure: raw.departure, guest: '', blocked: true };
+        continue;
+      }
       const booking = fromSmoobuBooking(raw);
       if (!booking) continue;
       const res = applyBooking(state, booking, now, config, true);
       if (!silent) notifications.push(...res.notifications);
+    }
+    // Im abgefragten Zeitraum nicht mehr vorhanden (z. B. Sperrzeit aufgehoben) → aus dem Kalender entfernen
+    if (windowFrom) {
+      for (const r of Object.values(state.reservations)) {
+        if (r.departure >= windowFrom && !seen.has(r.id) && !(state.tasks[r.id] && isActive(state.tasks[r.id]))) delete state.reservations[r.id];
+      }
     }
     const cutoff = addDays(localParts(now, config.timezone).date, -(keepDays || 30));
     for (const t of Object.values(state.tasks)) if (t.date < cutoff) delete state.tasks[t.id];
@@ -637,6 +651,28 @@
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
 
+  /**
+   * Belegungskalender: Wohnungen durchnummeriert, Buchungen/Sperrzeiten im Zeitraum.
+   * showNames = Gastnamen anzeigen (Admin).
+   */
+  function calendar(state, from, days, showNames) {
+    const to = addDays(from, days);
+    const names = {};
+    for (const t of Object.values(state.tasks)) names[t.apartmentId] = t.apartmentName;
+    for (const a of state.apartments || []) names[a.id] = a.name;
+    const apartments = Object.entries(names)
+      .sort((a, b) => a[1].localeCompare(b[1], 'de', { numeric: true }))
+      .map(([id, name], i) => ({ id, name, number: i + 1 }));
+    const bookings = Object.values(state.reservations)
+      .filter((r) => r.arrival < to && r.departure > from)
+      .map((r) => ({ id: r.id, apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure, blocked: !!r.blocked,
+        guest: showNames ? r.guest || '' : '' }));
+    const cleanings = Object.values(state.tasks)
+      .filter((t) => t.date >= from && t.date < to && t.status !== STATUS.CANCELLED)
+      .map((t) => ({ id: t.id, apartmentId: t.apartmentId, date: t.date, status: t.status, manual: !!t.manual }));
+    return { from, days, apartments, bookings, cleanings };
+  }
+
   const api = {
     DEFAULT_CONFIG, STATUS,
     createState, localParts, formatDate, addDays,
@@ -645,7 +681,7 @@
     leadConfirm, assignCleaning, staffConfirm, startCleaning, completeCleaning,
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
-    listCleanings, fullyConfirmed,
+    listCleanings, fullyConfirmed, calendar,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

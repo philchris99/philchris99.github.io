@@ -5,7 +5,7 @@ import L from '../../logic/logic.js';
 import config from './config.js';
 import {
   authenticate, allUsers, findUser, sessionFor, topicFor, webhookToken, safeEqual,
-  newCode, randomId, hashCode, findByCode,
+  newCode, randomId, hashCode, findByCode, encryptCode, decryptCode,
 } from './auth.js';
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
@@ -85,7 +85,7 @@ export async function runSync(env, now = Date.now(), cfg) {
   const result = await mutate(env.DB, (state) => {
     const notifications = [];
     if (bookings) {
-      const synced = L.syncFromSmoobu(state, bookings, now, cfg);
+      const synced = L.syncFromSmoobu(state, bookings, now, cfg, 30, from);
       state = synced.state;
       notifications.push(...synced.notifications);
     }
@@ -115,6 +115,10 @@ function apartmentList(state) {
 }
 
 const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt });
+/** Team-Liste; Codes sieht der Admin für alle, die Leitung für ihre Mitarbeiterinnen. */
+async function teamFor(env, list, withCodes) {
+  return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc) } : {}) })));
+}
 const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late'];
 
 async function viewFor(env, cfg, settings, state, user, now) {
@@ -125,7 +129,8 @@ async function viewFor(env, cfg, settings, state, user, now) {
     user: { id: user.id, name: user.name, role: user.role }, today, time, now: new Date(now).toISOString(),
     reminderTime: cfg.reminderTime, secondReminderTime: cfg.secondReminderTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
-    leads: cfg.leads.map(person), staff: cfg.staff.map(person),
+    leads: await teamFor(env, cfg.leads, user.role === 'owner'),
+    staff: await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'),
     // Änderungen der letzten 14 Tage für diese Person (oben „Neuigkeiten“)
     changes: (state.log || []).filter((n) => n.to === recipient && CHANGE_KINDS.includes(n.kind) && n.at >= since).slice(0, 30),
     seenAt: (state.seen || {})[user.id] || null,
@@ -305,6 +310,15 @@ async function handleApi(request, env, url, ctx) {
     return view(result.state);
   }
 
+  // Belegungskalender (Admin mit Gastnamen, Leitung ohne)
+  if (path === '/api/calendar' && request.method === 'GET' && role !== 'staff') {
+    const { state } = await loadState(env.DB);
+    const today = L.localParts(now, cfg.timezone).date;
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('from') || '') ? url.searchParams.get('from') : L.addDays(today, -3);
+    const days = Math.min(62, Math.max(7, Number(url.searchParams.get('days')) || 35));
+    return json({ today, ...L.calendar(state, from, days, role === 'owner' || cfg.showGuestNames) });
+  }
+
   // Foto anzeigen
   const photo = path.match(/^\/api\/photos\/([A-Za-z0-9-]+)$/);
   if (photo && request.method === 'GET') {
@@ -333,6 +347,7 @@ async function handleApi(request, env, url, ctx) {
     do { code = newCode(); } while (weakCode(code) || await findByCode(codeHolders(settings).filter((c) => c.id !== entry.id), code));
     entry.codeSalt = randomId('', 16);
     entry.codeHash = await hashCode(code, entry.codeSalt);
+    entry.codeEnc = await encryptCode(env, code);
     return code;
   };
   const listFor = (kind) => (kind === 'lead' ? settings.leads : settings.staff);

@@ -245,6 +245,39 @@ test('Manuelle Reinigung: anlegen → Leitung; verschieben → Neuigkeit bei Lei
   assert.equal((await call('POST', `/api/tasks/${task.id}/cancel`, { session: admin })).status, 200);
 });
 
+test('Codes bleiben sichtbar: Admin sieht alle, Leitung ihre Mitarbeiterinnen, Mitarbeiterin keine', async () => {
+  const a = await me(admin);
+  assert.match(a.leads[0].code, /^\d{6}$/);
+  assert.match(a.staff[0].code, /^\d{6}$/);
+  const l = await me(lea);
+  assert.equal(l.leads[0].code, undefined, 'Leitung sieht keine Leitungs-Codes');
+  assert.equal(l.staff[0].code, a.staff[0].code);
+  const m = await me(mia);
+  assert.equal(m.staff[0].code, undefined);
+  const raw = env.DB.db.prepare('SELECT data FROM settings').get().data;
+  assert.ok(!raw.includes(a.staff[0].code), 'Code nur verschlüsselt gespeichert');
+  // Mit dem angezeigten Code kann man sich anmelden
+  assert.equal((await call('POST', '/api/login', { body: { code: a.staff[0].code } })).status, 200);
+});
+
+test('Belegungskalender: Buchungen mit Namen (Admin), Sperrzeiten, nummerierte Wohnungen', async () => {
+  smoobuBookings = [
+    booking(60, '2099-10-05', { arrival: '2099-10-01' }),
+    { id: 61, type: 'reservation', arrival: '2099-10-03', departure: '2099-10-08', apartment: { id: 222, name: 'Loft Altstadt' }, 'guest-name': '', 'is-blocked-booking': true },
+  ];
+  await runSync(env, at('2026-09-27', '12:00'));
+  const cal = (await call('GET', '/api/calendar?from=2099-09-30&days=14', { session: admin })).body;
+  assert.deepEqual(cal.apartments.map((x) => [x.number, x.name]), [[1, 'FeWo Elbblick'], [2, 'Loft Altstadt']]);
+  const b60 = cal.bookings.find((x) => x.id === '60');
+  assert.equal(b60.guest, 'Familie Müller');
+  assert.equal(cal.bookings.find((x) => x.id === '61').blocked, true);
+  assert.ok(cal.cleanings.some((c) => c.id === '60' && c.date === '2099-10-05'));
+  const leadCal = (await call('GET', '/api/calendar?from=2099-09-30&days=14', { session: lea })).body;
+  assert.equal(leadCal.bookings.find((x) => x.id === '60').guest, '', 'Leitung ohne Gastnamen');
+  assert.equal((await call('GET', '/api/calendar', { session: mia })).status, 404, 'Mitarbeiterin hat keinen Kalender');
+  assert.equal((await me(lea)).tasks.some((t) => t.id === '61'), false, 'Sperrzeit ist keine Reinigung');
+});
+
 test('Neuer Code meldet alte Geräte ab; Entfernen', async () => {
   const res = await call('POST', `/api/team/${miaId}/code`, { session: lea });
   assert.match(res.body.newCode.code, /^\d{6}$/);
