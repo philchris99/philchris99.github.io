@@ -6,6 +6,7 @@ async function call(apiKey, path) {
     headers: { 'Api-Key': apiKey, 'Cache-Control': 'no-cache', Accept: 'application/json' },
   });
   if (res.status === 404) return null;
+  if (res.status === 401 || res.status === 403) throw new Error(`Smoobu lehnt den API-Schlüssel ab (${res.status}) – bitte Schlüssel in Cloudflare prüfen`);
   if (!res.ok) throw new Error(`Smoobu antwortet mit ${res.status} auf ${path.split('?')[0]}`);
   return res.json();
 }
@@ -37,37 +38,46 @@ export function fetchBooking(apiKey, id) {
 }
 
 /**
- * Diagnose für die Übersicht: fragt Smoobu auf mehrere Arten ab und meldet nur
- * Statuscodes, Anzahlen und Feldnamen – keine Gästedaten, keinen Schlüssel.
+ * Diagnose für die Übersicht: probiert Endpunkte und Anmeldeformen durch und
+ * meldet nur Statuscodes, Anzahlen und Feldnamen – keine Gästedaten, keinen Schlüssel.
  */
 export async function diagnose(apiKey, from, to) {
-  const variants = {
-    'ohne Filter': { pageSize: '25' },
-    'from/to': { from, to, pageSize: '25' },
-    'arrivalFrom/arrivalTo': { arrivalFrom: from, arrivalTo: to, pageSize: '25' },
-    'departureFrom/departureTo': { departureFrom: from, departureTo: to, pageSize: '25' },
-    'departureFrom + showCancellation': { departureFrom: from, departureTo: to, showCancellation: 'true', excludeBlocked: 'true', pageSize: '25' },
+  const keyInfo = {
+    variant: 'Schlüssel (nur Form, nicht Inhalt)',
+    status: '–',
+    error: null,
+    received: 0,
+    topKeys: [`Länge ${apiKey.length}`, /^[A-Za-z0-9]+$/.test(apiKey) ? 'nur Buchstaben/Ziffern' : 'enthält Sonderzeichen',
+      /\s/.test(apiKey) ? 'enthält Leerzeichen!' : 'ohne Leerzeichen'],
   };
-  const results = [];
-  for (const [name, params] of Object.entries(variants)) {
+  const range = new URLSearchParams({ departureFrom: from, departureTo: to, pageSize: '25' });
+  const variants = [
+    ['Header Api-Key · /api/me', '/me', { 'Api-Key': apiKey }],
+    ['Header Api-Key · /api/apartments', '/apartments', { 'Api-Key': apiKey }],
+    ['Header Api-Key · Buchungen', `/reservations?${range}`, { 'Api-Key': apiKey }],
+    ['Header X-Api-Key · Buchungen', `/reservations?${range}`, { 'X-Api-Key': apiKey }],
+    ['Bearer · Buchungen', `/reservations?${range}`, { Authorization: `Bearer ${apiKey}` }],
+    ['Header Api-Key · Buchungen ohne Filter', '/reservations?pageSize=25', { 'Api-Key': apiKey }],
+  ];
+  const results = [keyInfo];
+  for (const [name, path, auth] of variants) {
     try {
-      const res = await fetch(`${BASE}/reservations?${new URLSearchParams(params)}`, {
-        headers: { 'Api-Key': apiKey, 'Cache-Control': 'no-cache', Accept: 'application/json' },
-      });
+      const res = await fetch(BASE + path, { headers: { ...auth, 'Cache-Control': 'no-cache', Accept: 'application/json' } });
       const text = await res.text();
       let data = null;
       try { data = JSON.parse(text); } catch (e) { /* keine JSON-Antwort */ }
-      const list = listOf(data);
+      const list = path.startsWith('/reservations') ? listOf(data) : [];
       results.push({
         variant: name,
         status: res.status,
-        topKeys: data && !Array.isArray(data) ? Object.keys(data) : [],
+        topKeys: data && !Array.isArray(data) ? Object.keys(data).slice(0, 12) : [],
         total: data && (data.total_items ?? data.totalItems ?? null),
         pages: data && (data.page_count ?? data.pageCount ?? null),
         received: list.length,
-        departures: list.slice(0, 25).map((b) => b.departure).filter(Boolean).sort().slice(0, 1).concat(list.map((b) => b.departure).filter(Boolean).sort().slice(-1)),
+        departures: list.map((b) => b.departure).filter(Boolean).sort().filter((d, i, a) => i === 0 || i === a.length - 1),
         fields: list[0] ? Object.keys(list[0]).slice(0, 40) : [],
-        error: res.ok ? null : text.slice(0, 200),
+        // Fehlertexte von Smoobu enthalten keine Buchungsdaten; Erfolgsantworten werden nicht angezeigt
+        error: res.ok ? null : text.slice(0, 160),
       });
     } catch (e) {
       results.push({ variant: name, error: e.message });

@@ -33,8 +33,11 @@ let smoobuBookings = [];
 let pushes = [];
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
+  if (url.startsWith('https://login.smoobu.com/api/me') || url.startsWith('https://login.smoobu.com/api/apartments')) {
+    return Response.json({ id: 1 });
+  }
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) {
-    assert.equal(init.headers['Api-Key'], 'smoobu-test-key');
+    if (init.headers['Api-Key'] !== 'smoobu-test-key') return Response.json({ status: 401 }, { status: 401 });
     return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
   }
   if (url.startsWith('https://login.smoobu.com/api/reservations/')) {
@@ -147,16 +150,19 @@ test('Smoobu nicht erreichbar → Fehler wird angezeigt, Fristen laufen trotzdem
   env.SMOOBU_API_KEY = 'falscher-key';
   const s = await runSync(env, at('2026-09-26', '09:00'));
   env.SMOOBU_API_KEY = saved;
-  assert.match(s.syncError, /Api-Key|Unerwarteter|expected|Expected/);
+  assert.match(s.syncError, /lehnt den API-Schlüssel ab \(401\)/);
 });
 
 test('Diagnose meldet Anzahlen und Feldnamen, aber keine Gästedaten', async () => {
   smoobuBookings = [booking(10, '2026-10-10')];
   const res = await call('POST', '/api/diagnose', { user: auth('buero') });
   assert.equal(res.status, 200);
-  assert.equal(res.body.results.length, 5);
-  assert.equal(res.body.results[0].received, 1);
-  assert.ok(res.body.results[0].fields.includes('guest-name'));
+  assert.equal(res.body.results.length, 7);
+  assert.deepEqual(res.body.results[0].topKeys, ['Länge 15', 'enthält Sonderzeichen', 'ohne Leerzeichen']);
+  const ok = res.body.results.find((r) => r.variant === 'Header Api-Key · Buchungen');
+  assert.equal(ok.received, 1);
+  assert.ok(ok.fields.includes('guest-name'));
+  assert.equal(res.body.results.find((r) => r.variant === 'Bearer · Buchungen').status, 401);
   assert.ok(!JSON.stringify(res.body).includes('Müller'));
   assert.equal((await call('POST', '/api/diagnose', { user: auth('kraft1') })).status, 404);
 });
