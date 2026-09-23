@@ -1,0 +1,23 @@
+# Cloudflare Worker: Web-App + API + Zeitsteuerung
+name = "strauss-team"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Alle 15 Minuten: Buchungen aus Smoobu holen, Fristen (12/13 Uhr) prüfen
+[triggers]
+crons = ["*/15 * * * *"]
+
+# Datenbank: im Cloudflare-Dashboard unter „D1“ anlegen und die ID hier eintragen
+[[d1_databases]]
+binding = "DB"
+database_name = "strauss-team"
+database_id = "HIER-DIE-D1-ID-EINTRAGEN"
+
+# Geheimnisse NICHT hier eintragen, sondern im Dashboard unter
+# Worker → Einstellungen → Variablen und Geheimnisse:
+#   SMOOBU_API_KEY  – API-Schlüssel aus Smoobu
+#   APP_SECRET      – langes Zufallspasswort (z. B. 40 Zeichen aus dem Passwortmanager)

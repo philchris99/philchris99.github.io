@@ -139,3 +139,44 @@ test('Smoobu-Webhook wird in eine Buchung übersetzt', () => {
   });
   assert.equal(L.fromSmoobuWebhook({ action: 'newMessage', data: {} }), null);
 });
+
+// --- Abgleich mit der Smoobu-API ------------------------------------------------
+
+const smoobu = (overrides) => Object.assign({
+  id: 700, type: 'reservation', arrival: '2026-09-28', departure: '2026-10-02',
+  apartment: { id: 3, name: 'FeWo Elbblick' }, 'guest-name': 'Familie Müller', 'is-blocked-booking': false,
+}, overrides);
+
+test('erster Abgleich übernimmt Buchungen still, danach gibt es Nachrichten', () => {
+  let res = L.syncFromSmoobu(L.createState(), [smoobu()], NOW);
+  assert.equal(res.notifications.length, 0);
+  assert.equal(res.state.initialized, true);
+  assert.equal(res.state.tasks['700'].apartmentName, 'Wohnung 3', 'Name aus Konfiguration hat Vorrang');
+
+  res = L.syncFromSmoobu(res.state, [smoobu(), smoobu({ id: 701, arrival: '2026-10-02', departure: '2026-10-05' })], NOW);
+  assert.deepEqual(res.notifications.map((n) => n.kind), ['new', 'new']);
+  assert.equal(res.state.tasks['701'].date, '2026-10-05');
+});
+
+test('Abgleich erkennt Verlängerung und Storno, ignoriert Sperrzeiten', () => {
+  let { state } = L.syncFromSmoobu(L.createState(), [smoobu()], NOW);
+  let res = L.syncFromSmoobu(state, [smoobu({ departure: '2026-10-03' })], NOW);
+  assert.equal(res.state.tasks['700'].date, '2026-10-03');
+  assert.equal(res.notifications[0].kind, 'rescheduled');
+
+  res = L.syncFromSmoobu(res.state, [smoobu({ departure: '2026-10-03', type: 'cancellation' })], NOW);
+  assert.equal(res.state.tasks['700'].status, 'storniert');
+
+  res = L.syncFromSmoobu(res.state, [smoobu({ id: 900, 'is-blocked-booking': true })], NOW);
+  assert.equal(res.state.tasks['900'], undefined);
+});
+
+test('Abgleich ohne Änderung erzeugt keine Nachrichten und räumt Altes auf', () => {
+  let { state } = L.syncFromSmoobu(L.createState(), [smoobu()], NOW);
+  ({ state } = L.applyBooking(state, booking({ id: '1', arrival: '2026-07-01', departure: '2026-07-05' }), NOW));
+  assert.ok(state.tasks['1']);
+  const res = L.syncFromSmoobu(state, [smoobu()], NOW);
+  assert.equal(res.notifications.length, 0);
+  assert.equal(res.state.tasks['1'], undefined, 'Juli-Reinigung ist älter als 30 Tage');
+  assert.deepEqual(L.activeTaskIds(res.state, '2026-09-22'), ['700']);
+});

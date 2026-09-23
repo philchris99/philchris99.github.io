@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Team Strauß · Einrichtung</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --bg: #F6F5F2; --card: #FFFFFF; --text: #1C1C1C; --muted: #6B6B6B; --line: #E4E1DC; --accent: #2F6F5E; --bad: #B83232; }
+@media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; --bg: #151716; --card: #1F2221; --text: #ECECEC; --muted: #A0A4A2; --line: #333836; --accent: #5FB39B; --bad: #F08A8A; }
+}
+body { font: 16px/1.45 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 12px; }
+h1 { font-size: 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 6px; }
+.meta { color: var(--muted); font-size: 14px; }
+input, button { font: inherit; color: inherit; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 9px 12px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+code { font: 13px ui-monospace, Menlo, monospace; word-break: break-all; }
+.error { color: var(--bad); font-weight: 600; }
+form { display: flex; gap: 8px; flex-wrap: wrap; }
+form input { flex: 1 1 220px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Einrichtung: persönliche Links</h1>
+  <p class="meta">Nur für Apartment Strauß. Mit dem <b>APP_SECRET</b> aus Cloudflare werden die persönlichen Links und Push-Kanäle angezeigt. Jeder Link meldet genau eine Person an – bitte einzeln und privat weitergeben (z. B. per WhatsApp an die jeweilige Person).</p>
+  <form id="form">
+    <input id="secret" type="password" autocomplete="off" placeholder="APP_SECRET" aria-label="APP_SECRET">
+    <button class="primary" type="submit">Links anzeigen</button>
+  </form>
+  <div id="out"></div>
+</main>
+<script>
+(function () {
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  document.getElementById('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const out = document.getElementById('out');
+    const res = await fetch('/api/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: document.getElementById('secret').value }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { out.innerHTML = `<p class="error">${esc(data.error || 'Fehler')}</p>`; return; }
+    out.innerHTML = data.users.map((u) => `<div class="card">
+        <b>${esc(u.name)} <span class="meta">(${u.role === 'owner' ? 'Auftraggeber' : 'Reinigungskraft'})</span></b>
+        <div class="meta">Persönlicher Link:</div><code>${esc(u.link)}</code>
+        <div class="meta">ntfy-Kanal:</div><code>${esc(u.topic)}</code>
+      </div>`).join('') + `<div class="card"><b>Optional: Smoobu-Webhook</b>
+        <div class="meta">In Smoobu unter Einstellungen → API → Webhook-URL eintragen, dann kommen Änderungen sofort statt nach bis zu 15 Minuten.</div>
+        <code>${esc(data.webhookUrl)}</code></div>`;
+  });
+})();
+</script>
+</body>
+</html>

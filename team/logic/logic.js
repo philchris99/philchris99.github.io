@@ -139,6 +139,56 @@
   }
 
   /**
+   * Wandelt eine Buchung aus der Smoobu-API (GET /api/reservations) um.
+   * Sperrzeiten (Blocked Bookings) werden ignoriert, Stornos werden zu 'cancel'.
+   */
+  function fromSmoobuBooking(r) {
+    if (!r || r['is-blocked-booking']) return null;
+    return {
+      action: r.type === 'cancellation' ? 'cancel' : 'update',
+      id: String(r.id),
+      apartmentId: String(r.apartment && r.apartment.id),
+      apartmentName: r.apartment && r.apartment.name,
+      guest: r['guest-name'] || '',
+      arrival: r.arrival,
+      departure: r.departure,
+    };
+  }
+
+  /** IDs aller noch offenen/bestätigten Reinigungen ab einem Datum. */
+  function activeTaskIds(state, fromDate) {
+    return Object.values(state.tasks)
+      .filter((t) => (t.status === STATUS.OPEN || t.status === STATUS.CONFIRMED) && t.date >= fromDate)
+      .map((t) => t.id);
+  }
+
+  /**
+   * Gleicht den Zustand mit der aktuellen Buchungsliste aus Smoobu ab.
+   * Beim allerersten Abgleich werden alle bestehenden Buchungen still
+   * übernommen (sonst gäbe es dutzende Push-Nachrichten auf einmal).
+   * Alte Einträge (älter als keepDays) werden aufgeräumt.
+   */
+  function syncFromSmoobu(state, smoobuBookings, now, config, keepDays) {
+    config = withConfig(config);
+    const silent = !state.initialized;
+    const notifications = [];
+    for (const raw of smoobuBookings) {
+      const booking = fromSmoobuBooking(raw);
+      if (!booking) continue;
+      const res = applyBooking(state, booking, now, config);
+      state = res.state;
+      if (!silent) notifications.push(...res.notifications);
+    }
+    state = clone(state);
+    const cutoff = addDays(localParts(now, config.timezone).date, -(keepDays || 30));
+    for (const t of Object.values(state.tasks)) if (t.date < cutoff) delete state.tasks[t.id];
+    for (const r of Object.values(state.reservations)) if (r.departure < cutoff) delete state.reservations[r.id];
+    state.initialized = true;
+    state.lastSync = new Date(now).toISOString();
+    return { state, notifications };
+  }
+
+  /**
    * Verarbeitet eine neue / geänderte / stornierte Buchung.
    * booking: { action: 'new'|'update'|'cancel', id, apartmentId, guest, arrival, departure }
    * Rückgabe: { state, notifications }
@@ -356,6 +406,9 @@
     STATUS,
     createState,
     fromSmoobuWebhook,
+    fromSmoobuBooking,
+    activeTaskIds,
+    syncFromSmoobu,
     applyBooking,
     confirmCleaning,
     completeCleaning,

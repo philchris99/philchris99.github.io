@@ -1,0 +1,3 @@
+# Für lokale Tests: Datei nach .dev.vars kopieren (wird nicht eingecheckt)
+APP_SECRET=lokales-test-geheimnis-bitte-aendern
+SMOOBU_API_KEY=
