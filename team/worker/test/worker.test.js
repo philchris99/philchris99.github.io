@@ -158,7 +158,7 @@ test('Diagnose meldet Anzahlen und Feldnamen, aber keine Gästedaten', async () 
   const res = await call('POST', '/api/diagnose', { user: auth('buero') });
   assert.equal(res.status, 200);
   assert.equal(res.body.results.length, 7);
-  assert.deepEqual(res.body.results[0].topKeys, ['Länge 15', 'enthält Sonderzeichen', 'ohne Leerzeichen']);
+  assert.deepEqual(res.body.results[0].topKeys, ['Länge 15', 'Sonderzeichen: -', 'ohne Leerzeichen']);
   const ok = res.body.results.find((r) => r.variant === 'Header Api-Key · Buchungen');
   assert.equal(ok.received, 1);
   assert.ok(ok.fields.includes('guest-name'));

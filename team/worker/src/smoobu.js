@@ -47,7 +47,7 @@ export async function diagnose(apiKey, from, to) {
     status: '–',
     error: null,
     received: 0,
-    topKeys: [`Länge ${apiKey.length}`, /^[A-Za-z0-9]+$/.test(apiKey) ? 'nur Buchstaben/Ziffern' : 'enthält Sonderzeichen',
+    topKeys: [`Länge ${apiKey.length}`, /^[A-Za-z0-9]+$/.test(apiKey) ? 'nur Buchstaben/Ziffern' : `Sonderzeichen: ${[...new Set(apiKey.replace(/[A-Za-z0-9]/g, ''))].join(' ')}`,
       /\s/.test(apiKey) ? 'enthält Leerzeichen!' : 'ohne Leerzeichen'],
   };
   const range = new URLSearchParams({ departureFrom: from, departureTo: to, pageSize: '25' });
