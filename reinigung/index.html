@@ -30,7 +30,8 @@
   --done: #B0B8C4; --done-bg: #262B31; --bad: #F08A8A; --bad-bg: #3D1C1C;
 }
 body { font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-header { background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; position: sticky; top: 0; z-index: 5; }
+header { background: var(--card); border-bottom: 1px solid var(--line); padding: 12px 16px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; }
+.toast { position: fixed; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: 520px; margin: 0 auto; background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad); border-radius: 10px; padding: 10px 14px; font-weight: 600; z-index: 10; }
 h1 { font-size: 17px; font-weight: 600; }
 h2 { font-size: 15px; font-weight: 600; margin: 18px 0 8px; }
 .clock { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
@@ -125,6 +126,8 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
   <div id="pushList"></div>
 </main>
 
+<div class="toast" id="toast" role="alert" hidden></div>
+
 <script src="logic.js"></script>
 <script>
 (function () {
@@ -177,8 +180,15 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
     }
     db.pushes = db.pushes.slice(0, 100);
   }
+  let toastTimer;
+  function toast(text) {
+    $('toast').textContent = text;
+    $('toast').hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4000);
+  }
   function safely(fn) {
-    try { apply(fn()); } catch (e) { alert(e.message); }
+    try { apply(fn()); } catch (e) { toast(e.message); }
   }
 
   // ---- Aktionen --------------------------------------------------------------
@@ -186,7 +196,7 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
     return { action, id: r.id, apartmentId: r.apartmentId, guest: r.guest || '', arrival: r.arrival, departure: departure || r.departure };
   }
   function addBooking(apartmentId, guest, arrival, departure) {
-    if (!arrival || !departure || departure <= arrival) return alert('Bitte gültige An- und Abreise wählen.');
+    if (!arrival || !departure || departure <= arrival) return toast('Bitte gültige An- und Abreise wählen.');
     const id = String(++db.seq);
     safely(() => L.applyBooking(db.state, { action: 'new', id, apartmentId, guest, arrival, departure }, db.clock, CONFIG));
   }
@@ -281,7 +291,20 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
   };
   $('fAdd').onclick = () => addBooking($('fApt').value, $('fGuest').value, $('fArr').value, $('fDep').value);
   $('demo').onclick = loadDemo;
-  $('reset').onclick = () => { if (confirm('Alle Testdaten löschen?')) { db = fresh(); apply({ state: db.state, notifications: [] }); } };
+  // Zurücksetzen in zwei Klicks (keine Browser-Dialoge nötig)
+  let resetArmed = false;
+  $('reset').onclick = () => {
+    if (!resetArmed) {
+      resetArmed = true;
+      $('reset').textContent = 'Wirklich alles löschen?';
+      setTimeout(() => { resetArmed = false; $('reset').textContent = 'Alles zurücksetzen'; }, 4000);
+      return;
+    }
+    resetArmed = false;
+    $('reset').textContent = 'Alles zurücksetzen';
+    db = fresh();
+    apply({ state: db.state, notifications: [] });
+  };
 
   document.querySelector('.clock').onclick = (e) => {
     const j = e.target.dataset.jump;
@@ -309,7 +332,7 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
     if (t.extend) {
       const r = db.state.reservations[t.extend];
       const dep = L.addDays(r.departure, Number(t.days));
-      if (dep <= r.arrival) return alert('Abreise muss nach der Anreise liegen.');
+      if (dep <= r.arrival) return toast('Die Abreise muss nach der Anreise liegen.');
       safely(() => L.applyBooking(db.state, booking('update', Object.assign({ guest: guestOf(r.id) }, r), dep), db.clock, CONFIG));
     }
     if (t.cancel) {
@@ -318,7 +341,7 @@ select, input { border: 1px solid var(--line); background: var(--card); border-r
     }
   });
 
-  render();
+  if (!load()) loadDemo(); else render();
 })();
 </script>
 </body>
