@@ -27,12 +27,12 @@ Einen persönlichen Link sperren: bei der Person `version` um 1 erhöhen → neu
 > Die Menünamen bei Cloudflare, goneo und Smoobu können leicht abweichen.
 
 **1. Datenbank anlegen**
-Cloudflare-Dashboard → *Storage & Databases → D1* → *Create* → Name `strauss-team`.
-Die angezeigte **Database ID** in `worker/wrangler.toml` bei `database_id` eintragen (oder an Claude geben – sie ist nicht geheim).
+Cloudflare-Dashboard → *Storage & Databases → D1* → *Create* → Name `apartment-strauss-team` (erledigt).
+Die Database ID steht bereits in `worker/wrangler.toml`.
 
 **2. Worker anlegen**
 *Workers & Pages → Create → Import a repository* → dieses Repository wählen →
-Name `strauss-team`, **Root directory: `worker`** (bzw. `team/worker`), Deploy-Befehl `npx wrangler deploy` → *Deploy*.
+Name `strauss-team`, **Root directory: `worker`**, Deploy-Befehl `npx wrangler deploy` → *Deploy*.
 
 **3. Geheimnisse eintragen**
 Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ **Secret**:

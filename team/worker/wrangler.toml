@@ -11,11 +11,11 @@ binding = "ASSETS"
 [triggers]
 crons = ["*/15 * * * *"]
 
-# Datenbank: im Cloudflare-Dashboard unter „D1“ anlegen und die ID hier eintragen
+# Datenbank (Cloudflare → D1)
 [[d1_databases]]
 binding = "DB"
-database_name = "strauss-team"
-database_id = "HIER-DIE-D1-ID-EINTRAGEN"
+database_name = "apartment-strauss-team"
+database_id = "db137fcd-ad7d-4aa7-92d4-61985c6657a3"
 
 # Geheimnisse NICHT hier eintragen, sondern im Dashboard unter
 # Worker → Einstellungen → Variablen und Geheimnisse:

@@ -9,7 +9,7 @@ Testversion der Logik für die Endreinigungen der 13 Ferienwohnungen.
   2. Reiter „Reinigungskraft“ → als Anna/Maria „Bestätigen / Übernehmen“ klicken
   3. Im Reiter „Smoobu-Test“ eine Buchung verlängern → Push an die Reinigungskraft
   4. Oben die Zeit auf 12:00 / 13:00 springen → Erinnerung bzw. Alarm an Reinigungskraft + Auftraggeber
-- **Automatische Tests:** `node --test reinigung/logic.test.js`
+- **Automatische Tests:** `node --test logic/logic.test.js`
 
 Die Testdaten liegen nur im eigenen Browser (localStorage). Es gibt noch keine Verbindung zu Smoobu.
 
