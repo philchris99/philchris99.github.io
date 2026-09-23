@@ -22,6 +22,21 @@ const fail = (message, status = 400) => json({ error: message }, status);
 const clean = (v) => (v || '').trim().replace(/^["'„“]+|["'“”]+$/g, '').trim();
 const smoobuCreds = (env) => ({ key: clean(env.SMOOBU_API_KEY), secret: clean(env.SMOOBU_API_SECRET) });
 
+// Admin-Code des Auftraggebers liegt (gehasht) in settings.ownerCode
+const OWNER_CODE_ID = '__owner__';
+/** Alle Codes: Reinigungskräfte + Admin-Code (für Anmeldung und Eindeutigkeit) */
+const codeHolders = (settings) => [
+  ...(settings.cleaners || []),
+  ...(settings.ownerCode ? [{ id: OWNER_CODE_ID, ...settings.ownerCode }] : []),
+];
+/** Leicht zu erratende Codes ablehnen (000000, 123456, 654321 …) */
+function weakCode(code) {
+  if (/^(\d)\1{5}$/.test(code)) return true;
+  const digits = [...code].map(Number);
+  const steps = digits.slice(1).map((d, i) => d - digits[i]);
+  return steps.every((x) => x === 1) || steps.every((x) => x === -1);
+}
+
 /** Konfiguration + aktuelle Reinigungskräfte aus der Datenbank. */
 async function loadConfig(env) {
   const settings = await loadSettings(env.DB);
@@ -103,6 +118,7 @@ async function viewFor(env, cfg, state, user, now) {
   if (user.role === 'owner') {
     return { ...base,
       allowReset: !!cfg.allowReset,
+      hasOwnerCode: !!(await loadSettings(env.DB)).ownerCode,
       openReports: L.openReports(state),
       tasks: L.listCleanings(state, { from: L.addDays(today, -7) }, cfg),
       log: (state.log || []).slice(0, 50).map((n) => ({ ...n, toName: n.to === cfg.owner.id ? 'Auftraggeber' : (findUser(cfg, n.to) || {}).name || n.to })),
@@ -135,13 +151,16 @@ async function handleApi(request, env, url, ctx) {
   if (path === '/api/login' && request.method === 'POST') {
     if (await tooManyAttempts(env.DB, 'ip:' + ip, now)) return fail('Zu viele Versuche – bitte 15 Minuten warten', 429);
     const code = String((await readJson()).code || '').replace(/\D/g, '');
-    const cleaner = code.length === 6 ? await findByCode(cfg.cleaners, code) : null;
-    if (!cleaner || !env.APP_SECRET) {
+    const match = code.length === 6 ? await findByCode(codeHolders(settings), code) : null;
+    if (!match || !env.APP_SECRET) {
       await recordFailure(env.DB, 'ip:' + ip, now);
       return fail('Code nicht bekannt – bitte prüfen oder bei Apartment Strauss nachfragen', 401);
     }
     await clearAttempts(env.DB, 'ip:' + ip);
-    return json({ session: await sessionFor(env, { ...cleaner, role: 'cleaner' }) });
+    const user = match.id === OWNER_CODE_ID
+      ? allUsers(cfg).find((u) => u.role === 'owner')
+      : { ...match, role: 'cleaner' };
+    return json({ session: await sessionFor(env, user) });
   }
 
   // ---- Anmeldung Auftraggeber: /admin mit ADMIN_PASSWORD ----
@@ -275,11 +294,22 @@ async function handleApi(request, env, url, ctx) {
   const cleanApartments = (a) => (a === 'all' || !Array.isArray(a) ? 'all' : a.map(String).slice(0, 100));
   const withNewCode = async (cleaner) => {
     let code;
-    do { code = newCode(); } while (await findByCode((settings.cleaners || []).filter((c) => c.id !== cleaner.id), code));
+    do { code = newCode(); } while (weakCode(code) || await findByCode(codeHolders(settings).filter((c) => c.id !== cleaner.id), code));
     cleaner.codeSalt = randomId('', 16);
     cleaner.codeHash = await hashCode(code, cleaner.codeSalt);
     return code;
   };
+
+  if (path === '/api/owner-code' && request.method === 'POST') {
+    const code = String((await readJson()).code || '').replace(/\s/g, '');
+    if (!/^\d{6}$/.test(code)) return fail('Bitte genau 6 Ziffern eingeben');
+    if (weakCode(code)) return fail('Bitte keinen leicht zu erratenden Code wie 123456 oder 111111 wählen');
+    if (await findByCode(settings.cleaners || [], code)) return fail('Dieser Code ist schon vergeben – bitte einen anderen wählen');
+    const salt = randomId('', 16);
+    settings.ownerCode = { codeSalt: salt, codeHash: await hashCode(code, salt), setAt: new Date(now).toISOString() };
+    await saveSettings(env.DB, settings);
+    return teamReply({});
+  }
 
   if (path === '/api/team' && request.method === 'POST') {
     const body = await readJson();

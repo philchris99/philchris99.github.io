@@ -20,7 +20,8 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 
 - **Anmeldung**
   - Reinigungskräfte: auf https://team.apartments-strauss.de mit persönlichem **6-stelligem Code** (bleibt auf dem Handy angemeldet)
-  - Auftraggeber: **https://team.apartments-strauss.de/admin** mit `ADMIN_PASSWORD`
+  - Auftraggeber: ebenfalls mit eigenem **6-stelligen Admin-Code** auf der Startseite (einmalig festlegen unter „Team → Mein Admin-Code“);
+    Notzugang ohne Code: **https://team.apartments-strauss.de/admin** mit `ADMIN_PASSWORD`
   - Nach 8 Fehlversuchen 15 Minuten Sperre
 - **Team** (in der Admin-Ansicht): Reinigungskräfte anlegen, zuständige Wohnungen wählen, Code erzeugen
   (wird nur einmal angezeigt, nur als Hash gespeichert), neuer Code = alte Geräte abgemeldet, entfernen

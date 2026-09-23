@@ -250,7 +250,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </form>` : `
       <form class="panel login" id="code-login">
         <div class="eyebrow">Apartment Strauss · Team</div><h1 style="margin:4px 0 6px">Anmelden</h1>
-        <p class="meta" style="margin-bottom:12px">Bitte deinen persönlichen 6-stelligen Code eingeben. Du bekommst ihn von Apartment Strauss.</p>
+        <p class="meta" style="margin-bottom:12px">Bitte den persönlichen 6-stelligen Code eingeben.</p>
         <input id="code" class="pin" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="••••••" aria-label="Persönlicher Code" required>
         <div class="actions"><button class="primary" type="submit">Anmelden</button></div>
         <p class="meta" style="margin-top:12px">Tipp: Danach über „Teilen → Zum Home-Bildschirm“ als App ablegen – du bleibst angemeldet.</p>
@@ -408,7 +408,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <button class="small danger" data-remove="${esc(c.id)}">Entfernen</button>
         </div>
       </div>`).join('');
+    const ownerCode = `<form class="panel" id="owner-code" style="margin-bottom:10px">
+        <b>Mein Admin-Code</b>
+        <p class="meta" style="margin:4px 0 8px">${data.hasOwnerCode
+          ? 'Eingerichtet ✓ – damit meldet ihr euch auf der Startseite direkt in dieser Übersicht an. Hier könnt ihr ihn ändern.'
+          : 'Noch nicht eingerichtet. Legt einen eigenen 6-stelligen Code fest – dann reicht auf der Startseite der Code, genau wie bei den Reinigungskräften.'}</p>
+        <div class="form-grid"><label class="field">Neuer 6-stelliger Code
+          <input id="owner-code-input" inputmode="numeric" autocomplete="new-password" maxlength="7" placeholder="z. B. 482913" required></label>
+          <button class="primary" type="submit">${data.hasOwnerCode ? 'Code ändern' : 'Code festlegen'}</button></div>
+        <p class="meta" style="margin-top:6px">Nicht erlaubt: leicht zu erratende Codes wie 123456 oder 111111. Falls der Code vergessen wird: Anmeldung mit Passwort unter <b>/admin</b>.</p>
+      </form>`;
     return section('team', 'Team', data.cleaners.length + ' Reinigungskräfte', `
+      ${ownerCode}
       ${newCode ? `<div class="codebox"><div class="eyebrow">Anmeldecode für ${esc(newCode.name)}</div>
         <div class="code">${esc(newCode.code.slice(0, 3))} ${esc(newCode.code.slice(3))}</div>
         <p class="meta">Bitte jetzt notieren und persönlich weitergeben – der Code wird nur einmal angezeigt.
@@ -442,6 +453,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const urgent = [
       ...alarms.map((t) => [`task-${t.id}`, `Alarm: ${t.apartmentName} – ${dayWord(t.date)} nicht bestätigt`]),
       ...unconfirmed.filter((t) => !t.escalated && t.date <= t1).map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: noch niemand eingetragen`]),
+      ...(!data.hasOwnerCode ? [['team', 'Eigenen 6-stelligen Admin-Code festlegen (für die Anmeldung auf der Startseite)']] : []),
       ...(!data.cleaners.length ? [['team', 'Noch keine Reinigungskraft angelegt – bitte unter „Team“ hinzufügen']] : []),
     ];
 
@@ -607,6 +619,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (form.id === 'manual-form') {
         update(await api('/api/manual', 'POST', { apartmentId: $('m-apt').value, date: $('m-date').value, note: $('m-note').value }));
         toast('Reinigung eingetragen – Reinigungskraft wurde benachrichtigt');
+      } else if (form.id === 'owner-code') {
+        const res = await api('/api/owner-code', 'POST', { code: $('owner-code-input').value });
+        update(res);
+        toast('Admin-Code gespeichert – ab jetzt reicht der Code auf der Startseite');
       } else if (form.id === 'add-cleaner') {
         const res = await api('/api/team', 'POST', { name: form.elements.name.value, apartments: selectedApartments(form) });
         newCode = res.newCode;

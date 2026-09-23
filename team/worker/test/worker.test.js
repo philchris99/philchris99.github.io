@@ -124,6 +124,20 @@ test('Anmeldung: /admin mit Passwort, Reinigungskraft anlegen, Anmeldung mit 6-s
   assert.equal((await call('POST', '/api/team', { session: anna, body: { name: 'X' } })).status, 404, 'nur Auftraggeber');
 });
 
+test('Admin-Code: festlegen und damit auf der Startseite in die Gesamtübersicht', async () => {
+  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '123456' } })).status, 400, 'zu leicht');
+  assert.equal((await call('POST', '/api/owner-code', { session: admin, body: { code: '12a456' } })).status, 400);
+  assert.equal((await call('POST', '/api/owner-code', { session: anna, body: { code: '482913' } })).status, 404, 'nur Auftraggeber');
+  const res = await call('POST', '/api/owner-code', { session: admin, body: { code: '482913' } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.hasOwnerCode, true);
+  assert.ok(!env.DB.db.prepare('SELECT data FROM settings').get().data.includes('482913'), 'nur als Hash gespeichert');
+  const login = await call('POST', '/api/login', { body: { code: '482 913' } });
+  assert.equal(login.status, 200);
+  const me = await call('GET', '/api/me', { session: login.body.session });
+  assert.equal(me.body.user.role, 'owner');
+});
+
 test('Zu viele falsche Codes → Sperre für diese Verbindung', async () => {
   const headers = () => ({ 'CF-Connecting-IP': '203.0.113.9' });
   for (let i = 0; i < 8; i++) await call('POST', '/api/login', { body: { code: '99999' + i }, headers: headers() });
