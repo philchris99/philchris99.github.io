@@ -9,6 +9,42 @@ async function ensureTable(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS app_state (id INTEGER PRIMARY KEY, version INTEGER NOT NULL, data TEXT NOT NULL)').run();
 }
 
+// ---- Fotos (eigene Tabelle, damit der Zustand klein bleibt) --------------------
+async function ensurePhotos(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS photos (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, created_at INTEGER NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL)').run();
+}
+
+export async function savePhoto(db, { id, taskId, mime, data, now }) {
+  await ensurePhotos(db);
+  await db.prepare('INSERT INTO photos (id, task_id, created_at, mime, data) VALUES (?, ?, ?, ?, ?)').bind(id, taskId, now, mime, data).run();
+}
+
+export async function getPhoto(db, id) {
+  await ensurePhotos(db);
+  const row = await db.prepare('SELECT mime, data FROM photos WHERE id = ?').bind(id).first();
+  if (!row) return null;
+  // D1 liefert BLOBs je nach Version als ArrayBuffer oder als Zahlen-Array
+  const data = row.data instanceof ArrayBuffer ? row.data : ArrayBuffer.isView(row.data) ? row.data : new Uint8Array(row.data);
+  return { mime: row.mime, data };
+}
+
+export async function deletePhotos(db, ids) {
+  for (const id of ids) await db.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+}
+
+export async function pruneOldPhotos(db, olderThan) {
+  await ensurePhotos(db);
+  await db.prepare('DELETE FROM photos WHERE created_at < ?').bind(olderThan).run();
+}
+
+/** Testphase: alles löschen (Reinigungen, Meldungen, Fotos, Protokoll). */
+export async function resetAll(db) {
+  await ensureTable(db);
+  await ensurePhotos(db);
+  await db.prepare('DELETE FROM app_state').run();
+  await db.prepare('DELETE FROM photos').run();
+}
+
 export async function loadState(db) {
   await ensureTable(db);
   const row = await db.prepare('SELECT version, data FROM app_state WHERE id = 1').first();

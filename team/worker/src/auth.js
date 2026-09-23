@@ -48,7 +48,10 @@ export function safeEqual(a, b) {
 /** Liest „Authorization: Bearer <nutzer>.<token>“ und liefert die Person oder null. */
 export async function authenticate(request, env) {
   const header = request.headers.get('Authorization') || '';
-  const match = header.match(/^Bearer ([^.\s]+)\.(\S+)$/);
+  // Fotos werden per <img src="…?a=nutzer.token"> geladen (dort gibt es keinen Header)
+  const fromQuery = new URL(request.url).searchParams.get('a');
+  const raw = header.startsWith('Bearer ') ? header.slice(7) : fromQuery || '';
+  const match = raw.match(/^([^.\s]+)\.(\S+)$/);
   if (!match || !env.APP_SECRET) return null;
   const user = findUser(match[1]);
   if (!user) return null;

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 64" role="img" aria-label="Apartment Strauß">
+  <!-- Platzhalter-Logo: durch das echte Logo ersetzen (gleicher Dateiname, oder logo.png und in index.html anpassen) -->
+  <g fill="none" stroke="#B8925A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 34 L30 14 L52 34"/>
+    <path d="M15 28 V52 H45 V28"/>
+    <path d="M26 52 V40 H34 V52"/>
+  </g>
+  <text x="66" y="33" font-family="Georgia, 'Times New Roman', serif" font-size="25" fill="#1E3A4C" letter-spacing="0.5">Apartment Strauß</text>
+  <text x="67" y="52" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="10.5" fill="#6B7680" letter-spacing="3">FERIENWOHNUNGEN</text>
+</svg>

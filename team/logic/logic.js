@@ -174,7 +174,7 @@
   /** IDs aller noch offenen/bestätigten Reinigungen ab einem Datum. */
   function activeTaskIds(state, fromDate) {
     return Object.values(state.tasks)
-      .filter((t) => (t.status === STATUS.OPEN || t.status === STATUS.CONFIRMED) && t.date >= fromDate)
+      .filter((t) => !t.manual && (t.status === STATUS.OPEN || t.status === STATUS.CONFIRMED) && t.date >= fromDate)
       .map((t) => t.id);
   }
 
@@ -416,6 +416,116 @@
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
 
+  // ---------------------------------------------------------------------------
+  // Manuelle Reinigungen (vom Auftraggeber eingetragen)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Trägt eine zusätzliche Reinigung ein, z. B. Zwischenreinigung.
+   * input: { id, apartmentId, apartmentName, date: 'YYYY-MM-DD', note }
+   */
+  function addManualCleaning(state, input, now, config) {
+    config = withConfig(config);
+    if (!input.apartmentId) throw new Error('Bitte eine Wohnung wählen');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) throw new Error('Bitte ein gültiges Datum wählen');
+    const today = localParts(now, config.timezone).date;
+    if (input.date < today) throw new Error('Das Datum liegt in der Vergangenheit');
+    state = clone(state);
+    const id = String(input.id);
+    if (state.tasks[id]) throw new Error('Reinigung existiert bereits');
+    const task = {
+      id,
+      manual: true,
+      apartmentId: String(input.apartmentId),
+      apartmentName: apartmentName(config, input.apartmentId, input.apartmentName),
+      guest: '',
+      note: (input.note || '').trim().slice(0, 500),
+      date: input.date,
+      status: STATUS.OPEN,
+      assignedTo: null,
+      reminded: false,
+      escalated: false,
+      history: [],
+    };
+    log(task, new Date(now).toISOString(), `Manuell eingetragen für ${formatDate(task.date)}`);
+    state.tasks[id] = task;
+    const notifications = notify(recipientsFor(config, task), 'new', task,
+      'Zusätzliche Reinigung',
+      `${task.apartmentName}: Reinigung am ${formatDate(task.date)}.${task.note ? ' Hinweis: ' + task.note : ''} Bitte in der App bestätigen.`);
+    return { state, notifications };
+  }
+
+  /** Manuell eingetragene Reinigung absagen (Smoobu-Reinigungen folgen der Buchung). */
+  function cancelManualCleaning(state, taskId, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = state.tasks[taskId];
+    if (!task) throw new Error('Reinigung nicht gefunden');
+    if (!task.manual) throw new Error('Reinigungen aus Smoobu bitte in Smoobu ändern');
+    if (task.status === STATUS.CANCELLED || task.status === STATUS.DONE) return { state, notifications: [] };
+    task.status = STATUS.CANCELLED;
+    log(task, new Date(now).toISOString(), 'Vom Auftraggeber abgesagt');
+    const notifications = notify(recipientsFor(config, task), 'cancelled', task,
+      'Reinigung entfällt',
+      `${task.apartmentName}: Reinigung am ${formatDate(task.date)} entfällt.`);
+    return { state, notifications };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Meldungen der Reinigungskraft (Text + optional Fotos)
+  // ---------------------------------------------------------------------------
+
+  /** Darf diese Reinigungskraft die Reinigung sehen/bearbeiten? */
+  function canAccess(config, task, cleanerId) {
+    if (task.assignedTo) return task.assignedTo === cleanerId;
+    return cleanersFor(config, task.apartmentId).some((c) => c.id === cleanerId);
+  }
+
+  /**
+   * Reinigungskraft meldet etwas (fehlt, kaputt, zu tun).
+   * report: { id, text, photos: [photoId, …] }
+   */
+  function addReport(state, taskId, cleanerId, report, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = state.tasks[taskId];
+    if (!task) throw new Error('Reinigung nicht gefunden');
+    if (!canAccess(config, task, cleanerId)) throw new Error('Keine Berechtigung für diese Reinigung');
+    const text = (report.text || '').trim().slice(0, 2000);
+    const photos = (report.photos || []).slice(0, 10);
+    if (!text && !photos.length) throw new Error('Bitte einen Text eingeben oder ein Foto anhängen');
+    const cleaner = config.cleaners.find((c) => c.id === cleanerId);
+    const nowIso = new Date(now).toISOString();
+    task.reports = task.reports || [];
+    task.reports.push({ id: String(report.id), at: nowIso, by: cleanerId, text, photos, resolved: false });
+    log(task, nowIso, `Meldung von ${cleaner ? cleaner.name : cleanerId}`);
+    const summary = text ? (text.length > 120 ? text.slice(0, 117) + '…' : text) : 'Fotos angehängt';
+    const notifications = notify([config.owner.id], 'report', task,
+      `Meldung: ${task.apartmentName}`,
+      `${cleaner ? cleaner.name : cleanerId}: ${summary}${photos.length ? ` (${photos.length} Foto${photos.length > 1 ? 's' : ''})` : ''}`);
+    return { state, notifications };
+  }
+
+  /** Auftraggeber markiert eine Meldung als behoben. */
+  function resolveReport(state, taskId, reportId, now) {
+    state = clone(state);
+    const task = state.tasks[taskId];
+    const report = task && (task.reports || []).find((r) => r.id === String(reportId));
+    if (!report) throw new Error('Meldung nicht gefunden');
+    report.resolved = true;
+    report.resolvedAt = new Date(now).toISOString();
+    return { state, notifications: [] };
+  }
+
+  /** Alle noch nicht behobenen Meldungen, neueste zuerst. */
+  function openReports(state) {
+    const list = [];
+    for (const t of Object.values(state.tasks)) {
+      for (const r of t.reports || []) if (!r.resolved) list.push(Object.assign({ taskId: t.id, apartmentName: t.apartmentName, date: t.date }, r));
+    }
+    return list.sort((a, b) => b.at.localeCompare(a.at));
+  }
+
   const api = {
     DEFAULT_CONFIG,
     STATUS,
@@ -430,6 +540,12 @@
     checkDeadlines,
     listCleanings,
     cleanersFor,
+    canAccess,
+    addManualCleaning,
+    cancelManualCleaning,
+    addReport,
+    resolveReport,
+    openReports,
     localParts,
     formatDate,
     addDays,

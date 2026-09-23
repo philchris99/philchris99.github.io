@@ -5,23 +5,44 @@ import assert from 'node:assert/strict';
 import worker, { runSync } from '../src/index.js';
 
 class FakeD1 {
-  constructor() { this.row = null; }
+  constructor() { this.row = null; this.photos = new Map(); }
   prepare(sql) {
     const db = this;
     let args = [];
+    const ok = (changes) => ({ meta: { changes } });
     const stmt = {
       bind(...a) { args = a; return stmt; },
-      async first() { return db.row ? { ...db.row } : null; },
-      async run() {
-        if (sql.startsWith('CREATE')) return { meta: { changes: 0 } };
-        if (sql.startsWith('INSERT')) {
-          if (db.row) return { meta: { changes: 0 } };
-          db.row = { version: 1, data: args[0] };
-          return { meta: { changes: 1 } };
+      async first() {
+        if (sql.includes('FROM photos')) {
+          const p = db.photos.get(args[0]);
+          return p ? { mime: p.mime, data: [...new Uint8Array(p.data)] } : null; // wie ältere D1: Zahlen-Array
         }
-        if (!db.row || db.row.version !== args[1]) return { meta: { changes: 0 } };
-        db.row = { version: db.row.version + 1, data: args[0] };
-        return { meta: { changes: 1 } };
+        return db.row ? { ...db.row } : null;
+      },
+      async run() {
+        if (sql.startsWith('CREATE')) return ok(0);
+        if (sql.startsWith('INSERT INTO photos')) {
+          db.photos.set(args[0], { taskId: args[1], created: args[2], mime: args[3], data: args[4] });
+          return ok(1);
+        }
+        if (sql === 'DELETE FROM photos WHERE id = ?') return ok(db.photos.delete(args[0]) ? 1 : 0);
+        if (sql.startsWith('DELETE FROM photos WHERE created_at')) {
+          for (const [id, p] of db.photos) if (p.created < args[0]) db.photos.delete(id);
+          return ok(0);
+        }
+        if (sql === 'DELETE FROM photos') { db.photos.clear(); return ok(0); }
+        if (sql === 'DELETE FROM app_state') { db.row = null; return ok(0); }
+        if (sql.startsWith('INSERT')) {
+          if (db.row) return ok(0);
+          db.row = { version: 1, data: args[0] };
+          return ok(1);
+        }
+        if (sql.startsWith('UPDATE')) {
+          if (!db.row || db.row.version !== args[1]) return ok(0);
+          db.row = { version: db.row.version + 1, data: args[0] };
+          return ok(1);
+        }
+        throw new Error('Unbekanntes SQL: ' + sql);
       },
     };
     return stmt;
@@ -57,7 +78,9 @@ globalThis.fetch = async (url, init = {}) => {
       return Response.json({ status: 401, title: 'Unauthorized', detail: 'Authentication required' }, { status: 401 });
     }
   }
-  if (url.startsWith('https://login.smoobu.com/api/apartments')) return Response.json({ apartments: [] });
+  if (url.startsWith('https://login.smoobu.com/api/apartments')) {
+    return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
+  }
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) {
     return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
   }
@@ -162,7 +185,7 @@ test('ganzer Ablauf: Import, neue Buchung, Bestätigen, Verlängern, Alarm, Lös
   // 10. Übersicht Auftraggeber
   me = await call('GET', '/api/me', { user: auth('buero') });
   assert.equal(me.body.user.role, 'owner');
-  assert.deepEqual(me.body.apartments, [{ id: '111', name: 'FeWo Elbblick' }]);
+  assert.deepEqual(me.body.apartments, [{ id: '111', name: 'FeWo Elbblick' }, { id: '222', name: 'Loft Altstadt' }]);
   assert.ok(me.body.log.length >= 5);
 });
 
@@ -201,7 +224,7 @@ test('HMAC: richtige Signaturform wird automatisch gefunden und wiederverwendet'
     smoobuCalls = 0;
     const s = await runSync(env, at('2026-09-26', '10:00'));
     assert.equal(s.syncError, null);
-    assert.equal(smoobuCalls, 1 + 2, 'Liste + Nachfrage zu Buchung 1 und 3 (fehlen in Liste), keine erneute Erkennung');
+    assert.equal(smoobuCalls, 1 + 1 + 2, 'Buchungen + Wohnungen + Nachfrage zu Buchung 1 und 3, keine erneute Erkennung');
 
     // Falsches Secret → verständlicher Fehler
     env.SMOOBU_API_SECRET = 'falsch';
@@ -211,4 +234,81 @@ test('HMAC: richtige Signaturform wird automatisch gefunden und wiederverwendet'
     Object.assign(env, saved);
     delete env.SMOOBU_API_SECRET;
   }
+});
+
+async function upload(path, user, fields) {
+  const form = new FormData();
+  for (const [k, v] of fields) form.append(k, v);
+  const pending = [];
+  const res = await worker.fetch(
+    new Request('https://team.apartments-strauss.de' + path, { method: 'POST', headers: { Authorization: `Bearer ${user}` }, body: form }),
+    env, { waitUntil: (p) => pending.push(p) });
+  await Promise.all(pending);
+  return { status: res.status, body: await res.json() };
+}
+
+test('Meldung mit Foto: Push an Auftraggeber, Foto abrufbar, als behoben markierbar', async () => {
+  smoobuBookings = [booking(20, '2026-10-12')];
+  await runSync(env, at('2026-09-27', '09:00'));
+  pushes = [];
+  const jpeg = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 1, 2, 3])], { type: 'image/jpeg' });
+  const res = await upload('/api/tasks/20/report', auth('kraft1'), [['text', 'Kaffeemaschine defekt'], ['photo', jpeg]]);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual(pushes.map((p) => p.title), ['Meldung: FeWo Elbblick']);
+  const rep = res.body.tasks.find((t) => t.id === '20').reports[0];
+  assert.equal(rep.text, 'Kaffeemaschine defekt');
+  assert.equal(rep.photos.length, 1);
+
+  // Foto nur mit gültigem Zugang (per ?a= für <img>)
+  const img = await worker.fetch(new Request(`https://x/api/photos/${rep.photos[0]}?a=${auth('buero')}`), env, { waitUntil() {} });
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('Content-Type'), 'image/jpeg');
+  assert.deepEqual([...new Uint8Array(await img.arrayBuffer())], [0xff, 0xd8, 0xff, 1, 2, 3]);
+  assert.equal((await worker.fetch(new Request(`https://x/api/photos/${rep.photos[0]}`), env, { waitUntil() {} })).status, 401);
+
+  // Kein Bild → abgelehnt, nichts gespeichert
+  const before = env.DB.photos.size;
+  const bad = await upload('/api/tasks/20/report', auth('kraft1'), [['text', 'x'], ['photo', new Blob(['hallo'], { type: 'text/plain' })]]);
+  assert.equal(bad.status, 400);
+  assert.equal(env.DB.photos.size, before);
+
+  // Übersicht zeigt offene Meldung; behoben → verschwindet
+  let me = await call('GET', '/api/me', { user: auth('buero') });
+  assert.equal(me.body.openReports.length, 1);
+  const done = await call('POST', `/api/tasks/20/reports/${rep.id}/resolve`, { user: auth('buero') });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.openReports.length, 0);
+});
+
+test('manuelle Reinigung: Push an Reinigungskraft, absagen möglich, Abgleich lässt sie in Ruhe', async () => {
+  pushes = [];
+  const res = await call('POST', '/api/manual', { user: auth('buero'), body: { apartmentId: '222', date: '2099-01-02', note: 'Grundreinigung' } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const task = res.body.tasks.find((t) => t.manual);
+  assert.equal(task.apartmentName, 'Loft Altstadt', 'Name aus der Smoobu-Wohnungsliste');
+  assert.deepEqual(pushes.map((p) => p.title), ['Zusätzliche Reinigung']);
+  assert.match(pushes[0].message, /Hinweis: Grundreinigung/);
+
+  await runSync(env, at('2026-09-27', '09:15'));
+  let me = await call('GET', '/api/me', { user: auth('kraft1') });
+  assert.equal(me.body.tasks.find((t) => t.id === task.id).status, 'offen');
+
+  assert.equal((await call('POST', '/api/manual', { user: auth('kraft1'), body: {} })).status, 404, 'nur Auftraggeber');
+  pushes = [];
+  const c = await call('POST', `/api/tasks/${task.id}/cancel`, { user: auth('buero') });
+  assert.equal(c.status, 200);
+  assert.deepEqual(pushes.map((p) => p.title), ['Reinigung entfällt']);
+});
+
+test('Zurücksetzen nur mit Bestätigung, lädt danach frisch aus Smoobu (ohne Push-Flut)', async () => {
+  assert.equal((await call('POST', '/api/reset', { user: auth('buero'), body: { confirm: 'ja' } })).status, 400);
+  assert.equal((await call('POST', '/api/reset', { user: auth('kraft1'), body: { confirm: 'ZURÜCKSETZEN' } })).status, 404);
+  pushes = [];
+  smoobuBookings = [booking(30, '2026-10-20'), booking(31, '2026-10-21')];
+  const res = await call('POST', '/api/reset', { user: auth('buero'), body: { confirm: 'ZURÜCKSETZEN' } });
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30', '31']);
+  assert.equal(res.body.log.length, 0);
+  assert.equal(env.DB.photos.size, 0);
+  assert.equal(pushes.length, 0);
 });

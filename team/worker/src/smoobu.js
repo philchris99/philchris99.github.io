@@ -119,6 +119,13 @@ export async function fetchBookings(creds, departureFrom, departureTo) {
   return bookings;
 }
 
+/** Alle Wohnungen/Einheiten mit ihren Smoobu-Namen. */
+export async function fetchApartments(creds) {
+  const data = await call(creds, '/apartments');
+  const list = (data && (data.apartments || data.data)) || (Array.isArray(data) ? data : []);
+  return list.map((a) => ({ id: String(a.id), name: a.name || 'Wohnung ' + a.id }));
+}
+
 /** Eine einzelne Buchung; null, wenn sie in Smoobu gelöscht wurde. */
 export function fetchBooking(creds, id) {
   return call(creds, `/reservations/${encodeURIComponent(id)}`);

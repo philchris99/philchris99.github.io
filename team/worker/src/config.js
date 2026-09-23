@@ -8,6 +8,8 @@ export default {
   escalationTime: '13:00', // Alarm an Reinigungskraft UND Auftraggeber
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)
   syncDaysAhead: 365,      // so weit im Voraus werden Buchungen aus Smoobu geholt
+  allowReset: true,        // Testphase: „Alles zurücksetzen“ in der Übersicht (später auf false)
+  keepPhotosDays: 45,      // Fotos werden danach automatisch gelöscht
 
   // Pseudo-Empfänger 'owner' aus der Logik → geht an alle Auftraggeber
   owner: { id: 'owner', name: 'Apartment Strauß' },

@@ -180,3 +180,36 @@ test('Abgleich ohne Änderung erzeugt keine Nachrichten und räumt Altes auf', (
   assert.equal(res.state.tasks['1'], undefined, 'Juli-Reinigung ist älter als 30 Tage');
   assert.deepEqual(L.activeTaskIds(res.state, '2026-09-22'), ['700']);
 });
+
+// --- Manuelle Reinigungen und Meldungen --------------------------------------------
+
+test('manuelle Reinigung: Push an Zuständige, wird beim Smoobu-Abgleich nicht angefasst', () => {
+  let { state } = L.syncFromSmoobu(L.createState(), [smoobu()], NOW);
+  const res = L.addManualCleaning(state, { id: 'm1', apartmentId: '10', apartmentName: 'FeWo Zehn', date: '2026-09-25', note: 'Fenster putzen' }, NOW);
+  assert.deepEqual(res.notifications.map((n) => [n.to, n.title]), [['anna', 'Zusätzliche Reinigung']]);
+  assert.match(res.notifications[0].body, /Fr, 25\.09\.2026\. Hinweis: Fenster putzen/);
+  assert.equal(res.state.tasks.m1.manual, true);
+  assert.deepEqual(L.activeTaskIds(res.state, '2026-09-22'), ['700'], 'manuelle nicht bei Smoobu nachfragen');
+  const synced = L.syncFromSmoobu(res.state, [smoobu()], NOW);
+  assert.equal(synced.state.tasks.m1.status, 'offen');
+  assert.throws(() => L.addManualCleaning(state, { id: 'm2', apartmentId: '1', date: '2026-09-01' }, NOW), /Vergangenheit/);
+  assert.throws(() => L.addManualCleaning(state, { id: 'm2', apartmentId: '', date: '2026-10-01' }, NOW), /Wohnung/);
+
+  const cancelled = L.cancelManualCleaning(res.state, 'm1', NOW);
+  assert.equal(cancelled.state.tasks.m1.status, 'storniert');
+  assert.equal(cancelled.notifications[0].kind, 'cancelled');
+  assert.throws(() => L.cancelManualCleaning(res.state, '700', NOW), /Smoobu/);
+});
+
+test('Meldung mit Text/Fotos geht an Auftraggeber und kann als behoben markiert werden', () => {
+  let { state } = L.applyBooking(L.createState(), booking({ apartmentId: '10' }), NOW);
+  assert.throws(() => L.addReport(state, '100', 'maria', { id: 'r0', text: 'x' }, NOW), /Berechtigung/, 'Maria ist nicht für Wohnung 10 zuständig');
+  assert.throws(() => L.addReport(state, '100', 'anna', { id: 'r0', text: '  ' }, NOW), /Text/);
+  const res = L.addReport(state, '100', 'anna', { id: 'r1', text: 'Handtücher fehlen, Glühbirne Bad defekt', photos: ['p1', 'p2'] }, NOW);
+  assert.deepEqual(res.notifications.map((n) => [n.to, n.kind, n.title]), [['owner', 'report', 'Meldung: Wohnung 10']]);
+  assert.match(res.notifications[0].body, /Anna: Handtücher fehlen.*\(2 Fotos\)/);
+  assert.equal(L.openReports(res.state).length, 1);
+  const resolved = L.resolveReport(res.state, '100', 'r1', NOW);
+  assert.equal(L.openReports(resolved.state).length, 0);
+  assert.equal(resolved.state.tasks['100'].reports[0].resolved, true);
+});

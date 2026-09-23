@@ -16,6 +16,22 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 | `pages/` | Nur die Weiterleitung, damit die eigene Subdomain funktioniert |
 | `demo/` | Die Testversion mit simulierter Uhrzeit (ohne Server) |
 
+## Funktionen
+
+- **Heute-Übersicht**: alle Check-outs und Reinigungen des Tages mit Smoobu-Namen der Einheiten, Status und Wechseltag
+- **Bestätigen / Erledigt** durch die Reinigungskraft, Fristen 12:00 (Erinnerung) und 13:00 (Alarm)
+- **Meldungen**: Hinweis-Text + bis zu 5 Fotos pro Reinigung (werden auf dem Handy verkleinert, nach 45 Tagen gelöscht);
+  Push an den Auftraggeber, dort „Als behoben markieren“
+- **Manuelle Reinigungen** (Zwischenreinigung usw.) durch den Auftraggeber inkl. Push an die Reinigungskraft, absagbar
+- **Testphase**: „Alles zurücksetzen“ (Eingabe ZURÜCKSETZEN) löscht alles und lädt frisch aus Smoobu.
+  Nach der Testphase in `worker/src/config.js` `allowReset: false` setzen.
+
+## Design / Logo
+
+Farben und Schriften stehen ganz oben in `worker/public/index.html` (Block „MARKE“).
+Logo: `worker/public/logo.svg` durch das echte Logo ersetzen (SVG oder PNG; bei PNG den Dateinamen in `index.html` anpassen).
+Es werden bewusst keine Google Fonts geladen (Datenschutz).
+
 ## Einstellungen ändern
 
 In `worker/src/config.js`: Reinigungskräfte, deren zuständige Wohnungen, Uhrzeiten, Gastnamen ein/aus.
