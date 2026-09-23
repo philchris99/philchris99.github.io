@@ -178,6 +178,17 @@ export async function diagnose(creds, from, to) {
       departures: list.map((b) => b.departure).filter(Boolean).sort().filter((d, i, a) => i === 0 || i === a.length - 1),
       fields: list[0] ? Object.keys(list[0]).slice(0, 40) : [],
     });
+    // Gästezahl (Felder adults/children) – nur Anzahl, keine Gastdaten
+    const guests = list.filter((b) => !b['is-blocked-booking']);
+    const withCount = guests.filter((b) => Number(b.adults) > 0 || Number(b.children) > 0);
+    const withTime = guests.filter((b) => b['check-in']);
+    results.push({
+      variant: 'Gästezahl (adults/children)',
+      status: 200,
+      received: withCount.length,
+      total: guests.length,
+      topKeys: [`Ankunftszeit (check-in) bei ${withTime.length} von ${guests.length}`],
+    });
   } catch (e) {
     results.push({ variant: 'Buchungen abrufen', error: e.message });
   }

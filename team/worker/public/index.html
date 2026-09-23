@@ -502,14 +502,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </form>`;
   }
 
-  const shortGuests = (b) => (b.adults == null ? '' : `${b.adults}${b.children ? '+' + b.children : ''} P.`);
+  const shortGuests = (b) => (!b.adults && !b.children ? '' : `${b.adults || 0}${b.children ? '+' + b.children : ''} P.`);
   /** Nächste Anreise in der Wohnung mit erwarteter Gästezahl (zur Vorbereitung) */
   function nextGuests(t) {
     if (!isActive(t)) return '';
     const n = t.nextBooking;
     if (!n) return '<div class="next-guests meta">Nächste Anreise: noch keine Buchung</div>';
     const when = ['Heute', 'Morgen'].includes(dayWord(n.arrival)) ? `<b>${dayWord(n.arrival)}</b>, ${fmt(n.arrival)}` : `<b>${fmt(n.arrival)}</b>`;
-    return `<div class="next-guests">Nächste Anreise: ${when} · ${n.guests ? `<b>${esc(n.guests)}</b>` : 'Gästezahl noch unbekannt'}</div>`;
+    return `<div class="next-guests">Nächste Anreise: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''} · ${n.guests ? `<b>${esc(n.guests)}</b>` : 'Gästezahl in Smoobu nicht angegeben'}</div>`;
   }
 
   /** Pflicht-Checkpunkt vor dem Beenden: Gästeschlüssel in der Box? */
@@ -528,8 +528,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   function periodForm(t) {
     const owner = role() === 'owner';
-    let max = addDays(t.date, data.maxPeriodDays || 7);
-    if (t.nextArrival && t.nextArrival < max) max = t.nextArrival;
+    // Nur Tage, an denen die Wohnung laut Smoobu frei ist (keine Anreise, kein Aufenthalt, keine Sperrzeit)
+    const limit = t.periodLimit || { last: addDays(t.date, data.maxPeriodDays || 7), reason: '' };
+    if (!limit.last) {
+      return `<div class="report-form request" style="border-color:var(--bad);background:var(--bad-bg)">
+        <b style="color:var(--bad)">${owner ? 'Kein späterer Tag möglich' : 'Antrag nicht möglich'}</b>
+        <p style="margin:6px 0 0">${esc(limit.reason)} – die Wohnung ist nach dem Check-out nicht frei. Die Reinigung muss am
+          <b>${fmtLong(t.date)} bis ${esc(data.finishBy)} Uhr</b> erledigt sein.</p>
+        <div class="actions"><button type="button" data-period-close>Schließen</button></div></div>`;
+    }
+    const max = limit.last;
     const min = addDays(t.date, 1) > data.today ? addDays(t.date, 1) : data.today;
     let value = t.latestDate || (addDays(t.date, 1) <= max ? addDays(t.date, 1) : max);
     if (value < min) value = min;
@@ -537,7 +545,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <p class="meta">Check-out ${fmtLong(t.date)}. Die Reinigung darf dann an jedem Tag bis einschließlich dem gewählten Datum stattfinden –
         am ${fmt(t.date)} ist natürlich weiterhin gut. Erinnerungen (${esc(data.startBy)}/${esc(data.finishBy)} Uhr) erst am letzten Tag.
         <br><b style="color:var(--bad)">Wichtig: Auch am späteren Tag muss die Reinigung bis spätestens ${esc(data.finishBy)} Uhr erledigt sein.</b>
-        ${t.nextArrival ? `<br><b>Nächster Gast reist am ${fmtLong(t.nextArrival)} an</b> – spätestens bis dahin.` : ''}</p>
+        ${limit.reason ? `<br><b>${esc(limit.reason)}</b> – möglich nur bis ${fmtLong(max)} (nur freie Tage).` : ''}</p>
       <div class="form-grid">
         <label class="field">Reinigung spätestens am <input type="date" name="until" value="${esc(value)}" min="${esc(min)}" max="${esc(max)}" required></label>
         ${owner ? '' : '<label class="field">Kurze Begründung <input name="reason" required minlength="3" maxlength="500" placeholder="z. B. Personalengpass am 1.10."></label>'}
@@ -962,7 +970,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <dt>Zugewiesen</dt><dd>${c.assignedTo ? `${esc(c.assignedTo)} ${c.staffConfirmed ? '✓ bestätigt' : '– noch nicht bestätigt'}` : 'noch niemandem'}</dd>
         ${c.startedAt ? `<dt>Begonnen</dt><dd>${clock(c.startedAt)} Uhr</dd>` : ''}
         ${c.doneAt ? `<dt>Erledigt</dt><dd>${clock(c.doneAt)} Uhr${c.startedAt ? ' · ' + duration(c.startedAt, c.doneAt) : ''}</dd>` : ''}
-        ${c.status !== 'erledigt' ? `<dt>Nächste Anreise</dt><dd>${c.nextBooking ? `${fmtLong(c.nextBooking.arrival)} · ${c.nextBooking.guests ? esc(c.nextBooking.guests) : 'Gästezahl unbekannt'}` : 'noch keine Buchung'}</dd>` : ''}
+        ${c.status !== 'erledigt' ? `<dt>Nächste Anreise</dt><dd>${c.nextBooking ? `${fmtLong(c.nextBooking.arrival)}${c.nextBooking.checkIn ? ' ab ' + esc(c.nextBooking.checkIn) + ' Uhr' : ''} · ${c.nextBooking.guests ? esc(c.nextBooking.guests) : 'Gästezahl nicht angegeben'}` : 'noch keine Buchung'}</dd>` : ''}
         ${c.keysInBox != null ? `<dt>Schlüssel</dt><dd>${c.keysInBox ? 'in der Box ✓' : c.keysResolved ? 'fehlten – geklärt ✓' : '<b style="color:var(--bad)">NICHT in der Box</b>'}</dd>` : ''}
         ${c.note ? `<dt>Hinweis</dt><dd>${esc(c.note)}</dd>` : ''}
         ${c.reports ? `<dt>Meldungen</dt><dd>${c.reports}</dd>` : ''}

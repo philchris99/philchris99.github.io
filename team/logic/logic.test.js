@@ -335,17 +335,18 @@ test('Zeitraum: Ablehnung, Admin legt selbst fest bzw. hebt auf, nächster Gast 
   let state = confirmedTask();
   ({ state } = L.applyBooking(state, booking({ id: '200', arrival: '2026-10-04', departure: '2026-10-08' }), NOW, CFG));
   assert.throws(() => L.setPeriod(state, '100', '2026-10-05', NOW, CFG), /04\.10\.2026 reist der nächste Gast an/);
+  assert.throws(() => L.setPeriod(state, '100', '2026-10-04', NOW, CFG), /spätestens am Sa, 03\.10\.2026/, 'Anreisetag ist nicht frei');
   let res = L.requestPeriod(state, '100', LEAD, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG);
   assert.deepEqual(who(res.notifications), ['owner:request']);
   res = L.decidePeriod(res.state, '100', false, 'Gast kommt früh', NOW, CFG);
   assert.equal(res.state.tasks['100'].latestDate, null);
   assert.equal(res.notifications[0].title, 'Zeitraum abgelehnt');
   // Admin übersteuert direkt
-  res = L.setPeriod(res.state, '100', '2026-10-04', NOW, CFG);
-  assert.equal(res.state.tasks['100'].latestDate, '2026-10-04');
+  res = L.setPeriod(res.state, '100', '2026-10-03', NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
   assert.deepEqual(who(res.notifications), ['lea:period', 'mia:period']);
   const cal = L.calendar(res.state, '2026-10-01', 7, true, CFG, NOW).cleanings.find((c) => c.id === '100');
-  assert.equal(cal.latestDate, '2026-10-04');
+  assert.equal(cal.latestDate, '2026-10-03');
   res = L.setPeriod(res.state, '100', null, NOW, CFG);
   assert.equal(res.state.tasks['100'].latestDate, null);
   assert.equal(res.notifications[0].title, 'Zeitraum aufgehoben');
@@ -384,12 +385,13 @@ test('Schlüssel nicht in der Box → sofort dringende Nachricht an Admin; Admin
 
 test('Gästezahl: aus Smoobu übernommen, im Kalender und bei der Reinigung davor als „nächste Anreise“', () => {
   const next = L.fromSmoobuBooking({ id: 300, type: 'reservation', arrival: '2026-10-03', departure: '2026-10-06', apartment: { id: '3', name: 'Loft am Markt' },
-    'guest-name': 'Fam. Weber', adults: 2, children: 1 });
+    'guest-name': 'Fam. Weber', adults: '2', children: 1, 'check-in': '16:00' });
   assert.equal(next.adults, 2);
   assert.equal(next.children, 1);
   let { state } = L.applyBooking(confirmedTask(), next, NOW, CFG);
   const task = L.listCleanings(state, {}, CFG).find((t) => t.id === '100');
-  assert.deepEqual(task.nextBooking, { arrival: '2026-10-03', departure: '2026-10-06', adults: 2, children: 1, guests: '2 Erwachsene, 1 Kind' });
+  assert.deepEqual(task.nextBooking, { arrival: '2026-10-03', departure: '2026-10-06', adults: 2, children: 1, guests: '2 Erwachsene, 1 Kind', checkIn: '16:00' });
+  assert.equal(L.guestsText(0, 0), '', '0 Personen = nicht angegeben');
   const cal = L.calendar(state, '2026-10-01', 7, false, CFG, NOW);
   assert.equal(cal.bookings.find((b) => b.id === '300').guests, '2 Erwachsene, 1 Kind');
   assert.equal(cal.cleanings.find((c) => c.id === '100').nextBooking.guests, '2 Erwachsene, 1 Kind');
@@ -398,4 +400,41 @@ test('Gästezahl: aus Smoobu übernommen, im Kalender und bei der Reinigung davo
   // Anzahl unbekannt (Feld fehlt) → leer, Anreise trotzdem bekannt
   const x = L.fromSmoobuBooking({ id: 301, arrival: '2026-10-10', departure: '2026-10-12', apartment: { id: '9' } });
   assert.equal(x.adults, null);
+});
+
+test('Späterer Tag nur, wenn die Folgetage frei sind: Wechseltag und Sperrzeit verhindern den Antrag', () => {
+  // Wechseltag: nächster Gast reist am Check-out-Tag an
+  let { state } = L.applyBooking(confirmedTask(), booking({ id: '201', arrival: '2026-10-02', departure: '2026-10-05' }), NOW, CFG);
+  let task = L.listCleanings(state, {}, CFG).find((t) => t.id === '100');
+  assert.equal(task.periodLimit.last, null);
+  assert.match(task.periodLimit.reason, /Wechseltag/);
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG), /Wechseltag.*nicht möglich/);
+  // Anreise am Folgetag → ebenfalls kein späterer Tag
+  ({ state } = L.applyBooking(confirmedTask(), booking({ id: '202', arrival: '2026-10-03', departure: '2026-10-05' }), NOW, CFG));
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG), /03\.10\.2026 reist der nächste Gast an – ein späterer Reinigungstag ist nicht möglich/);
+  // Sperrzeit ab 04.10. → bis 03.10. möglich, danach nicht
+  state = confirmedTask();
+  state.reservations.b1 = { id: 'b1', apartmentId: '3', arrival: '2026-10-04', departure: '2026-10-10', blocked: true };
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG), /blockiert/);
+  assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.status, 'offen');
+});
+
+test('Neue Buchung im genehmigten Zeitraum → Zeitraum sofort verkürzt, Team + Admin informiert; offener Antrag entfällt', () => {
+  let { state } = L.setPeriod(confirmedTask(), '100', '2026-10-05', NOW, CFG); // Check-out 02.10., Zeitraum bis 05.10.
+  let res = L.applyBooking(state, booking({ id: '203', arrival: '2026-10-04', departure: '2026-10-07' }), NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
+  const n = res.notifications.filter((x) => x.title === 'Zeitraum verkürzt – neue Buchung');
+  assert.deepEqual(who(n), ['lea:period', 'mia:period', 'owner:period']);
+  assert.match(n[0].body, /04\.10\.2026 reist der nächste Gast an.*bis 15:00 Uhr/);
+  // Anreise direkt am Folgetag → Zeitraum ganz aufgehoben
+  res = L.applyBooking(res.state, booking({ id: '204', arrival: '2026-10-03', departure: '2026-10-04' }), NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, null);
+  // offener Antrag, der nicht mehr passt, entfällt (auch über den Abgleich)
+  ({ state } = L.requestPeriod(confirmedTask(), '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG));
+  state.initialized = true;
+  const raw = { id: 205, type: 'reservation', arrival: '2026-10-04', departure: '2026-10-06', apartment: { id: '3', name: 'Loft am Markt' } };
+  const own = { id: 100, type: 'reservation', arrival: '2026-09-28', departure: '2026-10-02', apartment: { id: '3', name: 'Loft am Markt' } };
+  res = L.syncFromSmoobu(state, [own, raw], NOW, CFG, 30);
+  assert.equal(res.state.tasks['100'].periodRequest.status, 'hinfällig');
+  assert.deepEqual(who(res.notifications.filter((x) => x.title === 'Antrag nicht mehr möglich')), ['mia:period', 'owner:period']);
 });

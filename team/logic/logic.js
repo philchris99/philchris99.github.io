@@ -212,6 +212,7 @@
       departure: r.departure,
       adults: count(r.adults),
       children: count(r.children),
+      checkIn: timeOf(r['check-in']),
     };
   }
 
@@ -221,8 +222,15 @@
     return value === '' || value == null || !Number.isFinite(n) || n < 0 ? null : Math.round(n);
   }
 
-  /** z. B. „2 Erwachsene, 1 Kind“; unbekannt → '' */
+  /** Uhrzeit „16:00“ aus Smoobu (check-in), sonst '' */
+  function timeOf(value) {
+    const m = /^(\d{1,2}):(\d{2})/.exec(String(value || '').trim());
+    return m ? `${m[1].padStart(2, '0')}:${m[2]}` : '';
+  }
+
+  /** z. B. „2 Erwachsene, 1 Kind“; unbekannt (oder 0 Personen) → '' */
   function guestsText(adults, children) {
+    if (!adults && !children) return '';
     const parts = [];
     if (adults != null) parts.push(`${adults} ${adults === 1 ? 'Erwachsener' : 'Erwachsene'}`);
     if (children) parts.push(`${children} ${children === 1 ? 'Kind' : 'Kinder'}`);
@@ -252,9 +260,18 @@
    * Neue / geänderte / stornierte Buchung verarbeiten.
    * booking: { action: 'new'|'update'|'cancel', id, apartmentId, apartmentName, guest, guestPhone, arrival, departure }
    */
-  function applyBooking(state, booking, now, config, inPlace) {
+  function applyBooking(state, booking, now, config, inPlace, skipPeriods) {
     config = withConfig(config);
     if (!inPlace) state = clone(state);
+    const result = applyBookingInner(state, booking, now, config);
+    // Neue/geänderte Buchung kann einen genehmigten Zeitraum in derselben Wohnung blockieren
+    if (!skipPeriods && booking.action !== 'cancel') {
+      result.notifications.push(...enforcePeriods(result.state, config, toIso(now), String(booking.apartmentId)));
+    }
+    return result;
+  }
+
+  function applyBookingInner(state, booking, now, config) {
     const nowIso = toIso(now);
     const notifications = [];
     const id = String(booking.id);
@@ -273,7 +290,8 @@
 
     state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure,
       guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '',
-      adults: booking.adults == null ? null : booking.adults, children: booking.children == null ? null : booking.children };
+      adults: booking.adults == null ? null : booking.adults, children: booking.children == null ? null : booking.children,
+      checkIn: booking.checkIn || '' };
 
     if (!existing || existing.status === STATUS.CANCELLED) {
       const task = newTask({
@@ -333,7 +351,7 @@
       }
       const booking = fromSmoobuBooking(raw);
       if (!booking) continue;
-      const res = applyBooking(state, booking, now, config, true);
+      const res = applyBooking(state, booking, now, config, true, true);
       if (!silent) notifications.push(...res.notifications);
     }
     // Im abgefragten Zeitraum nicht mehr vorhanden (z. B. Sperrzeit aufgehoben) → aus dem Kalender entfernen
@@ -345,6 +363,9 @@
     const cutoff = addDays(localParts(now, config.timezone).date, -(keepDays || 30));
     for (const t of Object.values(state.tasks)) if (t.date < cutoff) delete state.tasks[t.id];
     for (const r of Object.values(state.reservations)) if (r.departure < cutoff) delete state.reservations[r.id];
+    // Zeiträume gegen neue Buchungen/Sperrzeiten prüfen (einmal für alle Wohnungen)
+    const periodNotes = enforcePeriods(state, config, toIso(now));
+    if (!silent) notifications.push(...periodNotes);
     state.initialized = true;
     state.lastSync = toIso(now);
     return { state, notifications };
@@ -612,18 +633,83 @@
     if (!best) return null;
     const adults = best.adults == null ? null : best.adults;
     const children = best.children == null ? null : best.children;
-    return { arrival: best.arrival, departure: best.departure, adults, children, guests: guestsText(adults, children) };
+    return { arrival: best.arrival, departure: best.departure, adults, children, guests: guestsText(adults, children), checkIn: best.checkIn || '' };
+  }
+
+  /**
+   * Erster Tag nach dem Check-out, an dem die Wohnung laut Smoobu NICHT frei ist
+   * (Anreise eines Gastes, Aufenthalt oder Sperrzeit). Ein Anreisetag zählt als belegt (Wechseltag).
+   * Liefert { date, blocked, sameDay } oder null (alles frei).
+   */
+  function firstOccupied(state, task) {
+    const d0 = addDays(task.date, 1);
+    let best = null;
+    for (const r of Object.values(state.reservations || {})) {
+      if (r.apartmentId !== task.apartmentId || r.id === task.id || !r.arrival || !r.departure) continue;
+      const start = r.arrival > d0 ? r.arrival : d0;
+      if (r.departure <= start) continue; // Abreisetag selbst ist frei
+      if (!best || start < best.date) best = { date: start, blocked: !!r.blocked, sameDay: r.arrival <= task.date };
+    }
+    return best;
+  }
+
+  /** Letzter möglicher Tag für einen Zeitraum (null = kein späterer Tag möglich) und Grund */
+  function periodLimit(state, task, config) {
+    config = withConfig(config);
+    let last = addDays(task.date, config.maxPeriodDays);
+    const occ = firstOccupied(state, task);
+    let reason = '';
+    if (occ && addDays(occ.date, -1) < last) {
+      last = addDays(occ.date, -1);
+      reason = occ.sameDay ? `Am ${formatDate(task.date)} reist bereits der nächste Gast an (Wechseltag)`
+        : occ.blocked ? `Ab ${formatDate(occ.date)} ist die Wohnung in Smoobu blockiert`
+        : `Am ${formatDate(occ.date)} reist der nächste Gast an`;
+    }
+    return { last: last > task.date ? last : null, reason };
   }
 
   function checkUntil(state, task, until, now, config) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '')) throw new Error('Bitte ein gültiges Datum wählen');
     if (until <= task.date) throw new Error(`Der Zeitraum muss nach dem ${formatDate(task.date)} enden`);
     if (until < localParts(now, config.timezone).date) throw new Error('Das Datum liegt in der Vergangenheit');
-    if (until > addDays(task.date, config.maxPeriodDays)) throw new Error(`Höchstens ${config.maxPeriodDays} Tage nach dem ${formatDate(task.date)}`);
-    const arrival = nextArrival(state, task);
-    if (arrival && until > arrival) {
-      throw new Error(`Am ${formatDate(arrival)} reist der nächste Gast an – die Reinigung muss bis dahin erledigt sein`);
+    const limit = periodLimit(state, task, config);
+    if (!limit.last) throw new Error(`${limit.reason} – ein späterer Reinigungstag ist nicht möglich`);
+    if (until > limit.last) {
+      throw new Error(limit.reason ? `${limit.reason} – spätestens am ${formatDate(limit.last)} möglich`
+        : `Höchstens ${config.maxPeriodDays} Tage nach dem ${formatDate(task.date)}`);
     }
+  }
+
+  /**
+   * Neue Buchung/Sperrzeit fällt in einen genehmigten Zeitraum → Zeitraum sofort verkürzen
+   * (bzw. aufheben) und Team + Admin informieren; offene Anträge, die nicht mehr passen, entfallen.
+   */
+  function enforcePeriods(state, config, nowIso, apartmentId) {
+    const notifications = [];
+    for (const task of Object.values(state.tasks)) {
+      if (!isActive(task) || (apartmentId && task.apartmentId !== apartmentId)) continue;
+      const req = task.periodRequest && task.periodRequest.status === 'offen' ? task.periodRequest : null;
+      if (!task.latestDate && !req) continue;
+      const limit = periodLimit(state, task, config);
+      if (task.latestDate && task.latestDate > task.date && (!limit.last || task.latestDate > limit.last)) {
+        const before = periodText(task);
+        task.latestDate = limit.last;
+        task.lastReminderAt = null;
+        task.lastReminderReason = null;
+        task.changedAt = nowIso;
+        const now = task.latestDate ? `nur noch ${periodText(task)}` : `wieder fest am ${formatDate(task.date)}`;
+        log(task, nowIso, `Zeitraum ${before} verkürzt – ${limit.reason}: ${now}`);
+        notifications.push(...notify([...team(config, task), config.owner.id], 'period', task, 'Zeitraum verkürzt – neue Buchung',
+          `${task.apartmentName}: ${limit.reason}. Reinigung ${now}, bis ${config.finishBy} Uhr.`));
+      }
+      if (req && (!limit.last || req.until > limit.last)) {
+        req.status = 'hinfällig';
+        log(task, nowIso, `Antrag bis ${formatDate(req.until)} entfällt – ${limit.reason}`);
+        notifications.push(...notify([config.owner.id, req.by], 'period', task, 'Antrag nicht mehr möglich',
+          `${task.apartmentName}: ${limit.reason} – Antrag bis ${formatDate(req.until)} entfällt. Reinigung ${periodText(task)}, bis ${config.finishBy} Uhr.`));
+      }
+    }
+    return notifications;
   }
 
   /** Reinigungsleitung oder Mitarbeiterin beantragt einen Zeitraum. input: { until, reason } */
@@ -883,6 +969,7 @@
         sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
         nextArrival: nextArrival(state, t),
         nextBooking: nextBooking(state, t),
+        periodLimit: isActive(t) ? periodLimit(state, t, config) : null,
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
