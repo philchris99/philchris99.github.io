@@ -305,3 +305,62 @@ test('Kalender liefert Reinigungsdetails inkl. manueller Reinigungen, Telefonnum
   assert.deepEqual([m.manual, m.note], [true, 'Fenster']);
   assert.equal(L.calendar(state, '2026-09-28', 14, false, CFG).bookings[0].phone, '', 'ohne Namen auch keine Nummer');
 });
+
+test('Zeitraum: Mitarbeiterin beantragt mit Begründung → Admin + Leitung; genehmigt → Fristen erst am letzten Tag', () => {
+  let state = confirmedTask(); // Check-out 02.10.
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: '' }, NOW, CFG), /begründen/);
+  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-02', reason: 'krank' }, NOW, CFG), /nach dem/);
+  let res = L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Personalengpass' }, NOW, CFG);
+  assert.deepEqual(who(res.notifications), ['lea:request', 'owner:request']);
+  assert.match(res.notifications[0].body, /02\.10\.2026–Sa, 03\.10\.2026.*Personalengpass/);
+  assert.equal(L.openPeriodRequests(res.state).length, 1);
+  res = L.decidePeriod(res.state, '100', true, 'ok', NOW, CFG);
+  assert.deepEqual(who(res.notifications), ['lea:period', 'mia:period']);
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-03');
+  assert.equal(L.openPeriodRequests(res.state).length, 0);
+  // am 02.10. keine Erinnerung, am 03.10. ab 12 Uhr schon
+  assert.equal(L.overdueReason(res.state.tasks['100'], at('2026-10-02', '16:00'), CFG), null);
+  assert.equal(L.checkDeadlines(res.state, at('2026-10-02', '16:00'), CFG).notifications.length, 0);
+  assert.equal(L.overdueReason(res.state.tasks['100'], at('2026-10-03', '12:00'), CFG), 'start');
+  // erledigt am ersten Tag ist natürlich auch gut
+  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG);
+  assert.equal(done.state.tasks['100'].status, 'erledigt');
+});
+
+test('Zeitraum: Ablehnung, Admin legt selbst fest bzw. hebt auf, nächster Gast begrenzt', () => {
+  let state = confirmedTask();
+  ({ state } = L.applyBooking(state, booking({ id: '200', arrival: '2026-10-04', departure: '2026-10-08' }), NOW, CFG));
+  assert.throws(() => L.setPeriod(state, '100', '2026-10-05', NOW, CFG), /04\.10\.2026 reist der nächste Gast an/);
+  let res = L.requestPeriod(state, '100', LEAD, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG);
+  assert.deepEqual(who(res.notifications), ['owner:request']);
+  res = L.decidePeriod(res.state, '100', false, 'Gast kommt früh', NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, null);
+  assert.equal(res.notifications[0].title, 'Zeitraum abgelehnt');
+  // Admin übersteuert direkt
+  res = L.setPeriod(res.state, '100', '2026-10-04', NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, '2026-10-04');
+  assert.deepEqual(who(res.notifications), ['lea:period', 'mia:period']);
+  const cal = L.calendar(res.state, '2026-10-01', 7, true, CFG, NOW).cleanings.find((c) => c.id === '100');
+  assert.equal(cal.latestDate, '2026-10-04');
+  res = L.setPeriod(res.state, '100', null, NOW, CFG);
+  assert.equal(res.state.tasks['100'].latestDate, null);
+  assert.equal(res.notifications[0].title, 'Zeitraum aufgehoben');
+});
+
+test('Zeitraum: Smoobu verschiebt den Check-out → Zeitraum und offener Antrag entfallen', () => {
+  let { state } = L.setPeriod(confirmedTask(), '100', '2026-10-03', NOW, CFG);
+  ({ state } = L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'x y z' }, NOW, CFG));
+  ({ state } = L.applyBooking(state, booking({ action: 'update', departure: '2026-10-05' }), NOW, CFG));
+  assert.equal(state.tasks['100'].latestDate, null);
+  assert.equal(state.tasks['100'].periodRequest.status, 'hinfällig');
+  assert.ok(state.tasks['100'].history.some((h) => /Zeitraum aufgehoben/.test(h.text)));
+});
+
+test('Meldung zu einer alten Reinigung ohne Meldungs-/Verlaufsliste (ältere Version) funktioniert', () => {
+  const state = confirmedTask();
+  delete state.tasks['100'].reports;
+  delete state.tasks['100'].history;
+  const res = L.addReport(state, '100', MIA, { id: 'r1', text: 'Handtücher fehlen', photos: [] }, NOW, CFG);
+  assert.equal(res.state.tasks['100'].reports.length, 1);
+  assert.equal(res.state.tasks['100'].history.length, 1);
+});

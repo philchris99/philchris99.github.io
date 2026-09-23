@@ -355,6 +355,31 @@ test('Manuelle Reinigung nach 12 Uhr für heute eingetragen → Erinnerung kommt
   }
 });
 
+test('Zeitraum: Mitarbeiterin beantragt, Admin sieht Antrag und genehmigt; Admin kann selbst festlegen', async () => {
+  smoobuBookings = [booking(80, '2099-10-01', { arrival: '2099-09-27' })];
+  await runSync(env);
+  await call('POST', '/api/tasks/80/assign', { session: lea, body: { to: miaId } });
+  const topicAdmin = await topicOf(admin);
+  pushes = [];
+  const bad = await call('POST', '/api/tasks/80/period-request', { session: mia, body: { until: '2099-10-02', reason: '' } });
+  assert.equal(bad.status, 400);
+  const req = await call('POST', '/api/tasks/80/period-request', { session: mia, body: { until: '2099-10-02', reason: 'Personalengpass' } });
+  assert.equal(req.status, 200);
+  assert.ok(pushes.some((p) => p.topic === topicAdmin && p.title.startsWith('Antrag:')));
+  assert.equal((await call('POST', '/api/tasks/80/period-decide', { session: mia, body: { approve: true } })).status, 403);
+  const a = await me(admin);
+  assert.equal(a.openRequests.length, 1);
+  assert.equal(a.openRequests[0].reason, 'Personalengpass');
+  const ok = await call('POST', '/api/tasks/80/period-decide', { session: admin, body: { approve: true, comment: 'passt' } });
+  assert.equal(ok.body.openRequests.length, 0);
+  assert.equal(ok.body.tasks.find((t) => t.id === '80').latestDate, '2099-10-02');
+  assert.ok((await me(mia)).changes.some((c) => c.title === 'Zeitraum genehmigt'));
+  // Admin übersteuert direkt und hebt wieder auf
+  assert.equal((await call('POST', '/api/tasks/80/period', { session: admin, body: { until: '2099-10-03' } })).body.tasks.find((t) => t.id === '80').latestDate, '2099-10-03');
+  assert.equal((await call('POST', '/api/tasks/80/period', { session: lea, body: { until: '2099-10-03' } })).status, 403);
+  assert.equal((await call('POST', '/api/tasks/80/period', { session: admin, body: { until: null } })).body.tasks.find((t) => t.id === '80').latestDate, null);
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

@@ -9,6 +9,7 @@ export default {
   finishBy: '15:00',           // Reinigungstag: bis dahin erledigt, sonst „überfällig“ + Erinnerung
   repeatMinutes: 30,           // Erinnerung wiederholen, solange überfällig (Prüfung alle 5 Min.)
   quietFrom: '22:00',          // ab dann keine Erinnerungen mehr
+  maxPeriodDays: 7,            // Zeitraum für eine Reinigung: höchstens so viele Tage nach dem Check-out
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)
   showGuestPhone: true,    // Telefonnummer des Gastes (aus Smoobu) als Anruf-Knopf anzeigen
   syncDaysAhead: 365,      // so weit im Voraus werden Buchungen aus Smoobu geholt

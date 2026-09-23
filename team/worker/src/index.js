@@ -126,7 +126,7 @@ const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt });
 async function teamFor(env, list, withCodes) {
   return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc) } : {}) })));
 }
-const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late'];
+const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late', 'request', 'period'];
 
 /**
  * Nach jeder Änderung sofort die Fristen prüfen: Wird eine Reinigung erst nach 12 bzw. 15 Uhr
@@ -153,6 +153,8 @@ async function viewFor(env, cfg, settings, state, user, now) {
     pushOk: !!(settings.pushOk || {})[user.id], // Push auf diesem Konto eingerichtet (bleibt beim Zurücksetzen)
     hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
     openReports: user.role === 'staff' ? [] : L.openReports(state),
+    openRequests: user.role === 'owner' ? L.openPeriodRequests(state) : [],
+    maxPeriodDays: cfg.maxPeriodDays,
   };
   const tasks = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg).map((t) => {
     const { history, ...rest } = t;
@@ -259,7 +261,7 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // ---- Reinigung: Leitung bestätigt / weist zu; Mitarbeiterin bestätigt; Beginn; Erledigt ----
-  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report)$/);
+  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period)$/);
   if (act && request.method === 'POST') {
     const id = decodeURIComponent(act[1]);
     switch (act[2]) {
@@ -290,6 +292,22 @@ async function handleApi(request, env, url, ctx) {
         return change((st) => L.cancelManualCleaning(st, id, now, cfg));
       case 'report':
         return handleReport(id);
+      // Zeitraum: Reinigungsteam beantragt, Admin entscheidet oder legt selbst fest
+      case 'period-request': {
+        if (role === 'owner') break;
+        const body = await readJson();
+        return change((st) => L.requestPeriod(st, id, user, { until: body.until, reason: body.reason }, now, cfg));
+      }
+      case 'period-decide': {
+        if (role !== 'owner') break;
+        const body = await readJson();
+        return change((st) => L.decidePeriod(st, id, !!body.approve, body.comment, now, cfg));
+      }
+      case 'period': {
+        if (role !== 'owner') break;
+        const body = await readJson();
+        return change((st) => L.setPeriod(st, id, body.until || null, now, cfg));
+      }
     }
     return fail('Nicht erlaubt', 403);
   }

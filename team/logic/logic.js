@@ -29,7 +29,8 @@
     startBy: '12:00',            // Reinigungstag: bis dahin muss die Reinigung begonnen sein
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
     repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
-    quietFrom: '22:00',          // ab dann keine Erinnerungen mehr (Nachtruhe)
+    quietFrom: '22:00',
+    maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out          // ab dann keine Erinnerungen mehr (Nachtruhe)
     owner: { id: 'owner', name: 'Apartments Strauss' },
     leads: [],                   // [{ id, name }]
     staff: [],                   // [{ id, name }]
@@ -133,7 +134,7 @@
   }
 
   function log(task, nowIso, text) {
-    task.history.push({ at: nowIso, text });
+    (task.history = task.history || []).push({ at: nowIso, text });
   }
 
   function fullyConfirmed(task) {
@@ -150,6 +151,9 @@
   function getTask(state, taskId) {
     const task = state.tasks[taskId];
     if (!task) throw new Error('Reinigung nicht gefunden');
+    // Einträge aus älteren Versionen haben evtl. noch keine Listen für Meldungen/Verlauf
+    if (!Array.isArray(task.reports)) task.reports = [];
+    if (!Array.isArray(task.history)) task.history = [];
     return task;
   }
 
@@ -169,6 +173,11 @@
     task.lastReminderAt = null;
     task.lastReminderReason = null;
     task.pastReminded = false;
+    if (task.latestDate) {
+      task.latestDate = null;
+      log(task, nowIso, 'Zeitraum aufgehoben (neues Datum)');
+    }
+    if (task.periodRequest && task.periodRequest.status === 'offen') task.periodRequest.status = 'hinfällig';
     updateStatus(task);
   }
 
@@ -181,6 +190,7 @@
       assignedTo: null, assignedAt: null, staffConfirmedAt: null,
       startedAt: null, startedBy: null, doneAt: null, doneBy: null,
       lateAlerted: false, lastReminderAt: null, pastReminded: false,
+      latestDate: null, periodRequest: null,
       history: [], reports: [],
     }, fields);
   }
@@ -518,6 +528,118 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Zeitraum: Reinigung darf z. B. am 01.10. ODER 02.10. stattfinden.
+  // Reinigungsteam beantragt (mit Begründung), Admin genehmigt/lehnt ab oder legt selbst fest.
+  // Fristen (12/15 Uhr) gelten dann erst am letzten Tag.
+  // ---------------------------------------------------------------------------
+
+  function lastDay(task) {
+    return task.latestDate && task.latestDate > task.date ? task.latestDate : task.date;
+  }
+
+  function periodText(task) {
+    return lastDay(task) > task.date ? `${formatDate(task.date)}–${formatDate(lastDay(task))}` : formatDate(task.date);
+  }
+
+  /** Nächste Anreise eines Gastes in dieser Wohnung ab dem Reinigungstag (Sperrzeiten zählen nicht). */
+  function nextArrival(state, task) {
+    let best = null;
+    for (const r of Object.values(state.reservations || {})) {
+      if (r.apartmentId !== task.apartmentId || r.id === task.id || r.blocked || r.arrival < task.date) continue;
+      if (!best || r.arrival < best) best = r.arrival;
+    }
+    return best;
+  }
+
+  function checkUntil(state, task, until, now, config) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(until || '')) throw new Error('Bitte ein gültiges Datum wählen');
+    if (until <= task.date) throw new Error(`Der Zeitraum muss nach dem ${formatDate(task.date)} enden`);
+    if (until < localParts(now, config.timezone).date) throw new Error('Das Datum liegt in der Vergangenheit');
+    if (until > addDays(task.date, config.maxPeriodDays)) throw new Error(`Höchstens ${config.maxPeriodDays} Tage nach dem ${formatDate(task.date)}`);
+    const arrival = nextArrival(state, task);
+    if (arrival && until > arrival) {
+      throw new Error(`Am ${formatDate(arrival)} reist der nächste Gast an – die Reinigung muss bis dahin erledigt sein`);
+    }
+  }
+
+  /** Reinigungsleitung oder Mitarbeiterin beantragt einen Zeitraum. input: { until, reason } */
+  function requestPeriod(state, taskId, user, input, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    if (user.role === 'owner' || !canAccess(config, task, user)) throw new Error('Keine Berechtigung für diese Reinigung');
+    const reason = String(input.reason || '').trim().slice(0, 500);
+    if (reason.length < 3) throw new Error('Bitte kurz begründen');
+    checkUntil(state, task, input.until, now, config);
+    const nowIso = toIso(now);
+    task.periodRequest = { until: input.until, reason, by: user.id, at: nowIso, status: 'offen' };
+    const name = personName(config, user.id);
+    const period = `${formatDate(task.date)}–${formatDate(input.until)}`;
+    log(task, nowIso, `Zeitraum ${period} beantragt von ${name}: ${reason}`);
+    return { state, notifications: notify([config.owner.id, ...leadIds(config).filter((id) => id !== user.id)], 'request', task,
+      `Antrag: ${task.apartmentName} ${period}`, `${name} möchte die Reinigung im Zeitraum ${period} erledigen. Grund: ${reason}`) };
+  }
+
+  /** Admin genehmigt oder lehnt einen Antrag ab. */
+  function decidePeriod(state, taskId, approve, comment, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    const req = task.periodRequest;
+    if (!req || req.status !== 'offen') throw new Error('Kein offener Antrag');
+    requireActive(task);
+    const nowIso = toIso(now);
+    comment = String(comment || '').trim().slice(0, 500);
+    if (approve) {
+      checkUntil(state, task, req.until, now, config);
+      task.latestDate = req.until;
+      task.lastReminderAt = null;
+      task.lastReminderReason = null;
+    }
+    Object.assign(req, { status: approve ? 'genehmigt' : 'abgelehnt', decidedAt: nowIso, comment });
+    const period = `${formatDate(task.date)}–${formatDate(req.until)}`;
+    log(task, nowIso, `Zeitraum ${period} ${approve ? 'genehmigt' : 'abgelehnt'}${comment ? ': ' + comment : ''}`);
+    const body = approve
+      ? `${task.apartmentName}: Reinigung darf im Zeitraum ${period} stattfinden.${comment ? ' ' + comment : ''}`
+      : `${task.apartmentName}: Reinigung bleibt am ${formatDate(task.date)}.${comment ? ' ' + comment : ''}`;
+    return { state, notifications: notify([...team(config, task), req.by], 'period', task,
+      approve ? 'Zeitraum genehmigt' : 'Zeitraum abgelehnt', body) };
+  }
+
+  /** Admin legt den Zeitraum selbst fest (until = letzter Tag) oder hebt ihn auf (until leer). */
+  function setPeriod(state, taskId, until, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    const nowIso = toIso(now);
+    const next = until && until !== task.date ? until : null;
+    if (next) checkUntil(state, task, next, now, config);
+    if ((task.latestDate || null) === next) return { state, notifications: [] };
+    task.latestDate = next;
+    task.lastReminderAt = null;
+    task.lastReminderReason = null;
+    task.pastReminded = false;
+    task.changedAt = nowIso;
+    if (task.periodRequest && task.periodRequest.status === 'offen') {
+      Object.assign(task.periodRequest, { status: next === task.periodRequest.until ? 'genehmigt' : 'übersteuert', decidedAt: nowIso });
+    }
+    log(task, nowIso, next ? `Zeitraum festgelegt: ${periodText(task)}` : `Zeitraum aufgehoben – Reinigung am ${formatDate(task.date)}`);
+    return { state, notifications: notify(team(config, task), 'period', task, next ? 'Reinigung im Zeitraum' : 'Zeitraum aufgehoben',
+      next ? `${task.apartmentName}: Reinigung darf im Zeitraum ${periodText(task)} stattfinden.`
+        : `${task.apartmentName}: Reinigung wieder fest am ${formatDate(task.date)}.`) };
+  }
+
+  /** Offene Anträge (für den Admin) */
+  function openPeriodRequests(state) {
+    return Object.values(state.tasks)
+      .filter((t) => isActive(t) && t.periodRequest && t.periodRequest.status === 'offen')
+      .map((t) => Object.assign({ taskId: t.id, apartmentName: t.apartmentName, date: t.date }, t.periodRequest))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // ---------------------------------------------------------------------------
   // Fristen (alle 15 Minuten prüfen)
   // ---------------------------------------------------------------------------
 
@@ -543,8 +665,9 @@
     config = withConfig(config);
     if (!isActive(task)) return null;
     const { date: today, time } = localParts(now, config.timezone);
-    if (task.date < today) return 'past';
-    if (task.date > today) return null;
+    const last = lastDay(task); // bei Zeitraum zählt der letzte Tag
+    if (last < today) return 'past';
+    if (last > today) return null;
     if (time >= config.finishBy) return 'finish';
     if (time >= config.startBy && !task.startedAt) return 'start';
     return null;
@@ -565,7 +688,7 @@
       if (!isActive(task)) continue;
 
       // 1) Nicht innerhalb von 6 Stunden vollständig bestätigt → Admin (einmal)
-      if (!(options && options.remindersOnly) && !task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && task.date >= today
+      if (!(options && options.remindersOnly) && !task.lateAlerted && !fullyConfirmed(task) && task.confirmFrom && lastDay(task) >= today
           && nowMs - Date.parse(task.confirmFrom) >= limit) {
         task.lateAlerted = true;
         log(task, nowIso, `Nach ${config.confirmWithinHours} Std. nicht bestätigt – Admin informiert`);
@@ -583,7 +706,7 @@
         if (task.pastReminded) continue;
         task.pastReminded = true;
         notifications.push(...notify(all, 'overdue', task, 'Reinigung nicht erledigt',
-          `${task.apartmentName}: Reinigung vom ${formatDate(task.date)} wurde nicht als erledigt gemeldet – ${progressText(config, task)}.`));
+          `${task.apartmentName}: Reinigung vom ${periodText(task)} wurde nicht als erledigt gemeldet – ${progressText(config, task)}.`));
         continue;
       }
       if (time >= config.quietFrom) continue; // Nachtruhe
@@ -689,11 +812,12 @@
     options = options || {};
     const reservations = Object.values(state.reservations);
     return Object.values(state.tasks)
-      .filter((t) => !options.from || t.date >= options.from)
+      .filter((t) => !options.from || lastDay(t) >= options.from)
       .filter((t) => !options.user || canAccess(config, t, options.user))
       .map((t) => Object.assign({}, t, {
         reports: t.reports || [],
         sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
+        nextArrival: nextArrival(state, t),
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
@@ -716,13 +840,15 @@
       .map((r) => ({ id: r.id, apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure, blocked: !!r.blocked,
         channel: r.channel || '', guest: showNames ? r.guest || '' : '', phone: showNames ? r.phone || '' : '' }));
     const cleanings = Object.values(state.tasks)
-      .filter((t) => t.date >= from && t.date < to && t.status !== STATUS.CANCELLED)
+      .filter((t) => lastDay(t) >= from && t.date < to && t.status !== STATUS.CANCELLED)
       .map((t) => ({
         id: t.id, apartmentId: t.apartmentId, apartmentName: t.apartmentName, date: t.date, status: t.status, manual: !!t.manual,
         note: t.note || '', overdue: !!overdueReason(t, now || Date.now(), config), overdueReason: overdueReason(t, now || Date.now(), config),
         leadConfirmed: !!t.leadConfirmedAt, assignedTo: t.assignedTo ? personName(config, t.assignedTo) : '',
         staffConfirmed: !!t.staffConfirmedAt, startedAt: t.startedAt, doneAt: t.doneAt,
         guestPhone: t.guestPhone || '', reports: (t.reports || []).length,
+        latestDate: lastDay(t) > t.date ? lastDay(t) : null,
+        periodRequest: t.periodRequest && t.periodRequest.status === 'offen' ? { until: t.periodRequest.until, reason: t.periodRequest.reason } : null,
       }));
     return { from, days, apartments, bookings, cleanings };
   }
@@ -736,6 +862,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
+    requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
