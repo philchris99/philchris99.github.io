@@ -546,7 +546,7 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // ---- Reinigung: Leitung bestätigt / weist zu; Mitarbeiterin bestätigt; Beginn; Erledigt ----
-  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period|keys-resolved|supplies)$/);
+  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period|keys-resolved|supplies|period-withdraw|block-released)$/);
   if (act && request.method === 'POST') {
     const id = decodeURIComponent(act[1]);
     switch (act[2]) {
@@ -573,6 +573,12 @@ async function handleApi(request, env, url, ctx) {
         return change((st) => L.completeCleaning(st, id, user.id, when, cfg,
           { keysInBox: body.keysInBox, keysNote: body.keysNote, checklist: body.checklist, supplies: body.supplies }), 409);
       }
+      case 'period-withdraw':
+        if (role === 'owner') break;
+        return change((st) => L.withdrawPeriod(st, id, user, now, cfg), 409);
+      case 'block-released':
+        if (role !== 'owner') break;
+        return change((st) => L.releaseBlockDone(st, id, now));
       case 'supplies': {
         const body = await readJson();
         return change((st) => L.reportSupplies(st, id, user, body.items, now, cfg));

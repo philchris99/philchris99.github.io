@@ -32,6 +32,7 @@ const HU_TITLES = {
   'Hinweis geändert': 'Megjegyzés módosítva',
   'Test-Nachricht': 'Tesztüzenet',
   'Check-out geändert – wichtig': 'Check-out módosult – fontos',
+  'Antrag zurückgezogen': 'Kérelem visszavonva',
 };
 const HU_PREFIX = [['Hinweis von Apartments Strauss: ', 'Megjegyzés – Apartments Strauss: '], ['Meldung: ', 'Bejelentés: '],
   ['Knapp: ', 'Kevés: '], ['Antrag: ', 'Kérelem: '], ['Wohnung fertig: ', 'Lakás kész: ']];

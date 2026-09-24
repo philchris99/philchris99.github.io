@@ -688,6 +688,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     }
     if (t.prevDate && isActive(t) && !t.staffConfirmedAt) out.push(`<span class="chip alert">⚠ Datum geändert – vorher ${esc(fmt(t.prevDate))}</span>`);
     if (t.checkoutDate && t.checkoutDate !== t.date && isActive(t)) out.push(`<span class="chip wait">Check-out ${esc(fmt(t.checkoutDate))} · Reinigung verschoben</span>`);
+    if (t.releaseBlock && role() === 'owner') out.push(`<span class="chip alert">⚠ Blockierung in Smoobu aufheben: ${esc(fmt(t.releaseBlock.from))} – ${esc(fmt(t.releaseBlock.to))}</span>`);
     if (t.needsBlock && role() === 'owner') out.push(`<span class="chip alert">⚠ In Smoobu blockieren: ${esc(fmt(t.needsBlock.from))} – ${esc(fmt(t.needsBlock.to))}</span>`);
     if (lastDay(t) > t.date && t.status !== 'erledigt') out.push(`<span class="chip period">Zeitraum ${esc(periodLabel(t))}</span>`);
     const req = t.periodRequest;
@@ -990,6 +991,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     }
     if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) actions.push(`<button class="go" data-keys-resolved="${esc(t.id)}">Schlüssel geklärt</button>`);
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
+    // Reinigungsteam: offenen Antrag zurückziehen bzw. genehmigten späteren Tag wieder aufheben („doch früher“)
+    if (active && r !== 'owner' && (r === 'lead' || mineToDo)) {
+      if (reqOpen) actions.push(`<button class="small" data-period-withdraw="${esc(t.id)}">Antrag zurückziehen</button>`);
+      else if (t.latestDate && t.latestDate > t.date) actions.push(`<button class="small" data-period-withdraw="${esc(t.id)}">Doch früher – Zeitraum aufheben</button>`);
+    }
+    if (r === 'owner' && t.releaseBlock) actions.push(`<button class="go small" data-block-released="${esc(t.id)}">Blockierung aufgehoben ✓</button>`);
     if (active && (r === 'owner' || (!reqOpen && (r === 'lead' || mineToDo)))) {
       actions.push(`<button class="small" data-period="${esc(t.id)}">${periodTask === t.id ? 'Zeitraum schließen'
         : r === 'owner' ? (t.latestDate ? 'Zeitraum ändern' : 'Zeitraum festlegen') : 'Späteren Tag beantragen'}</button>`);
@@ -1476,6 +1483,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const todayCount = tasks.filter((t) => onDay(t, t0) && t.status !== 'storniert').length;
     const urgent = [
       ...locks.filter((l) => l.blocked).map((l) => ['sperren', `Anmeldung dauerhaft gesperrt: Adresse ${l.ip} – freischalten?`]),
+      ...tasks.filter((t) => t.releaseBlock).map((t) => [`task-${t.id}`, `Blockierung in Smoobu aufheben: ${t.apartmentName} ${fmt(t.releaseBlock.from)} – ${fmt(t.releaseBlock.to)} (späterer Tag nicht mehr nötig)`]),
       ...active.filter((t) => t.needsBlock).map((t) => [`task-${t.id}`, `In Smoobu blockieren: ${t.apartmentName} ${fmt(t.needsBlock.from)} – ${fmt(t.needsBlock.to)} (Reinigung verschoben)`]),
       ...keys.map((k) => [`task-${k.taskId}`, `Schlüssel fehlen: ${k.apartmentName} (gemeldet ${clock(k.doneAt)} von ${nameOf(k.doneBy)})${k.note ? ' – ' + k.note : ''}`]),
       ...requests.map((q) => [`task-${q.taskId}`, `Antrag: ${q.apartmentName} – Reinigung bis ${fmt(q.until)} (${nameOf(q.by)})`]),
@@ -2097,6 +2105,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         }
         await refresh(true);
         toast(`Rückwirkend berechnet: ${steps} Abschnitte, ${total} Tage`);
+      } else if (d.periodWithdraw) {
+        const t = data.tasks.find((x) => x.id === d.periodWithdraw);
+        const open = t && t.periodRequest && t.periodRequest.status === 'offen';
+        if (!armed(b, open ? 'Wirklich zurückziehen? Nochmal tippen' : 'Wirklich früher? Nochmal tippen')) return;
+        await taskAction(d.periodWithdraw, 'period-withdraw', {}, open ? 'Antrag zurückgezogen – Apartments Strauss wurde informiert'
+          : 'Zeitraum aufgehoben – Apartments Strauss wurde informiert');
+      } else if (d.blockReleased) {
+        b.disabled = true;
+        await taskAction(d.blockReleased, 'block-released', {}, 'Erledigt');
       } else if (d.supply) {
         supplyTask = supplyTask === d.supply ? null : d.supply; render();
       } else if (d.supplyClose !== undefined) {

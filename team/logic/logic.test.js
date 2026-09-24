@@ -605,3 +605,32 @@ test('Tatsächliche Belegung je Nacht; Einträge ohne Eintragungsdatum zählen r
   const f = L.occupancy(index, ['1', '2', '3', '4'], '2026-10-01', 30, '2026-09-20');
   assert.deepEqual([f.bookedNights, f.blockedNights], [0, 4]);
 });
+
+test('Doch früher: Reinigungskraft hebt genehmigten Zeitraum auf → Admin-Push mit Hinweis „Blockierung aufheben“', () => {
+  let { state } = L.requestPeriod(confirmedTask(), '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG);
+  // offener Antrag → zurückziehen
+  let res = L.withdrawPeriod(state, '100', MIA, NOW, CFG);
+  assert.equal(res.state.tasks['100'].periodRequest.status, 'zurückgezogen');
+  assert.deepEqual(who(res.notifications), ['lea:period', 'owner:period']);
+  // genehmigt, Admin blockiert in Smoobu, dann doch früher
+  ({ state } = L.requestPeriod(confirmedTask(), '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG));
+  ({ state } = L.decidePeriod(state, '100', true, '', NOW, CFG));
+  state.reservations.blk = { id: 'blk', apartmentId: '3', arrival: '2026-10-02', departure: '2026-10-05', blocked: true };
+  assert.throws(() => L.withdrawPeriod(state, '100', IDA, NOW, CFG), /Keine Berechtigung/);
+  res = L.withdrawPeriod(state, '100', MIA, NOW, CFG);
+  const t = res.state.tasks['100'];
+  assert.equal(t.latestDate, null);
+  const owner = res.notifications.find((n) => n.to === 'owner');
+  assert.equal(owner.title, 'Späterer Tag nicht mehr nötig: Loft am Markt');
+  assert.match(owner.body, /Blockierung in Smoobu aufheben: Fr, 02\.10\.2026 – So, 04\.10\.2026/);
+  assert.deepEqual(who(res.notifications), ['lea:period', 'owner:period']);
+  assert.deepEqual(L.listCleanings(res.state, {}, CFG).find((x) => x.id === '100').releaseBlock, { from: '2026-10-02', to: '2026-10-04' });
+  // Sperrzeit in Smoobu entfernt → Hinweis verschwindet; oder Admin tippt „erledigt“
+  const without = JSON.parse(JSON.stringify(res.state)); delete without.reservations.blk;
+  assert.equal(L.blockToRelease(without, without.tasks['100']), null);
+  assert.equal(L.listCleanings(L.releaseBlockDone(res.state, '100', NOW).state, {}, CFG).find((x) => x.id === '100').releaseBlock, null);
+  // schon am späteren Tag (Check-out vorbei) → Zeitraum endet heute
+  const later = L.withdrawPeriod(state, '100', MIA, at('2026-10-03', '09:00'), CFG).state.tasks['100'];
+  assert.equal(later.latestDate, '2026-10-03');
+  assert.throws(() => L.withdrawPeriod(confirmedTask(), '100', MIA, NOW, CFG), /keinen späteren Zeitraum/);
+});

@@ -987,6 +987,61 @@
         : `${task.apartmentName}: Reinigung wieder fest am ${formatDate(task.date)}.`) };
   }
 
+  /**
+   * Reinigungsteam: genehmigten Zeitraum wieder aufheben („doch früher“) oder offenen Antrag zurückziehen.
+   * Letzter Tag wird wieder der Check-out-Tag (bzw. heute, wenn der schon vorbei ist). Admin wird informiert,
+   * damit eine eigens gesetzte Sperrzeit in Smoobu wieder aufgehoben werden kann.
+   */
+  function withdrawPeriod(state, taskId, user, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    if (user.role === 'owner' || !canAccess(config, task, user)) throw new Error('Keine Berechtigung für diese Reinigung');
+    const nowIso = toIso(now);
+    const name = personName(config, user.id);
+    const req = task.periodRequest && task.periodRequest.status === 'offen' ? task.periodRequest : null;
+    if (req) {
+      Object.assign(req, { status: 'zurückgezogen', decidedAt: nowIso });
+      log(task, nowIso, `Antrag bis ${formatDate(req.until)} zurückgezogen von ${name}`);
+      return { state, notifications: notify([config.owner.id, ...leadIds(config).filter((id) => id !== user.id)], 'period', task,
+        'Antrag zurückgezogen', `${task.apartmentName}: ${name} braucht keinen späteren Tag mehr – Reinigung am ${formatDate(task.date)}.`) };
+    }
+    if (!task.latestDate || task.latestDate <= task.date) throw new Error('Für diese Reinigung gibt es keinen späteren Zeitraum');
+    const today = localParts(now, config.timezone).date;
+    const oldLast = task.latestDate;
+    const newLast = today > task.date ? today : task.date;
+    task.latestDate = newLast > task.date ? newLast : null;
+    task.lastReminderAt = null;
+    task.lastReminderReason = null;
+    task.changedAt = nowIso;
+    if (newLast < oldLast) task.releasedBlock = { from: newLast, to: oldLast, at: nowIso };
+    log(task, nowIso, `Zeitraum aufgehoben von ${name} – Reinigung ${task.latestDate ? 'bis spätestens ' + formatDate(newLast) : 'am ' + formatDate(task.date)}`);
+    const block = task.releasedBlock ? ` Blockierung in Smoobu aufheben: ${formatDate(task.releasedBlock.from)} – ${formatDate(task.releasedBlock.to)}.` : '';
+    const notifications = notify([config.owner.id], 'period', task, `Späterer Tag nicht mehr nötig: ${task.apartmentName}`,
+      `${name} reinigt doch früher – Reinigung ${task.latestDate ? 'bis spätestens ' + formatDate(newLast) : 'am ' + formatDate(task.date)} (bis ${config.finishBy} Uhr).${block}`);
+    notifications.push(...notify(team(config, task, user.id), 'period', task, 'Zeitraum aufgehoben',
+      `${task.apartmentName}: Reinigung ${task.latestDate ? 'bis spätestens ' + formatDate(newLast) : 'am ' + formatDate(task.date)}, bis ${config.finishBy} Uhr.`));
+    return { state, notifications };
+  }
+
+  /** Sperrzeit, die nach „doch früher“ in Smoobu noch aufgehoben werden sollte – solange sie dort noch besteht */
+  function blockToRelease(state, task) {
+    const r = task.releasedBlock;
+    if (!r || task.releasedBlock.done) return null;
+    const stillBlocked = Object.values(state.reservations || {}).some((b) => b.blocked && b.apartmentId === task.apartmentId
+      && b.arrival < addDays(r.to, 1) && b.departure > r.from);
+    return stillBlocked ? { from: r.from, to: r.to } : null;
+  }
+
+  /** Admin: Hinweis „Blockierung aufheben“ erledigt */
+  function releaseBlockDone(state, taskId, now) {
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (task.releasedBlock) task.releasedBlock.done = toIso(now);
+    return { state, notifications: [] };
+  }
+
   /** Offene Anträge (für den Admin) */
   function openPeriodRequests(state) {
     return Object.values(state.tasks)
@@ -1180,6 +1235,7 @@
         nextBooking: nextBooking(state, t),
         supplies: Object.keys((state.supplies || {})[t.apartmentId] || {}),
         needsBlock: needsBlock(state, t),
+        releaseBlock: blockToRelease(state, t),
         periodLimit: isActive(t) ? periodLimit(state, t, config) : null,
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
@@ -1430,7 +1486,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, nightIndex, occupancy, nightOccupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, withdrawPeriod, blockToRelease, releaseBlockDone, nightIndex, occupancy, nightOccupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

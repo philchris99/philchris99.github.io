@@ -41,6 +41,10 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (bis 22 Uhr); gilt auch für Reinigungen, die erst nach 12 bzw. 15 Uhr für heute eingetragen oder auf heute verschoben
   werden – dann kommt die Erinnerung sofort
 - Vortag nicht erledigt → einmalige Meldung
+- **Doch früher**: Reinigungskraft/Leitung kann einen genehmigten späteren Tag wieder aufheben („Doch früher – Zeitraum
+  aufheben“) bzw. einen offenen Antrag zurückziehen. Admin bekommt sofort eine Push-Nachricht mit „Blockierung in Smoobu
+  aufheben: … – …“; der Hinweis steht unter „Handlungsbedarf“, bis die Sperrzeit in Smoobu weg ist oder „Blockierung
+  aufgehoben ✓“ getippt wird
 - **Zeitraum statt fester Tag** (z. B. Check-out 01.10., Reinigung am 01. oder 02.10.): Reinigungsleitung/Mitarbeiterin tippt
   „Späteren Tag beantragen“, wählt den letzten möglichen Tag und schreibt eine kurze Begründung → Admin bekommt den Antrag
   (Push + oben „Anträge“) und genehmigt oder lehnt ab. Der Admin kann den Zeitraum auch direkt festlegen, ändern oder aufheben

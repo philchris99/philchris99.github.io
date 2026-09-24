@@ -17,6 +17,11 @@
     'Keine Internetverbindung': 'Nincs internetkapcsolat',
     // Abschluss (Vollbild), Videos, Hinweis zur Wohnung
     'Reinigung abschließen': 'Takarítás lezárása',
+    'Antrag zurückziehen': 'Kérelem visszavonása', 'Doch früher – Zeitraum aufheben': 'Mégis korábban – időszak visszavonása',
+    'Wirklich zurückziehen? Nochmal tippen': 'Biztosan visszavonod? Koppints újra', 'Wirklich früher? Nochmal tippen': 'Biztosan korábban? Koppints újra',
+    'Antrag zurückgezogen – Apartments Strauss wurde informiert': 'Kérelem visszavonva – az Apartments Strauss értesítést kapott',
+    'Zeitraum aufgehoben – Apartments Strauss wurde informiert': 'Időszak visszavonva – az Apartments Strauss értesítést kapott',
+    'Antrag zurückgezogen': 'Kérelem visszavonva',
     'Reinigungen': 'Takarítások', 'Einstellungen': 'Beállítások', 'Reinigungsteam': 'Takarítócsapat', 'Team': 'Csapat', 'Team & Meldungen': 'Csapat és bejelentések', 'Bereiche': 'Területek',
     '🗺️ Routen – empfohlene Reihenfolge je Person': '🗺️ Útvonalak – javasolt sorrend személyenként',
     'Meine Route heute': 'Mai útvonalam', 'empfohlene Reihenfolge': 'javasolt sorrend', 'Route morgen': 'Holnapi útvonal',
