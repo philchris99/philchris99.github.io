@@ -430,6 +430,9 @@ test('Fest hinterlegte Zugangscodes: Zuordnung über das Kürzel, App-Änderung 
   smoobuBookings = [booking(97, '2099-11-07', { apartment: { id: 333, name: '#DREI | Teststraße' } }),
     booking(98, '2099-11-08', { apartment: { id: 444, name: '#DREIZEHN | Andere' } })];
   await runSync(env);
+  const loc = (await me(admin)).tasks.find((t) => t.id === '97').location;
+  assert.deepEqual(loc, { address: BUILTIN['#DREI'].address, description: BUILTIN['#DREI'].description });
+  assert.ok(!JSON.stringify((await me(admin)).tasks).includes('"guest":"' + BUILTIN['#DREI'].guest), 'Codes nicht in der Übersicht');
   const c = await call('POST', '/api/tasks/97/codes', { session: admin });
   assert.deepEqual([c.body.guest, c.body.service, c.body.description], [BUILTIN['#DREI'].guest, BUILTIN['#DREI'].service, BUILTIN['#DREI'].description]);
   assert.equal((await call('POST', '/api/tasks/98/codes', { session: admin })).body.guest, BUILTIN['#DREIZEHN'].guest, '#DREI ≠ #DREIZEHN');

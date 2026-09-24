@@ -197,9 +197,15 @@ async function viewFor(env, cfg, settings, state, user, now) {
     missingKeys: user.role === 'owner' ? L.missingKeys(state) : [],
     maxPeriodDays: cfg.maxPeriodDays,
   };
-  const tasks = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg).map((t) => {
+  const list = L.listCleanings(state, { user, from: L.addDays(today, -7) }, cfg);
+  // Lage der Wohnung (Adresse, Stockwerk/Seite) – ohne Codes, die gibt es nur per Knopf
+  const apts = [...new Map(list.map((t) => [t.apartmentId, { id: t.apartmentId, name: t.apartmentName }])).values()];
+  const codes = await loadAccessCodes(env, settings, apts);
+  const tasks = list.map((t) => {
     const { history, ...rest } = t;
-    const out = { ...rest, guestPhone: cfg.showGuestPhone ? t.guestPhone : '', overdue: L.overdueReason(t, now, cfg) };
+    const b = builtinFor(t.apartmentName);
+    const out = { ...rest, guestPhone: cfg.showGuestPhone ? t.guestPhone : '', overdue: L.overdueReason(t, now, cfg),
+      location: { address: (b && b.address) || '', description: (codes[t.apartmentId] && codes[t.apartmentId].description) || '' } };
     if (user.role !== 'owner' && !cfg.showGuestNames) out.guest = '';
     if (user.role !== 'staff') out.history = history;
     return out;

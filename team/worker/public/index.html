@@ -686,6 +686,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${t.guestPhone && active ? `<a class="phone" href="tel:${esc(t.guestPhone.replace(/[^\d+]/g, ''))}" aria-label="Gast anrufen: ${esc(t.guestPhone)}">${PHONE_ICON} Gast</a>` : ''}
       </div>
       <div class="meta">${fmtLong(t.date)}${lastDay(t) > t.date ? ' – ' + fmtLong(lastDay(t)) : ''}${t.guest ? ' · ' + esc(t.guest) : ''}${t.guestPhone && active ? ' · ' + esc(t.guestPhone) : ''}</div>
+      ${t.location && (t.location.address || t.location.description) ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}
       <div class="chips">${chips(t)}</div>
       ${nextGuests(t)}
       <div class="origin">${origin}</div>
