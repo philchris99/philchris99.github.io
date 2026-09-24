@@ -53,6 +53,8 @@ globalThis.fetch = async (url, init = {}) => {
       return Response.json({ status: 401, title: 'Unauthorized', detail: 'Authentication required' }, { status: 401 });
     }
   }
+  const detail = url.match(/^https:\/\/login\.smoobu\.com\/api\/apartments\/(\d+)/);
+  if (detail) return Response.json({ rooms: { bedrooms: detail[1] === '111' ? 1 : 2, maxOccupancy: detail[1] === '111' ? 2 : 4 }, type: { name: 'Apartment' } });
   if (url.startsWith('https://login.smoobu.com/api/apartments')) {
     return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
   }
@@ -645,6 +647,29 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
   assert.ok(d5.bookedPct > 0 && d5.blockedPct === 0);
   assert.equal(d25.pct, 0);
   assert.equal(h.find((x) => x.date === today).source, 'live', 'heutiger echter Wert bleibt');
+});
+
+test('Auswertung nach Wohnungsgröße: Größe aus Smoobu, eigene Kategorie möglich, gebucht vs. inkl. Blockierungen', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(600, plus(15), { arrival: plus(0), apartment: { id: 111, name: 'FeWo Elbblick' } }), // 15 Nächte gebucht
+    { id: 601, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(6), apartment: { id: 222, name: 'Loft Altstadt' } },
+  ];
+  await runSync(env);
+  let st = (await me(admin)).stats;
+  const g1 = st.groups.find((g) => g.category === '1 Schlafzimmer');
+  const g2 = st.groups.find((g) => g.category === '2 Schlafzimmer');
+  assert.ok(g1 && g2, JSON.stringify(st.groups));
+  assert.ok(g1.bookedPct > 0);
+  assert.equal(g2.bookedPct, 0);
+  assert.ok(g2.pct > g2.bookedPct, 'Blockierung zählt nur in „inkl. Blockierungen“');
+  assert.equal(st.current.perApartment.find((a) => a.id === '111').maxOccupancy, 2);
+  // eigene Kategorie
+  assert.equal((await call('POST', '/api/apt-category', { session: lea, body: { apartmentId: '222', category: 'x' } })).status, 404);
+  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '222', category: 'Familie' } })).body.stats;
+  assert.ok(st.groups.some((g) => g.category === 'Familie'));
+  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '222', category: '' } })).body.stats;
+  assert.ok(st.groups.some((g) => g.category === '2 Schlafzimmer'));
 });
 
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {

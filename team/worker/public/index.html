@@ -179,6 +179,16 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .empty-state { margin: 18px 0 6px; padding: 18px; border: 1px dashed var(--line); border-radius: 14px; text-align: center; color: var(--muted); background: var(--card); }
 .subhead { margin: 12px 0 4px; font-weight: 700; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .notice:not(.bad) { background: var(--accent-soft); border: 1px solid var(--accent); }
+.size-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.size-row:last-child { border-bottom: 0; }
+.size-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.size-head > span { min-width: 0; }
+.size-val { flex: none; }
+.size-val { font-size: 20px; font-variant-numeric: tabular-nums; }
+.track { position: relative; height: 12px; margin: 6px 0 4px; background: var(--done-bg); border-radius: 0 4px 4px 0; }
+.track .bar { height: 12px; border-radius: 0 4px 4px 0; background: #1E64B4; }
+@media (prefers-color-scheme: dark) { .track .bar { background: #4F8FD6; } }
+.track .avg { position: absolute; top: -3px; width: 2px; height: 18px; background: var(--text); }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
@@ -445,7 +455,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   // Beim automatischen Aktualisieren nichts überschreiben, was gerade bearbeitet wird
-  const busyEditing = () => !!doneTask || openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
+  const busyEditing = () => !!doneTask || !!(document.activeElement && document.activeElement.matches && document.activeElement.matches('[data-cat-input]')) || openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
     || !$('gallery').hidden || !$('modal').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
   // ---- Offline: letzte Übersicht im Gerät merken, Aktionen zwischenspeichern und später senden ----
@@ -1235,9 +1245,47 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
       ${st.backfill ? `<p class="meta">Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen (${st.backfill.withCreated} mit Eintragungsdatum).</p>` : ''}
     </div>
+    ${sizeBlock(st)}
     <details class="more"><summary>Je Wohnung (nächste ${st.days} Nächte)</summary><div class="panel scroll"><table class="bars">${rows}</table></div></details>
+    ${categoryEditor(st)}
     <details class="more"><summary>Werte als Tabelle</summary><div class="panel scroll"><table>
       ${hist.slice().reverse().map((h) => `<tr><td>${fmt(h.date)}</td><td style="text-align:right">${pctText(h.pct)}</td><td class="meta">gebucht ${pctText(h.bookedPct)} · blockiert ${pctText(h.blockedPct)}${h.source === 'rückwirkend' ? ' · rückwirkend' : ''}</td></tr>`).join('')}</table></div></details>`;
+  }
+
+  /** Auslastung nach Wohnungsgröße: gebucht (= Nachfrage) als Balken, inkl. Blockierungen daneben */
+  function sizeBlock(st) {
+    const groups = st.groups || [];
+    if (!groups.length) return '';
+    const byId = Object.fromEntries(st.current.perApartment.map((a) => [a.id, a]));
+    const allBooked = st.current.capacity ? Math.round((st.current.bookedNights / st.current.capacity) * 1000) / 10 : 0;
+    return `<div class="panel" style="margin-top:14px">
+      <div class="eyebrow">Nach Wohnungsgröße · nächste ${st.days} Tage</div>
+      <p class="meta" style="margin:4px 0 10px">Balken = <b>gebucht</b> (echte Nachfrage). Durchschnitt aller Wohnungen: ${pctText(allBooked)} gebucht.</p>
+      <div class="size-list">${groups.map((g) => {
+        const weak = g.apartments.map((id) => byId[id]).filter((a) => a && g.count > 1 && a.bookedPct < g.bookedPct - 20);
+        const verdict = g.bookedPct >= allBooked + 10 ? '<span class="chip yes">läuft gut</span>' : g.bookedPct <= allBooked - 10 ? '<span class="chip alert">läuft schwach</span>' : '';
+        return `<div class="size-row">
+          <div class="size-head"><span><b>${esc(g.category)}</b> <span class="meta">· ${g.count} ${g.count === 1 ? 'Wohnung' : 'Wohnungen'}</span> ${verdict}</span>
+            <b class="size-val">${pctText(g.bookedPct)}</b></div>
+          <div class="track"><div class="bar" style="width:${Math.max(g.bookedPct, 0.5)}%" title="${esc(g.category)}: ${pctText(g.bookedPct)} gebucht"></div>
+            <div class="avg" style="left:${allBooked}%" title="Durchschnitt ${pctText(allBooked)}"></div></div>
+          <div class="meta">inkl. Blockierungen ${pctText(g.pct)}${weak.length ? ` · unter Gruppenschnitt: ${weak.map((a) => `${esc(a.name)} (${pctText(a.bookedPct)})`).join(', ')}` : ''}</div>
+        </div>`;
+      }).join('')}</div>
+      <p class="meta" style="margin-top:6px">Senkrechter Strich = Durchschnitt aller Wohnungen.</p>
+      ${groups.some((g) => g.category === 'ohne Angabe') ? '<p class="meta" style="margin-top:8px">„ohne Angabe“: Größe (noch) nicht aus Smoobu gelesen – unten unter „Kategorien festlegen“ selbst eintragen.</p>' : ''}
+    </div>`;
+  }
+
+  /** Größenkategorie je Wohnung selbst festlegen (leer = automatisch aus Smoobu) */
+  function categoryEditor(st) {
+    const cats = [...new Set((st.groups || []).map((g) => g.category).concat(['Studio', '1 Schlafzimmer', '2 Schlafzimmer', '3 Schlafzimmer', 'Familie']))];
+    return `<details class="more"><summary>Kategorien festlegen</summary><div class="panel">
+      <p class="meta">Standard: aus Smoobu (Schlafzimmer, sonst max. Personen). Eigene Bezeichnung überschreibt das – leer lassen für automatisch.</p>
+      <datalist id="cat-list">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
+      <table class="bars">${st.current.perApartment.map((a) => `<tr><td>${esc(a.name)}<div class="meta">${a.bedrooms != null ? `${a.bedrooms} Schlafz.` : ''}${a.bedrooms != null && a.maxOccupancy != null ? ' · ' : ''}${a.maxOccupancy != null ? `bis ${a.maxOccupancy} Pers.` : ''}${a.bedrooms == null && a.maxOccupancy == null ? 'keine Angabe aus Smoobu' : ''}</div></td>
+        <td><input list="cat-list" data-cat-input="${esc(a.id)}" value="${esc(a.ownCategory)}" placeholder="${esc(a.category)}" aria-label="Kategorie ${esc(a.name)}" style="width:100%"></td>
+        <td><button class="small" data-cat-save="${esc(a.id)}">Speichern</button></td></tr>`).join('')}</table></div></details>`;
   }
 
   /** Liniendiagramm (eine Reihe, 0–100 %), rückwirkende Werte gestrichelt */
@@ -1976,6 +2024,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         b.disabled = true;
         update(await api('/api/login-locks/release', 'POST', { ip: d.unlock }));
         toast('Freigeschaltet – wieder 3 Versuche möglich');
+      } else if (d.catSave) {
+        const input = document.querySelector(`[data-cat-input="${CSS.escape(d.catSave)}"]`);
+        b.disabled = true;
+        update(await api('/api/apt-category', 'POST', { apartmentId: d.catSave, category: input ? input.value : '' }));
+        toast('Kategorie gespeichert');
       } else if (d.backfill !== undefined) {
         b.disabled = true; b.textContent = 'Berechne …';
         const next = await api('/api/stats/backfill', 'POST', { days: 90 });

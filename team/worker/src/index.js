@@ -13,7 +13,7 @@ import {
   loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
-import { fetchBookings, fetchBooking, fetchApartments, diagnose } from './smoobu.js';
+import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
 import { deliver, sendPush } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 
@@ -117,6 +117,7 @@ export async function runSync(env, now = Date.now(), cfg) {
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
   await geocodeMissing(env, cfg, result.state, now).catch((e) => console.error('Geocoding', e.message));
   await trackOccupancy(env, cfg, result.state, now).catch((e) => console.error('Statistik', e.message));
+  await loadApartmentInfo(env, result.state, now).catch((e) => console.error('Wohnungsdetails', e.message));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
@@ -210,15 +211,67 @@ function mapsUrl(stops) {
   return 'https://www.google.com/maps/dir/?' + p.toString();
 }
 
+// ---- Wohnungsgröße aus Smoobu (Schlafzimmer, max. Personen) – höchstens 3 je Lauf, alle 30 Tage aktualisiert ----
+async function loadApartmentInfo(env, state, now) {
+  const creds = smoobuCreds(env);
+  if (!creds.key) return;
+  const settings = await loadSettings(env.DB);
+  const info = settings.aptInfo || {};
+  const todo = apartmentList(state).filter((a) => !info[a.id] || now - Date.parse(info[a.id].at) > 30 * 86400000).slice(0, 3);
+  if (!todo.length) return;
+  for (const a of todo) {
+    try {
+      info[a.id] = { ...(await fetchApartmentDetails(creds, a.id)), at: new Date(now).toISOString() };
+    } catch (e) {
+      info[a.id] = { bedrooms: null, maxOccupancy: null, type: '', failed: true, at: new Date(now).toISOString() };
+    }
+  }
+  settings.aptInfo = info;
+  await saveSettings(env.DB, settings);
+}
+
+/** Größenkategorie: eigene Festlegung des Admins, sonst aus Smoobu (Schlafzimmer, sonst max. Personen) */
+function sizeCategory(settings, id) {
+  const own = ((settings.aptCategory || {})[id] || '').trim();
+  if (own) return own;
+  const i = (settings.aptInfo || {})[id] || {};
+  if (i.bedrooms === 0) return 'Studio';
+  if (i.bedrooms != null) return i.bedrooms === 1 ? '1 Schlafzimmer' : `${i.bedrooms} Schlafzimmer`;
+  if (i.maxOccupancy != null) return `bis ${i.maxOccupancy} Personen`;
+  return 'ohne Angabe';
+}
+
+/** Auslastung je Größenkategorie (nächste 30 Nächte): gebucht (Nachfrage) und inkl. Blockierungen */
+function sizeGroups(settings, perApartment, days) {
+  const groups = new Map();
+  for (const a of perApartment) {
+    const cat = sizeCategory(settings, a.id);
+    if (!groups.has(cat)) groups.set(cat, { category: cat, apartments: [], booked: 0, blocked: 0 });
+    const g = groups.get(cat);
+    g.apartments.push(a.id);
+    g.booked += a.booked;
+    g.blocked += a.blocked;
+  }
+  const pct = (x, n) => (n ? Math.round((x / n) * 1000) / 10 : 0);
+  return [...groups.values()].map((g) => ({ ...g, count: g.apartments.length,
+    bookedPct: pct(g.booked, g.apartments.length * days), pct: pct(g.booked + g.blocked, g.apartments.length * days) }))
+    .sort((a, b) => b.bookedPct - a.bookedPct);
+}
+
 // ---- Statistik: Auslastung der nächsten 30 Nächte (Buchungen + Sperrzeiten) ----
 async function statsView(env, cfg, state, now) {
   const stats = await loadStats(env.DB);
+  const settings = await loadSettings(env.DB);
   const current = currentOccupancy(state, cfg, now);
   const names = Object.fromEntries(apartmentList(state).map((a) => [a.id, a.name]));
   const history = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0])).slice(-180).map(([date, v]) => ({ date, ...v }));
-  return { days: STAT_DAYS, current: { ...current, perApartment: Object.entries(current.perApartment)
-    .map(([id, v]) => ({ id, name: names[id] || id, ...v })).sort((a, b) => L.compareApartments(a.name, b.name)) },
-  history, backfill: stats.backfill || null };
+  const perApartment = Object.entries(current.perApartment).map(([id, v]) => {
+    const i = (settings.aptInfo || {})[id] || {};
+    return { id, name: names[id] || id, ...v, bookedPct: STAT_DAYS ? Math.round((v.booked / STAT_DAYS) * 1000) / 10 : 0,
+      category: sizeCategory(settings, id), ownCategory: ((settings.aptCategory || {})[id] || ''), bedrooms: i.bedrooms ?? null, maxOccupancy: i.maxOccupancy ?? null };
+  }).sort((a, b) => L.compareApartments(a.name, b.name));
+  return { days: STAT_DAYS, current: { ...current, perApartment }, groups: sizeGroups(settings, perApartment, STAT_DAYS),
+    history, backfill: stats.backfill || null };
 }
 
 const STAT_DAYS = 30;
@@ -780,6 +833,18 @@ async function handleApi(request, env, url, ctx) {
     stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated };
     await saveStats(env.DB, stats);
     return view((await loadState(env.DB)).state, { backfilled: added });
+  }
+
+  // Größenkategorie einer Wohnung selbst festlegen (leer = automatisch aus Smoobu)
+  if (path === '/api/apt-category' && request.method === 'POST') {
+    const body = await readJson();
+    const id = String(body.apartmentId || '');
+    if (!id) return fail('Wohnung fehlt');
+    const category = String(body.category || '').trim().slice(0, 40);
+    settings.aptCategory = { ...(settings.aptCategory || {}) };
+    if (category) settings.aptCategory[id] = category; else delete settings.aptCategory[id];
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
   }
 
   // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche

@@ -76,6 +76,10 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“): holt die Buchungen der letzten
   Monate aus Smoobu und rechnet mit dem Eintragungsdatum (`created-at`) je Tag nach, was damals schon gebucht/blockiert war;
   stornierte Buchungen zählen bis zum Storno (Änderungsdatum). Echte Tageswerte werden nie überschrieben
+- **Auswertung nach Wohnungsgröße** (Statistik): Auslastung der nächsten 30 Nächte je Größe – Balken = gebucht (Nachfrage),
+  daneben inkl. Blockierungen, Strich = Durchschnitt; „läuft gut/schwach“ (±10 Punkte) und Wohnungen deutlich unter dem
+  Schnitt ihrer Gruppe. Größe aus Smoobu (Schlafzimmer, sonst max. Personen; max. 3 Wohnungen je Lauf, alle 30 Tage neu),
+  unter „Kategorien festlegen“ eigene Bezeichnung möglich (z. B. „Studio“, „Familie“)
 - **Empfohlene Route je Tag** (heute + morgen): Mitarbeiterin sieht ihre Route, Admin/Leitung je Person. Reihenfolge:
   1. Wohnungen mit Anreise am selben Tag (nach Check-in-Zeit) 2. übrige Pflicht-Reinigungen nach kürzestem Weg
   (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und

@@ -126,6 +126,18 @@ export async function fetchApartments(creds) {
   return list.map((a) => ({ id: String(a.id), name: a.name || 'Wohnung ' + a.id }));
 }
 
+/** Details einer Wohnung (Schlafzimmer, max. Personen) – für die Auswertung nach Größe */
+export async function fetchApartmentDetails(creds, id) {
+  const d = await call(creds, `/apartments/${encodeURIComponent(id)}`);
+  const rooms = (d && (d.rooms || d.room)) || {};
+  const num = (v) => (v === '' || v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  return {
+    bedrooms: num(rooms.bedrooms ?? d?.bedrooms),
+    maxOccupancy: num(rooms.maxOccupancy ?? rooms.max_occupancy ?? d?.maxOccupancy),
+    type: (d && d.type && (d.type.name || d.type)) || '',
+  };
+}
+
 /** Eine einzelne Buchung; null, wenn sie in Smoobu gelöscht wurde. */
 export function fetchBooking(creds, id) {
   return call(creds, `/reservations/${encodeURIComponent(id)}`);
