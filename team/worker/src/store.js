@@ -29,12 +29,58 @@ export async function getPhoto(db, id) {
 }
 
 export async function deletePhotos(db, ids) {
-  for (const id of ids) await db.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+  for (const id of ids) {
+    if (id.startsWith('v')) await deleteVideo(db, id);
+    else await db.prepare('DELETE FROM photos WHERE id = ?').bind(id).run();
+  }
 }
 
 export async function pruneOldPhotos(db, olderThan) {
   await ensurePhotos(db);
   await db.prepare('DELETE FROM photos WHERE created_at < ?').bind(olderThan).run();
+  await ensureVideos(db);
+  await db.prepare('DELETE FROM media_chunks WHERE id IN (SELECT id FROM media WHERE created_at < ?)').bind(olderThan).run();
+  await db.prepare('DELETE FROM media WHERE created_at < ?').bind(olderThan).run();
+}
+
+// ---- Videos: in Stücken zu 1,9 MB (D1 erlaubt max. 2 MB je Feld) -------------
+export const VIDEO_CHUNK = 1900000;
+async function ensureVideos(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, created_at INTEGER NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, chunks INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS media_chunks (id TEXT NOT NULL, idx INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (id, idx))').run();
+}
+
+export async function saveVideo(db, { id, taskId, mime, data, now }) {
+  await ensureVideos(db);
+  const bytes = new Uint8Array(data);
+  const chunks = Math.max(1, Math.ceil(bytes.length / VIDEO_CHUNK));
+  try {
+    for (let i = 0; i < chunks; i++) {
+      const part = bytes.slice(i * VIDEO_CHUNK, (i + 1) * VIDEO_CHUNK).buffer;
+      await db.prepare('INSERT INTO media_chunks (id, idx, data) VALUES (?, ?, ?)').bind(id, i, part).run();
+    }
+    await db.prepare('INSERT INTO media (id, task_id, created_at, mime, size, chunks) VALUES (?, ?, ?, ?, ?, ?)').bind(id, taskId, now, mime, bytes.length, chunks).run();
+  } catch (e) {
+    await deleteVideo(db, id).catch(() => {});
+    throw e;
+  }
+}
+
+export async function getVideoInfo(db, id) {
+  await ensureVideos(db);
+  return db.prepare('SELECT mime, size, chunks FROM media WHERE id = ?').bind(id).first();
+}
+
+export async function getVideoChunk(db, id, idx) {
+  const row = await db.prepare('SELECT data FROM media_chunks WHERE id = ? AND idx = ?').bind(id, idx).first();
+  if (!row) return new Uint8Array(0);
+  return row.data instanceof ArrayBuffer ? new Uint8Array(row.data) : ArrayBuffer.isView(row.data) ? new Uint8Array(row.data.buffer, row.data.byteOffset, row.data.byteLength) : new Uint8Array(row.data);
+}
+
+async function deleteVideo(db, id) {
+  await ensureVideos(db);
+  await db.prepare('DELETE FROM media_chunks WHERE id = ?').bind(id).run();
+  await db.prepare('DELETE FROM media WHERE id = ?').bind(id).run();
 }
 
 // ---- Einstellungen (Team) – bleiben beim Zurücksetzen erhalten ---------------
@@ -161,8 +207,11 @@ export async function clearAttempts(db, key) {
 export async function resetAll(db) {
   await ensureTable(db);
   await ensurePhotos(db);
+  await ensureVideos(db);
   await db.prepare('DELETE FROM app_state').run();
   await db.prepare('DELETE FROM photos').run();
+  await db.prepare('DELETE FROM media').run();
+  await db.prepare('DELETE FROM media_chunks').run();
 }
 
 export async function loadState(db) {

@@ -54,6 +54,20 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
 - Beginn und Ende der Reinigung mit Dauer
+- **Reinigung abschließen** als eigener Vollbild-Ablauf (man landet nicht versehentlich bei einer anderen Reinigung):
+  1. Checkliste (Pflicht) 2. Fotos/Videos 3. Was ist knapp 4. Was wurde gemacht 5. Gästeschlüssel (Pflicht).
+  Fotos/Videos/Text werden als „Abschlussbericht“ gespeichert (kein offenes Problem). Admin bekommt
+  **„Wohnung fertig: … – Fertig um 11:40 Uhr“** mit nächster Anreise und Gästezahl
+- **Videos** bei Meldungen und beim Abschluss (max. 2 je Meldung, je 40 MB ≈ 30 Sek.), in der D1-Datenbank in Stücken
+  gespeichert und mit „Range“ abspielbar (iPhone); werden wie Fotos nach 45 Tagen gelöscht
+- **Admin verschiebt jede Reinigung** („📅 Verschieben“, auch aus Smoobu, z. B. eine Woche nach Check-out; nicht nach der
+  nächsten Anreise). Hinweis „⚠ In Smoobu blockieren: … – …“, bis dort eine passende Sperrzeit angekommen ist
+- **Alle Datumsänderungen** (Admin verschiebt, Check-out früher/später in Smoobu) gehen als **wichtige** Push-Nachricht mit
+  Anzahl Tage an Reinigungsleitung und zugewiesene Mitarbeiterin; auf der Karte „⚠ Datum geändert – vorher …“ bis zur
+  neuen Bestätigung. Hat der Admin die Reinigung auf einen späteren Tag gelegt, bleibt dieser, solange er nach dem neuen
+  Check-out liegt
+- **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
+  und im Abschluss-Ablauf
 - **Checkliste (Pflicht)** vor dem Beenden: feste Punkte (Bettwäsche, Bad, Küche, Böden, Staub, Müll, Verbrauchsmaterial,
   Fenster/Heizung, Licht/abschließen) – anpassbar in `logic/logic.js` (`checklist`, deutsch + ungarisch)
 - **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Kaffee, Spülmittel …; `supplies` in `logic/logic.js`), auch beim

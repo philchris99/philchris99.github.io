@@ -140,6 +140,17 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .supply-grid label.reported { opacity: .6; cursor: default; }
 .offline { position: sticky; top: 0; z-index: 12; margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--open-bg); color: var(--open); font-weight: 650; font-size: 14px; }
 .lang { min-height: 30px; padding: 2px 10px; font-size: 13px; margin-left: 6px; }
+.apt-note { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: #FFF4D6; color: #3A2E0A; border: 1px solid #E8C96A; font-size: 15px; }
+@media (prefers-color-scheme: dark) { .apt-note { background: #3A300F; color: #F3E3B0; border-color: #6B5A1E; } }
+.vthumb { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: #222; color: #fff; font-size: 13px; font-weight: 700; }
+.thumb video { width: 100%; height: 100%; object-fit: cover; }
+.finish { position: fixed; inset: 0; z-index: 28; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.finish-inner { max-width: 640px; margin: 0 auto; padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+.finish-head { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 10px 0; border-bottom: 2px solid var(--accent); margin-bottom: 8px; }
+.finish .step { margin-top: 14px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+.finish .step > b:first-child { display: block; font-size: 17px; margin-bottom: 6px; }
+.finish .step .num { display: inline-flex; width: 26px; height: 26px; border-radius: 99px; background: var(--accent); color: #fff; align-items: center; justify-content: center; font-size: 14px; margin-right: 8px; }
+#g-vid { max-width: 100%; max-height: 100%; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
@@ -281,10 +292,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 <main id="app"><p class="empty" style="margin-top:24px">Wird geladen …</p></main>
 <div class="gallery" id="gallery" hidden role="dialog" aria-modal="true" aria-label="Fotos">
   <div class="bar"><span id="g-count"></span><button type="button" id="g-close">Schließen ✕</button></div>
-  <div class="stage" id="g-stage"><img id="g-img" alt="Foto"></div>
+  <div class="stage" id="g-stage"><img id="g-img" alt="Foto"><video id="g-vid" controls playsinline hidden></video></div>
   <div class="navs"><button type="button" class="nav" id="g-prev">‹ Zurück</button><button type="button" class="nav" id="g-next">Weiter ›</button></div>
 </div>
 <div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="sheet" id="modal-body"></div></div>
+<div class="finish" id="finish" hidden role="dialog" aria-modal="true" aria-label="Reinigung abschließen"></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
 <script src="/i18n-hu.js"></script>
@@ -372,7 +384,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let doneTask = null;           // Reinigung mit offenem „Beenden“-Formular (Checkliste, Schlüssel)
   const shownCodes = {};         // abgerufene Zugangscodes je Reinigung (nur im Speicher, verschwinden automatisch)
   let codeEditor = null;         // Admin: Zugangscodes bearbeiten
-  let supplyTask = null;         // Reinigung mit offenem „Knapp melden“-Formular
+  let supplyTask = null;
+  let moveTask = null;           // Admin: Reinigung auf anderen Tag legen
+  let aptNoteTask = null;        // Admin: Übergabe-Notiz der Wohnung bearbeiten         // Reinigung mit offenem „Knapp melden“-Formular
   let lockTimer = null;
   const openForms = new Set();   // Reinigungen mit offenem Hinweis-Formular
   const pending = {};            // ausgewählte, noch nicht gesendete Fotos je Reinigung
@@ -403,7 +417,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   // Beim automatischen Aktualisieren nichts überschreiben, was gerade bearbeitet wird
-  const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
+  const busyEditing = () => !!doneTask || openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
     || !$('gallery').hidden || !$('modal').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
   // ---- Offline: letzte Übersicht im Gerät merken, Aktionen zwischenspeichern und später senden ----
@@ -632,6 +646,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       else out.push(`<span class="chip ${t.staffConfirmedAt ? 'yes' : 'wait'}">${esc(nameOf(t.assignedTo))} ${t.staffConfirmedAt ? '✓' : 'offen'}</span>`);
       if (t.startedAt) out.push(`<span class="chip run">läuft seit ${clock(t.startedAt)}</span>`);
     }
+    if (t.prevDate && isActive(t) && !t.staffConfirmedAt) out.push(`<span class="chip alert">⚠ Datum geändert – vorher ${esc(fmt(t.prevDate))}</span>`);
+    if (t.checkoutDate && t.checkoutDate !== t.date && isActive(t)) out.push(`<span class="chip wait">Check-out ${esc(fmt(t.checkoutDate))} · Reinigung verschoben</span>`);
+    if (t.needsBlock && role() === 'owner') out.push(`<span class="chip alert">⚠ In Smoobu blockieren: ${esc(fmt(t.needsBlock.from))} – ${esc(fmt(t.needsBlock.to))}</span>`);
     if (lastDay(t) > t.date && t.status !== 'erledigt') out.push(`<span class="chip period">Zeitraum ${esc(periodLabel(t))}</span>`);
     const req = t.periodRequest;
     if (req && req.status === 'offen' && isActive(t)) out.push(`<span class="chip wait">Zeitraum bis ${esc(fmt(req.until))} beantragt</span>`);
@@ -647,10 +664,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const author = r.byRole === 'owner' ? 'Apartments Strauss' : nameOf(r.by);
     const ids = r.photos.join(',');
     return `<div class="report${r.byRole === 'owner' ? ' owner' : ''}${r.resolved ? ' resolved' : ''}">
-      <div class="meta"><b>${r.byRole === 'owner' ? 'Hinweis von ' : ''}${esc(author)}</b> · ${fmtTime(r.at)}${r.resolved ? ' · behoben' : ''}</div>
+      <div class="meta"><b>${r.final ? 'Abschlussbericht · ' : r.byRole === 'owner' ? 'Hinweis von ' : ''}${esc(author)}</b> · ${fmtTime(r.at)}${r.resolved && !r.final ? ' · behoben' : ''}</div>
       ${r.text ? `<p>${esc(r.text)}</p>` : ''}
       ${r.photos.length ? `<div class="thumbs">${r.photos.map((p, i) => `<div class="thumb">
-        <button type="button" data-gallery="${esc(ids)}" data-index="${i}" aria-label="Foto ${i + 1} öffnen"><img src="${photoUrl(p)}" alt="" loading="lazy"></button>
+        <button type="button" data-gallery="${esc(ids)}" data-index="${i}" aria-label="${p.startsWith('v') ? 'Video' : 'Foto'} ${i + 1} öffnen">${p.startsWith('v')
+          ? '<span class="vthumb">▶ Video</span>' : `<img src="${photoUrl(p)}" alt="" loading="lazy">`}</button>
         ${mine ? `<button type="button" class="x" data-delphoto="${esc(p)}" data-task="${esc(t.id)}" data-report="${esc(r.id)}" aria-label="Foto löschen">✕</button>` : ''}
       </div>`).join('')}</div>` : ''}
       ${role() === 'owner' && !r.resolved && r.byRole !== 'owner' ? `<div class="actions"><button class="small" data-resolve="${esc(t.id)}" data-report="${esc(r.id)}">Als behoben markieren</button></div>` : ''}
@@ -664,16 +682,19 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <textarea name="text" id="text-${esc(t.id)}" placeholder="${role() === 'owner' ? 'z. B. Bitte Kaffee auffüllen …' : 'z. B. Handtücher fehlen, Glühbirne im Bad defekt …'}"></textarea></label>
       <div class="pick">
         <label>Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
-        <label>Aus Galerie<input type="file" accept="image/*" multiple data-photo-input="${esc(t.id)}"></label>
+        <label>Video aufnehmen<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
+        <label>Aus Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(t.id)}"></label>
       </div>
       <div class="thumbs" data-previews="${esc(t.id)}">${previewsHtml(t.id)}</div>
       <button class="primary" type="submit">${role() === 'owner' ? 'Hinweis senden' : 'Meldung senden'}</button>
     </form>`;
   }
   function previewsHtml(taskId) {
-    return (pending[taskId] || []).map((p, i) => `<div class="thumb"><button type="button" tabindex="-1"><img src="${p.url}" alt="Ausgewähltes Foto ${i + 1}"></button>
-      <button type="button" class="x" data-unpick="${esc(taskId)}" data-index="${i}" aria-label="Foto entfernen">✕</button></div>`).join('');
+    return (pending[taskId] || []).map((p, i) => `<div class="thumb"><button type="button" tabindex="-1">${p.file.type.startsWith('video/')
+      ? `<video src="${p.url}" muted playsinline preload="metadata"></video>` : `<img src="${p.url}" alt="Ausgewähltes Foto ${i + 1}">`}</button>
+      <button type="button" class="x" data-unpick="${esc(taskId)}" data-index="${i}" aria-label="Entfernen">✕</button></div>`).join('');
   }
+
 
   function editForm(t) {
     return `<form class="report-form" data-edit-task="${esc(t.id)}">
@@ -773,22 +794,71 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </form>`;
   }
 
-  /** Pflicht-Checkpunkt vor dem Beenden: Gästeschlüssel in der Box? */
-  function doneForm(t) {
-    return `<form class="keys-check" data-done-form="${esc(t.id)}">
-      <fieldset class="checklist"><legend>Checkliste – bitte alles abhaken <span style="color:var(--bad)">*</span></legend>
-        ${(data.checklist || []).map((c) => `<label><input type="checkbox" name="check" value="${esc(c.id)}" required> ${esc(itemLabel(c))}</label>`).join('')}
-      </fieldset>
-      <details style="margin-top:10px"><summary><b>Was ist knapp?</b> (optional)</summary>${supplyGrid(t, 'supply')}</details>
-      <fieldset style="margin-top:12px"><legend>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></legend>
+  /** Admin: Reinigung (auch aus Smoobu) auf einen anderen Tag legen */
+  function moveForm(t) {
+    const checkout = t.checkoutDate || t.date;
+    const min = checkout > data.today ? checkout : data.today;
+    return `<form class="report-form" data-move-form="${esc(t.id)}">
+      <p class="meta">Check-out ${fmtLong(checkout)}. Das Team wird sofort informiert und muss neu bestätigen.
+        <br><b style="color:var(--bad)">Wichtig: Liegt die Reinigung nach dem Check-out, den Zeitraum bis zur Reinigung in Smoobu blockieren,
+        damit dort kein Gast bucht.</b></p>
+      <div class="form-grid"><label class="field">Reinigung am <input type="date" name="date" value="${esc(t.date)}" min="${esc(min)}" required></label>
+        <button class="primary" type="submit">Verschieben und Team informieren</button></div>
+    </form>`;
+  }
+
+  /** Admin: Übergabe-Notiz der Wohnung – steht bei jeder Reinigung dieser Wohnung */
+  function aptNoteForm(t) {
+    return `<form class="report-form" data-apt-note-form="${esc(t.apartmentId)}">
+      <label class="field">Hinweis zur Wohnung (gilt für alle Reinigungen dieser Wohnung, bis er gelöscht wird)
+        <textarea name="text" rows="3" maxlength="1000" placeholder="z. B. Kinderbett aufgebaut lassen · Heizung im Bad klemmt · Schlüssel für Keller im Schrank">${esc(t.aptNote || '')}</textarea></label>
+      <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-apt-note-close>Abbrechen</button></div>
+    </form>`;
+  }
+
+  // ---- Reinigung abschließen: eigener Vollbild-Ablauf (Checkliste, Fotos/Videos, knapp, Bericht, Schlüssel) ----
+  function openFinish(id) {
+    doneTask = id;
+    renderFinish();
+    $('finish').hidden = false;
+    document.body.style.overflow = 'hidden';
+    $('finish').scrollTop = 0;
+  }
+  function closeFinish() {
+    doneTask = null;
+    $('finish').hidden = true;
+    $('finish').innerHTML = '';
+    document.body.style.overflow = '';
+  }
+  function renderFinish() {
+    const t = (data.tasks || []).find((x) => x.id === doneTask);
+    if (!t) return closeFinish();
+    const key = 'f' + t.id;
+    $('finish').innerHTML = `<div class="finish-inner"><form data-finish-form="${esc(t.id)}">
+      <div class="finish-head"><div class="eyebrow">Reinigung abschließen</div><h2>${esc(t.apartmentName)}</h2>
+        ${t.location && t.location.address ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}</div>
+      ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
+      <div class="step checklist"><b><span class="num">1</span>Checkliste – bitte alles abhaken <span style="color:var(--bad)">*</span></b>
+        ${(data.checklist || []).map((c) => `<label><input type="checkbox" name="check" value="${esc(c.id)}" required> ${esc(itemLabel(c))}</label>`).join('')}</div>
+      <div class="step"><b><span class="num">2</span>Fotos / Videos</b> <span class="meta">(optional, z. B. Bad, Küche, Schäden – max. 5 Fotos, 2 Videos à 40 MB)</span>
+        <div class="pick">
+          <label>Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(key)}"></label>
+          <label>Video aufnehmen<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(key)}"></label>
+          <label>Aus Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(key)}"></label>
+        </div>
+        <div class="thumbs" data-previews="${esc(key)}">${previewsHtml(key)}</div></div>
+      <div class="step"><b><span class="num">3</span>Was ist knapp oder fehlt?</b> <span class="meta">(optional)</span>${supplyGrid(t, 'supply')}</div>
+      <div class="step"><b><span class="num">4</span>Was wurde gemacht? Besonderheiten?</b> <span class="meta">(optional)</span>
+        <textarea name="report" rows="3" maxlength="2000" placeholder="z. B. Fenster geputzt, Kaffeemaschine entkalkt, Fleck auf dem Sofa"></textarea></div>
+      <fieldset class="step keys-check" style="border:1px solid var(--line)"><legend style="display:contents"><b><span class="num">5</span>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></b></legend>
         <label class="choice"><input type="radio" name="keys" value="1" required> Ja, Schlüssel sind in der Box</label>
         <label class="choice no"><input type="radio" name="keys" value="0"> Nein, Schlüssel fehlen</label>
-      </fieldset>
-      <label class="field" style="margin-top:10px">Bei „Nein“: was ist passiert? (optional)
-        <input name="note" maxlength="500" placeholder="z. B. nur 1 von 2 Schlüsseln, Gast nicht erreichbar"></label>
-      <p class="meta" style="margin-top:6px">Bei „Nein“ wird Apartments Strauss sofort per Push benachrichtigt.</p>
-      <div class="actions"><button class="primary" type="submit">Reinigung beenden</button><button type="button" data-done-cancel>Abbrechen</button></div>
-    </form>`;
+        <label class="field" style="margin-top:10px">Bei „Nein“: was ist passiert? (optional)
+          <input name="note" maxlength="500" placeholder="z. B. nur 1 von 2 Schlüsseln, Gast nicht erreichbar"></label>
+        <p class="meta" style="margin-top:6px">Bei „Nein“ wird Apartments Strauss sofort per Push benachrichtigt.</p></fieldset>
+      <div class="actions" style="margin-top:16px"><button class="primary" type="submit">Reinigung abschließen</button><button type="button" data-finish-close>Abbrechen</button></div>
+    </form></div>`;
+    translate($('finish'));
   }
 
   function periodForm(t) {
@@ -868,7 +938,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const canWork = active && r !== 'owner' && mineToDo && !!t.staffConfirmedAt;
     if (canWork) {
       if (!t.startedAt) actions.push(`<button class="go" data-start="${esc(t.id)}">Reinigung beginnen</button>`);
-      if (doneTask !== t.id) actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Erledigt melden</button>`);
+      actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Reinigung abschließen</button>`);
     }
     if (t.status !== 'storniert') actions.push(`<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Schließen' : r === 'owner' ? 'Hinweis / Foto hinzufügen' : 'Hinweis / Problem melden'}</button>`);
     const doneToday = t.status === 'erledigt' && t.doneAt && t.doneAt.slice(0, 10) >= addDays(data.today, -1);
@@ -884,6 +954,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       actions.push(`<button class="small" data-period="${esc(t.id)}">${periodTask === t.id ? 'Zeitraum schließen'
         : r === 'owner' ? (t.latestDate ? 'Zeitraum ändern' : 'Zeitraum festlegen') : 'Späteren Tag beantragen'}</button>`);
     }
+    if (r === 'owner' && !t.manual && active) actions.push(`<button class="small" data-move="${esc(t.id)}">${moveTask === t.id ? 'Schließen' : '📅 Verschieben'}</button>`);
+    if (r === 'owner') actions.push(`<button class="small" data-apt-note="${esc(t.id)}">${aptNoteTask === t.id ? 'Schließen' : '📌 Hinweis zur Wohnung'}</button>`);
     if (r === 'owner' && t.manual && active) {
       actions.push(`<button class="small" data-edit-task="${esc(t.id)}">Bearbeiten / verschieben</button>`);
       actions.push(`<button class="danger small" data-cancel="${esc(t.id)}">Absagen</button>`);
@@ -897,6 +969,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div>
       <div class="meta">${fmtLong(t.date)}${lastDay(t) > t.date ? ' – ' + fmtLong(lastDay(t)) : ''}${t.guest ? ' · ' + esc(t.guest) : ''}${t.guestPhone && active ? ' · ' + esc(t.guestPhone) : ''}</div>
       ${t.location && (t.location.address || t.location.description) ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}
+      ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
       <div class="chips">${chips(t)}</div>
       ${nextGuests(t)}
       <div class="origin">${origin}</div>
@@ -909,7 +982,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${shownCodes[t.id] ? codesBox(shownCodes[t.id]) : ''}
       ${supplyTask === t.id ? supplyForm(t) : ''}
       ${periodTask === t.id ? periodForm(t) : ''}
-      ${doneTask === t.id && canWork ? doneForm(t) : ''}
+      ${moveTask === t.id ? moveForm(t) : ''}
+      ${aptNoteTask === t.id ? aptNoteForm(t) : ''}
       ${openForms.has(t.id) ? reportForm(t) : ''}
       ${t.history ? `<details class="meta" style="margin-top:8px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
     </article>`;
@@ -1124,6 +1198,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const apartments = data.apartments || [];
     const urgent = [
       ...locks.filter((l) => l.blocked).map((l) => ['sperren', `Anmeldung dauerhaft gesperrt: Adresse ${l.ip} – freischalten?`]),
+      ...active.filter((t) => t.needsBlock).map((t) => [`task-${t.id}`, `In Smoobu blockieren: ${t.apartmentName} ${fmt(t.needsBlock.from)} – ${fmt(t.needsBlock.to)} (Reinigung verschoben)`]),
       ...keys.map((k) => [`task-${k.taskId}`, `Schlüssel fehlen: ${k.apartmentName} (gemeldet ${clock(k.doneAt)} von ${nameOf(k.doneBy)})${k.note ? ' – ' + k.note : ''}`]),
       ...requests.map((q) => [`task-${q.taskId}`, `Antrag: ${q.apartmentName} – Reinigung bis ${fmt(q.until)} (${nameOf(q.by)})`]),
       ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${
@@ -1367,7 +1442,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   // ---- Galerie ----------------------------------------------------------------
   const gallery = { ids: [], index: 0, x: null };
   function showPhoto() {
-    $('g-img').src = photoUrl(gallery.ids[gallery.index]);
+    const cur = gallery.ids[gallery.index];
+    const isVideo = cur.startsWith('v');
+    $('g-img').hidden = isVideo; $('g-vid').hidden = !isVideo;
+    if (isVideo) { $('g-img').removeAttribute('src'); $('g-vid').src = photoUrl(cur); } else { $('g-vid').pause(); $('g-vid').removeAttribute('src'); $('g-img').src = photoUrl(cur); }
     $('g-count').textContent = `Foto ${gallery.index + 1} von ${gallery.ids.length}`;
     $('g-prev').hidden = $('g-next').hidden = gallery.ids.length < 2;
   }
@@ -1378,7 +1456,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     document.body.style.overflow = 'hidden';
     $('g-close').focus();
   }
-  function closeGallery() { $('gallery').hidden = true; document.body.style.overflow = ''; $('g-img').removeAttribute('src'); }
+  function closeGallery() { $('gallery').hidden = true; document.body.style.overflow = ''; $('g-img').removeAttribute('src'); $('g-vid').pause(); $('g-vid').removeAttribute('src'); }
   function step(d) { gallery.index = (gallery.index + d + gallery.ids.length) % gallery.ids.length; showPhoto(); }
   $('g-close').onclick = closeGallery;
   $('g-prev').onclick = () => step(-1);
@@ -1438,7 +1516,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (!id) return;
     const list = pending[id] = pending[id] || [];
     for (const f of e.target.files) {
-      if (list.length >= 5) { toast('Höchstens 5 Fotos pro Meldung'); break; }
+      const isVideo = f.type.startsWith('video/');
+      if (isVideo && f.size > 40 * 1024 * 1024) { toast('Video zu groß (max. 40 MB) – bitte kürzer aufnehmen, ca. 30 Sekunden'); continue; }
+      if (isVideo && list.filter((x) => x.file.type.startsWith('video/')).length >= 2) { toast('Höchstens 2 Videos pro Meldung'); continue; }
+      if (!isVideo && list.filter((x) => !x.file.type.startsWith('video/')).length >= 5) { toast('Höchstens 5 Fotos pro Meldung'); continue; }
       list.push({ file: f, url: URL.createObjectURL(f) });
     }
     e.target.value = '';
@@ -1465,7 +1546,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         submit.textContent = photos.length ? 'Fotos werden vorbereitet …' : 'Wird gesendet …';
         const body = new FormData();
         body.append('text', text);
-        for (const p of photos) body.append('photo', await compress(p.file), 'foto.jpg');
+        for (const p of photos) body.append('photo', p.file.type.startsWith('video/') ? p.file : await compress(p.file), p.file.type.startsWith('video/') ? p.file.name || 'video.mp4' : 'foto.jpg');
         submit.textContent = 'Wird gesendet …';
         const next = await api(`/api/tasks/${encodeURIComponent(id)}/report`, 'POST', body);
         photos.forEach((p) => URL.revokeObjectURL(p.url));
@@ -1478,6 +1559,44 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         editTask = null;
         update(next);
         toast('Gespeichert – das Team wurde informiert');
+      } else if (form.dataset.finishForm) {
+        const id = form.dataset.finishForm;
+        const checked = [...form.querySelectorAll('input[name=check]:checked')].map((i) => i.value);
+        if (checked.length < (data.checklist || []).length) throw new Error('Bitte zuerst alle Punkte der Checkliste abhaken');
+        const choice = form.elements.keys.value;
+        if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
+        const supplies = [...form.querySelectorAll('input[name=supply]:checked')].map((i) => i.value);
+        const text = form.elements.report.value.trim();
+        const media = pending['f' + id] || [];
+        if (text || media.length) {
+          submit.textContent = tr(media.some((p) => p.file.type.startsWith('video/')) ? 'Wird hochgeladen … (Videos können etwas dauern)' : 'Wird gesendet …');
+          const body = new FormData();
+          body.append('text', text);
+          body.append('final', '1');
+          for (const p of media) body.append('photo', p.file.type.startsWith('video/') ? p.file : await compress(p.file), p.file.type.startsWith('video/') ? p.file.name || 'video.mp4' : 'foto.jpg');
+          try {
+            await api(`/api/tasks/${encodeURIComponent(id)}/report`, 'POST', body);
+            media.forEach((p) => URL.revokeObjectURL(p.url));
+            delete pending['f' + id];
+          } catch (err) {
+            if (!err.offline || !confirm(tr('Keine Verbindung: Fotos, Videos und Text können gerade nicht gesendet werden. Trotzdem ohne sie abschließen?'))) throw err;
+          }
+        }
+        await sendAction(id, 'done', { keysInBox: choice === '1', keysNote: form.elements.note.value, checklist: checked, supplies },
+          choice === '1' ? 'Als erledigt gemeldet – danke!' : 'Erledigt gemeldet – Apartments Strauss wurde sofort wegen der Schlüssel benachrichtigt');
+        closeFinish();
+        render();
+      } else if (form.dataset.moveForm) {
+        const next = await api(`/api/tasks/${encodeURIComponent(form.dataset.moveForm)}/move`, 'POST', { date: form.elements.date.value });
+        moveTask = null;
+        update(next);
+        const t = next.tasks.find((x) => x.id === form.dataset.moveForm);
+        toast(t && t.needsBlock ? `Verschoben – Team informiert. Bitte in Smoobu blockieren: ${fmt(t.needsBlock.from)} – ${fmt(t.needsBlock.to)}` : 'Verschoben – das Team wurde informiert');
+      } else if (form.dataset.aptNoteForm) {
+        update(await api('/api/apt-notes', 'POST', { apartmentId: form.dataset.aptNoteForm, text: form.elements.text.value }));
+        aptNoteTask = null;
+        render();
+        toast('Hinweis zur Wohnung gespeichert');
       } else if (form.dataset.doneForm) {
         const choice = form.elements.keys.value;
         if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
@@ -1610,9 +1729,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.start) {
         b.disabled = true; await taskAction(d.start, 'start', null, 'Beginn erfasst');
       } else if (d.done) {
-        doneTask = d.done; render();
-        const f = document.querySelector(`[data-done-form="${CSS.escape(d.done)}"]`);
-        if (f) f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        openFinish(d.done);
+      } else if (d.finishClose !== undefined) {
+        closeFinish();
+      } else if (d.move) {
+        moveTask = moveTask === d.move ? null : d.move; render();
+      } else if (d.aptNote) {
+        aptNoteTask = aptNoteTask === d.aptNote ? null : d.aptNote; render();
+      } else if (d.aptNoteClose !== undefined) {
+        aptNoteTask = null; render();
       } else if (d.doneCancel !== undefined) {
         doneTask = null; render();
       } else if (d.keysResolved) {

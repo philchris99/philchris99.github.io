@@ -3,7 +3,7 @@
 import { allUsers, findUser, topicFor, loginLink } from './auth.js';
 
 // 5 = höchste Stufe (Alarm, durchdringend), 4 = hoch, 3 = normal, 2 = leise
-const PRIORITY = { supplies: 3, security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 4, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
+const PRIORITY = { supplies: 3, security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 5, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
 const TAGS = { supplies: ['shopping_cart'], security: ['warning'], keys: ['key', 'rotating_light'], late: ['rotating_light'], reminder2: ['rotating_light'], reminder: ['alarm_clock'], overdue: ['rotating_light'], new: ['broom'], assigned: ['broom'],
   rescheduled: ['calendar'], request: ['calendar'], period: ['calendar'], cancelled: ['x'], report: ['memo'], note: ['memo'], confirmed: ['white_check_mark'], done: ['sparkles'] };
 const GROUP_TITLES = { new: 'neue Reinigungen', late: 'Reinigungen nicht bestätigt', reminder: 'Reinigungen noch nicht gestartet',
@@ -31,9 +31,10 @@ const HU_TITLES = {
   'Antrag nicht mehr möglich': 'A kérelem már nem lehetséges',
   'Hinweis geändert': 'Megjegyzés módosítva',
   'Test-Nachricht': 'Tesztüzenet',
+  'Check-out geändert – wichtig': 'Check-out módosult – fontos',
 };
 const HU_PREFIX = [['Hinweis von Apartments Strauss: ', 'Megjegyzés – Apartments Strauss: '], ['Meldung: ', 'Bejelentés: '],
-  ['Knapp: ', 'Kevés: '], ['Antrag: ', 'Kérelem: ']];
+  ['Knapp: ', 'Kevés: '], ['Antrag: ', 'Kérelem: '], ['Wohnung fertig: ', 'Lakás kész: ']];
 const HU_GROUP = { 'neue Reinigungen für dich': 'új takarítás neked', 'Reinigungen noch nicht gestartet': 'takarítás még nem kezdődött el',
   'Reinigungen noch nicht beendet': 'takarítás még nincs befejezve', 'Reinigungen nicht erledigt': 'takarítás nincs elvégezve',
   'Reinigungen verschoben': 'takarítás áthelyezve', 'Reinigungen entfallen': 'takarítás elmarad', 'Hinweise zu Reinigungen': 'értesítés takarításokról' };

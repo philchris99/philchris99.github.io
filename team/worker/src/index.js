@@ -9,6 +9,7 @@ import {
 } from './auth.js';
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
+  saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
   loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
@@ -25,6 +26,7 @@ const clean = (v) => (v || '').trim().replace(/^["'„“]+|["'“”]+$/g, '').
 const smoobuCreds = (env) => ({ key: clean(env.SMOOBU_API_KEY), secret: clean(env.SMOOBU_API_SECRET) });
 
 // Anmeldung: nach 3 falschen Codes 1 Minute gesperrt; Admin-Passwort 5 Versuche / 15 Min.
+const MAX_VIDEO = 40 * 1024 * 1024;
 const BLOCKED_TEXT = 'Anmeldung von diesem Gerät gesperrt – bitte Apartments Strauss anrufen, damit der Zugang wieder freigeschaltet wird';
 const waitText = (sec) => (sec >= 90 ? `${Math.ceil(sec / 60)} Minuten` : `${sec} Sekunden`);
 // Zusätzlich systemweit (gegen Durchprobieren von vielen Adressen aus): 30 Fehlversuche/Std. → 1 Std. Sperre + Push an Admin.
@@ -226,7 +228,8 @@ async function viewFor(env, cfg, settings, state, user, now) {
     const { history, ...rest } = t;
     const b = builtinFor(t.apartmentName);
     const out = { ...rest, guestPhone: cfg.showGuestPhone ? t.guestPhone : '', overdue: L.overdueReason(t, now, cfg),
-      location: { address: (b && b.address) || '', description: (codes[t.apartmentId] && codes[t.apartmentId].description) || '' } };
+      location: { address: (b && b.address) || '', description: (codes[t.apartmentId] && codes[t.apartmentId].description) || '' },
+      aptNote: ((settings.aptNotes || {})[t.apartmentId] || {}).text || '' };
     if (user.role !== 'owner' && !cfg.showGuestNames) out.guest = '';
     if (user.role !== 'staff') out.history = history;
     return out;
@@ -240,6 +243,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     lastSync: state.lastSync || null, lastSyncCount: state.lastSyncCount ?? null, lastRun: state.lastRun || null, syncError: state.syncError || null,
     pushReport: state.pushReport || null,
     loginLocks: await listCodeLocks(env.DB, now),
+    aptNotes: settings.aptNotes || {},
     rules: { startBy: cfg.startBy, finishBy: cfg.finishBy, repeatMinutes: cfg.repeatMinutes, quietFrom: cfg.quietFrom },
     apartments: apartmentList(state),
     webhookUrl: `${cfg.appUrl}/api/smoobu-webhook/${await webhookToken(env)}`,
@@ -439,11 +443,20 @@ async function handleApi(request, env, url, ctx) {
     const form = await request.formData().catch(() => null);
     if (!form) return fail('Ungültige Anfrage');
     const files = form.getAll('photo').filter((f) => f && typeof f !== 'string');
-    if (files.length > 5) return fail('Höchstens 5 Fotos pro Meldung');
+    const videos = files.filter((f) => /^video\//.test(f.type));
+    if (files.length - videos.length > 5) return fail('Höchstens 5 Fotos pro Meldung');
+    if (videos.length > 2) return fail('Höchstens 2 Videos pro Meldung');
     const photoIds = [];
     try {
       for (const file of files) {
-        if (!/^image\//.test(file.type)) throw new Error('Nur Bilder können angehängt werden');
+        if (/^video\//.test(file.type)) {
+          if (file.size > MAX_VIDEO) throw new Error('Ein Video ist zu groß (max. 40 MB – bitte kürzer aufnehmen, ca. 30 Sekunden)');
+          const vid = 'v' + crypto.randomUUID();
+          await saveVideo(env.DB, { id: vid, taskId, mime: file.type, data: await file.arrayBuffer(), now });
+          photoIds.push(vid);
+          continue;
+        }
+        if (!/^image\//.test(file.type)) throw new Error('Nur Fotos und Videos können angehängt werden');
         if (file.size > 1900000) throw new Error('Ein Foto ist zu groß (max. 1,9 MB)');
         const pid = 'p' + crypto.randomUUID();
         await savePhoto(env.DB, { id: pid, taskId, mime: file.type, data: await file.arrayBuffer(), now });
@@ -451,13 +464,42 @@ async function handleApi(request, env, url, ctx) {
       }
       const reportId = 'r' + crypto.randomUUID().slice(0, 12);
       const result = await mutate(env.DB, (st) =>
-        L.addReport(st, taskId, user, { id: reportId, text: String(form.get('text') || ''), photos: photoIds }, now, cfg), now);
+        L.addReport(st, taskId, user, { id: reportId, text: String(form.get('text') || ''), photos: photoIds, final: form.get('final') === '1' }, now, cfg), now);
       ctx.waitUntil(deliver(env, cfg, result.notifications));
       return view(result.state);
     } catch (e) {
       await deletePhotos(env.DB, photoIds).catch(() => {});
       return fail(e.message, 400);
     }
+  }
+
+  /** Video in Stücken ausliefern – mit „Range“ (iPhone/Safari spielt Videos nur so ab) */
+  async function serveVideo(id) {
+    const info = await getVideoInfo(env.DB, id);
+    if (!info) return fail('Video nicht gefunden', 404);
+    const size = info.size;
+    let start = 0, end = size - 1, partial = false;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get('Range') || '');
+    if (m && (m[1] || m[2])) {
+      partial = true;
+      if (m[1]) { start = Number(m[1]); if (m[2]) end = Math.min(Number(m[2]), size - 1); } else { start = Math.max(0, size - Number(m[2])); }
+      if (start >= size || start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+      end = Math.min(end, start + 2 * VIDEO_CHUNK - 1); // höchstens ~4 MB je Antwort, der Browser holt den Rest nach
+    }
+    const first = Math.floor(start / VIDEO_CHUNK), last = Math.floor(end / VIDEO_CHUNK);
+    let idx = first;
+    const body = new ReadableStream({
+      async pull(controller) {
+        if (idx > last) return controller.close();
+        const chunk = await getVideoChunk(env.DB, id, idx);
+        const offset = idx * VIDEO_CHUNK;
+        controller.enqueue(chunk.subarray(Math.max(0, start - offset), Math.min(chunk.length, end - offset + 1)));
+        idx++;
+      },
+    });
+    const headers = { 'Content-Type': info.mime, 'Accept-Ranges': 'bytes', 'Content-Length': String(end - start + 1), 'Cache-Control': 'private, max-age=86400' };
+    if (partial) headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    return new Response(body, { status: partial ? 206 : 200, headers });
   }
 
   // Foto löschen (eigene; Admin alle)
@@ -505,6 +547,7 @@ async function handleApi(request, env, url, ctx) {
 
   // Foto anzeigen
   const photo = path.match(/^\/api\/photos\/([A-Za-z0-9-]+)$/);
+  if (photo && request.method === 'GET' && photo[1].startsWith('v')) return serveVideo(photo[1]);
   if (photo && request.method === 'GET') {
     const p = await getPhoto(env.DB, photo[1]);
     if (!p) return fail('Foto nicht gefunden', 404);
@@ -584,6 +627,26 @@ async function handleApi(request, env, url, ctx) {
 
   // ======================= ab hier nur Admin =======================
   if (role !== 'owner') return fail('Nicht gefunden', 404);
+
+  // Reinigung (auch aus Smoobu) auf einen anderen Tag legen
+  const move = path.match(/^\/api\/tasks\/([^/]+)\/move$/);
+  if (move && request.method === 'POST') {
+    const date = String((await readJson()).date || '');
+    return change((st) => L.moveCleaning(st, decodeURIComponent(move[1]), date, now, cfg));
+  }
+
+  // Übergabe-Notiz je Wohnung (steht bei jeder Reinigung dieser Wohnung; bleibt beim Zurücksetzen erhalten)
+  if (path === '/api/apt-notes' && request.method === 'POST') {
+    const body = await readJson();
+    const id = String(body.apartmentId || '');
+    if (!id) return fail('Wohnung fehlt');
+    const text = String(body.text || '').trim().slice(0, 1000);
+    settings.aptNotes = { ...(settings.aptNotes || {}) };
+    if (text) settings.aptNotes[id] = { text, updatedAt: new Date(now).toISOString() };
+    else delete settings.aptNotes[id];
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
+  }
 
   // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche
   if (path === '/api/login-locks/release' && request.method === 'POST') {

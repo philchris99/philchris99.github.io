@@ -496,3 +496,60 @@ test('Wohnungsnummer aus dem Namen: Kalender in Reihenfolge 1–13, Nummer im Kr
   assert.equal(L.apartmentNumber('Loft am Markt'), null);
   assert.equal(L.apartmentNumber('Zwoelf'), 12);
 });
+
+test('Admin verschiebt Smoobu-Reinigung eine Woche nach Check-out → Team informiert, Hinweis „in Smoobu blockieren“', () => {
+  let state = confirmedTask(); // Check-out 02.10.
+  assert.throws(() => L.moveCleaning(state, '100', '2026-10-01', NOW, CFG), /nicht vor dem Check-out/);
+  let res = L.moveCleaning(state, '100', '2026-10-09', NOW, CFG);
+  const t = res.state.tasks['100'];
+  assert.deepEqual([t.date, t.checkoutDate, t.movedByAdmin, t.prevDate, t.staffConfirmedAt], ['2026-10-09', '2026-10-02', true, '2026-10-02', null]);
+  assert.deepEqual(who(res.notifications), ['lea:rescheduled', 'mia:rescheduled']);
+  assert.match(res.notifications[0].body, /^WICHTIG – Loft am Markt: Reinigung jetzt am Fr, 09\.10\.2026 statt Fr, 02\.10\.2026 \(7 Tage später\)/);
+  assert.deepEqual(L.needsBlock(res.state, t), { from: '2026-10-02', to: '2026-10-09' });
+  // in Smoobu blockiert → Hinweis verschwindet
+  res.state.reservations.b9 = { id: 'b9', apartmentId: '3', arrival: '2026-10-02', departure: '2026-10-09', blocked: true };
+  assert.equal(L.needsBlock(res.state, res.state.tasks['100']), null);
+  // Gast reist dazwischen an → nicht erlaubt
+  ({ state } = L.applyBooking(confirmedTask(), booking({ id: '210', arrival: '2026-10-05', departure: '2026-10-08' }), NOW, CFG));
+  assert.throws(() => L.moveCleaning(state, '100', '2026-10-06', NOW, CFG), /05\.10\.2026 reist der nächste Gast an/);
+  assert.equal(L.moveCleaning(state, '100', '2026-10-05', NOW, CFG).state.tasks['100'].date, '2026-10-05');
+  // Bestätigung löscht den „vorher“-Hinweis
+  const confirmed = L.staffConfirm(res.state, '100', 'mia', NOW, CFG).state.tasks['100'];
+  assert.equal(confirmed.prevDate, null);
+});
+
+test('Check-out ändert sich in Smoobu: wichtige Nachricht mit Anzahl Tage; vom Admin verschobener Tag bleibt, wenn noch passend', () => {
+  let { state } = L.applyBooking(confirmedTask(), booking({ action: 'update', departure: '2026-10-09' }), NOW, CFG);
+  let res = L.applyBooking(confirmedTask(), booking({ action: 'update', departure: '2026-10-09' }), NOW, CFG);
+  const body = res.notifications.find((n) => n.to === 'mia').body;
+  assert.match(body, /^WICHTIG – Loft am Markt: Aufenthalt verlängert \(7 Tage später\)\. Reinigung jetzt am Fr, 09\.10\.2026 statt Fr, 02\.10\.2026/);
+  assert.equal(res.state.tasks['100'].prevDate, '2026-10-02');
+  // Admin hat auf 12.10. gelegt, Check-out verschiebt sich auf 05.10. → Reinigung bleibt 12.10., alle informiert
+  ({ state } = L.moveCleaning(confirmedTask(), '100', '2026-10-12', NOW, CFG));
+  res = L.applyBooking(state, booking({ action: 'update', departure: '2026-10-05' }), NOW, CFG);
+  assert.equal(res.state.tasks['100'].date, '2026-10-12');
+  assert.equal(res.state.tasks['100'].checkoutDate, '2026-10-05');
+  assert.deepEqual(who(res.notifications), ['lea:rescheduled', 'mia:rescheduled', 'owner:rescheduled']);
+  assert.match(res.notifications[0].body, /Die Reinigung bleibt am Mo, 12\.10\.2026/);
+  // Check-out nach dem Reinigungstag → Reinigung folgt dem Check-out
+  res = L.applyBooking(state, booking({ action: 'update', departure: '2026-10-14' }), NOW, CFG);
+  assert.equal(res.state.tasks['100'].date, '2026-10-14');
+  assert.equal(res.state.tasks['100'].movedByAdmin, false);
+  assert.match(res.notifications[0].body, /Reinigung jetzt am Mi, 14\.10\.2026 statt Mo, 12\.10\.2026/);
+});
+
+test('„Wohnung fertig“ mit Uhrzeit und nächster Anreise', () => {
+  let state = confirmedTask();
+  ({ state } = L.applyBooking(state, booking({ id: '220', arrival: '2026-10-02', departure: '2026-10-04', adults: 2, children: 1, checkIn: '16:00' }), NOW, CFG));
+  const res = L.completeCleaning(state, '100', 'mia', at('2026-10-02', '11:40'), CFG, { checklist: ALL, keysInBox: true });
+  const n = res.notifications.find((x) => x.to === 'owner');
+  assert.equal(n.title, 'Wohnung fertig: Loft am Markt');
+  assert.match(n.body, /^Fertig um 11:40 Uhr – Mia\. Schlüssel in der Box ✓ Nächste Anreise: Fr, 02\.10\.2026 ab 16:00 Uhr \(2 Erwachsene, 1 Kind\)\./);
+});
+
+test('Abschlussbericht (Fotos/Text beim Beenden) ist keine offene Meldung und schickt keine eigene Push', () => {
+  const res = L.addReport(confirmedTask(), '100', MIA, { id: 'r9', text: 'Alles sauber, Fenster geputzt', photos: ['p1'], final: true }, NOW, CFG);
+  assert.equal(res.notifications.length, 0);
+  assert.equal(L.openReports(res.state).length, 0);
+  assert.equal(res.state.tasks['100'].reports[0].final, true);
+});

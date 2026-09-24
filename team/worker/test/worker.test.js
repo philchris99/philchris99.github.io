@@ -92,7 +92,9 @@ async function call(method, path, { session, body, headers = {} } = {}) {
     env, { waitUntil: (p) => pending.push(p) });
   await Promise.all(pending);
   const type = res.headers.get('Content-Type') || '';
-  if (type.startsWith('image/')) return { status: res.status, type, bytes: [...new Uint8Array(await res.arrayBuffer())] };
+  if (type.startsWith('image/') || type.startsWith('video/')) {
+    return { status: res.status, type, headers: res.headers, bytes: new Uint8Array(await res.arrayBuffer()) };
+  }
   return { status: res.status, body: type.includes('json') ? await res.json() : await res.text() };
 }
 
@@ -232,7 +234,8 @@ test('Beginn und Ende erfassen; Admin kann nicht abhaken', async () => {
   assert.equal((await call('POST', '/api/tasks/2/done', { session: mia })).status, 409, 'Schlüssel-Frage ist Pflicht');
   const d = await call('POST', '/api/tasks/2/done', { session: mia, body: { checklist: ALL, keysInBox: false, keysNote: 'fehlt' } });
   assert.equal(d.body.tasks[0].status, 'erledigt');
-  assert.deepEqual(who().sort(), ['Reinigung erledigt', 'Reinigung erledigt', 'Schlüssel fehlen: FeWo Elbblick']);
+  assert.deepEqual(who().sort(), ['Schlüssel fehlen: FeWo Elbblick', 'Wohnung fertig: FeWo Elbblick', 'Wohnung fertig: FeWo Elbblick']);
+  assert.match(pushes.find((p) => p.title.startsWith('Wohnung fertig')).message, /^Fertig um \d\d:\d\d Uhr – Mia/);
   assert.equal(pushes.find((p) => p.title.startsWith('Schlüssel')).priority, 5);
   assert.equal((await me(admin)).missingKeys.length, 1);
   assert.equal((await call('POST', '/api/tasks/2/keys-resolved', { session: mia })).status, 403);
@@ -276,7 +279,7 @@ test('Hinweis vom Admin mit Foto → Leitung + Mitarbeiterin; Mitarbeiterin lös
   assert.equal(del.status, 200);
   assert.equal(env.DB.count('photos'), before - 1, 'Foto auch aus der Datenbank gelöscht');
   const img = await call('GET', `/api/photos/${report.photos[1]}?a=${admin}`);
-  assert.deepEqual(img.bytes, [4, 5, 6]);
+  assert.deepEqual([...img.bytes], [4, 5, 6]);
   assert.equal((await me(admin)).openReports.length, 1, 'Meldung der Mitarbeiterin offen, Admin-Hinweis nicht');
 });
 
@@ -536,6 +539,54 @@ test('Checkliste Pflicht, „knapp“ melden → Einkaufsliste; Sprache Ungarisc
   assert.equal(localizeTitle('3 neue Reinigungen für dich', 'hu'), '3 új takarítás neked');
   assert.equal(localizeTitle('Reinigung bitte beenden', 'de'), 'Reinigung bitte beenden');
   await call('POST', '/api/lang', { session: mia, body: { lang: 'de' } });
+});
+
+test('Video zur Reinigung: in Stücken gespeichert, mit Range abspielbar, löschbar; Verschieben und Übergabe-Notiz', async () => {
+  smoobuBookings = [booking(120, '2099-12-10')];
+  await runSync(env);
+  await call('POST', '/api/tasks/120/assign', { session: lea, body: { to: miaId } });
+  const size = 4 * 1024 * 1024 + 123; // > 2 Stücke
+  const video = new Uint8Array(size).map((_, i) => i % 251);
+  const form = new FormData();
+  form.append('text', 'Wasserfleck an der Decke');
+  form.append('photo', new Blob([video], { type: 'video/mp4' }), 'clip.mp4');
+  const r = await call('POST', '/api/tasks/120/report', { session: mia, body: form });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const vid = r.body.tasks.find((t) => t.id === '120').reports.at(-1).photos[0];
+  assert.match(vid, /^v/);
+  const full = await call('GET', `/api/photos/${vid}?a=${encodeURIComponent(mia)}`);
+  assert.equal(full.status, 200);
+  assert.equal(full.bytes.length, size);
+  assert.equal(full.bytes[size - 1], (size - 1) % 251);
+  const part = await call('GET', `/api/photos/${vid}?a=${encodeURIComponent(mia)}`, { headers: { Range: 'bytes=1899990-1900009' } });
+  assert.equal(part.status, 206);
+  assert.equal(part.headers.get('Content-Range'), `bytes 1899990-1900009/${size}`);
+  assert.deepEqual([...part.bytes], [...video.slice(1899990, 1900010)]);
+  // zu groß
+  const big = new FormData();
+  big.append('photo', new Blob([new Uint8Array(41 * 1024 * 1024)], { type: 'video/mp4' }), 'lang.mp4');
+  assert.match((await call('POST', '/api/tasks/120/report', { session: mia, body: big })).body.error, /Video ist zu groß/);
+  // löschen
+  const rid = r.body.tasks.find((t) => t.id === '120').reports.at(-1).id;
+  await call('POST', `/api/tasks/120/reports/${rid}/photos/${vid}/delete`, { session: mia });
+  assert.equal((await call('GET', `/api/photos/${vid}?a=${encodeURIComponent(mia)}`)).status, 404);
+  assert.equal(env.DB.db.prepare('SELECT COUNT(*) AS n FROM media_chunks').get().n, 0);
+
+  // Admin verschiebt die Smoobu-Reinigung eine Woche später → Hinweis „in Smoobu blockieren“
+  pushes = [];
+  assert.equal((await call('POST', '/api/tasks/120/move', { session: mia, body: { date: '2099-12-17' } })).status, 404);
+  const mv = await call('POST', '/api/tasks/120/move', { session: admin, body: { date: '2099-12-17' } });
+  const t = mv.body.tasks.find((x) => x.id === '120');
+  assert.deepEqual([t.date, t.checkoutDate, t.needsBlock], ['2099-12-17', '2099-12-10', { from: '2099-12-10', to: '2099-12-17' }]);
+  assert.ok(pushes.some((p) => p.topic === mv.body.topic || p.title === 'Reinigung verschoben'));
+  assert.equal(pushes.find((p) => p.title === 'Reinigung verschoben').priority, 5);
+
+  // Übergabe-Notiz je Wohnung
+  assert.equal((await call('POST', '/api/apt-notes', { session: lea, body: { apartmentId: '111', text: 'x' } })).status, 404);
+  await call('POST', '/api/apt-notes', { session: admin, body: { apartmentId: '111', text: 'Kinderbett aufgebaut lassen' } });
+  assert.equal((await me(mia)).tasks.find((x) => x.id === '120').aptNote, 'Kinderbett aufgebaut lassen');
+  await call('POST', '/api/apt-notes', { session: admin, body: { apartmentId: '111', text: '' } });
+  assert.equal((await me(mia)).tasks.find((x) => x.id === '120').aptNote, '');
 });
 
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {

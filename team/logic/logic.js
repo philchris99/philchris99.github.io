@@ -339,16 +339,31 @@
     // Änderung einer bestehenden Buchung
     existing.guest = booking.guest || existing.guest;
     existing.guestPhone = booking.guestPhone || existing.guestPhone || '';
-    if (booking.departure === existing.date || existing.status === STATUS.DONE) return { state, notifications };
+    const oldCheckout = existing.checkoutDate || existing.date;
+    if (booking.departure === oldCheckout || existing.status === STATUS.DONE) return { state, notifications };
+
+    const verb = booking.departure > oldCheckout ? 'verlängert' : 'verkürzt';
+    const diff = dayDiffText(oldCheckout, booking.departure);
+    // Vom Admin auf einen späteren Tag gelegt und der liegt weiterhin nach dem neuen Check-out → Reinigungstag bleibt
+    if (existing.movedByAdmin && existing.date >= booking.departure) {
+      existing.checkoutDate = booking.departure;
+      existing.changedAt = nowIso;
+      log(existing, nowIso, `Aufenthalt ${verb} (${diff}): Check-out ${formatDate(oldCheckout)} → ${formatDate(booking.departure)} – Reinigung bleibt am ${formatDate(existing.date)}`);
+      notifications.push(...notify([...team(config, existing), config.owner.id], 'rescheduled', existing, 'Check-out geändert – wichtig',
+        `${existing.apartmentName}: Aufenthalt ${verb} (${diff}). Check-out jetzt am ${formatDate(booking.departure)} statt ${formatDate(oldCheckout)}. Die Reinigung bleibt am ${formatDate(existing.date)}.`));
+      return { state, notifications };
+    }
 
     const oldDate = existing.date;
     const wasConfirmed = existing.status === STATUS.CONFIRMED;
     existing.date = booking.departure;
+    existing.checkoutDate = null;
+    existing.movedByAdmin = false;
     resetForNewDate(existing, nowIso);
-    const verb = existing.date > oldDate ? 'verlängert' : 'verkürzt';
-    log(existing, nowIso, `Aufenthalt ${verb}: Reinigung ${formatDate(oldDate)} → ${formatDate(existing.date)}`);
+    existing.prevDate = oldDate;
+    log(existing, nowIso, `Aufenthalt ${verb} (${diff}): Reinigung ${formatDate(oldDate)} → ${formatDate(existing.date)}`);
     notifications.push(...notify(team(config, existing), 'rescheduled', existing, 'Reinigung verschoben',
-      `${existing.apartmentName}: Aufenthalt ${verb}. Reinigung jetzt am ${formatDate(existing.date)} statt ${formatDate(oldDate)}. Bitte neu bestätigen.`));
+      `WICHTIG – ${existing.apartmentName}: Aufenthalt ${verb} (${diff}). Reinigung jetzt am ${formatDate(existing.date)} statt ${formatDate(oldDate)}. Bitte neu bestätigen.`));
     if (wasConfirmed) {
       notifications.push(...notify([config.owner.id], 'rescheduled', existing, 'Bestätigte Reinigung verschoben',
         `${existing.apartmentName}: ${formatDate(oldDate)} → ${formatDate(existing.date)}. Neue Bestätigung ausstehend.`));
@@ -461,6 +476,65 @@
     return { state, notifications };
   }
 
+  /** „7 Tage später“ / „1 Tag früher“ */
+  function dayDiffText(from, to) {
+    const n = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+    const abs = Math.abs(n);
+    return `${abs} ${abs === 1 ? 'Tag' : 'Tage'} ${n > 0 ? 'später' : 'früher'}`;
+  }
+
+  /**
+   * Admin legt eine Reinigung (auch aus Smoobu) auf einen anderen Tag, z. B. eine Woche nach dem Check-out.
+   * Nicht vor dem Check-out, nicht nach der Anreise des nächsten Gastes. Team wird informiert und bestätigt neu.
+   */
+  function moveCleaning(state, taskId, date, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    requireActive(task);
+    checkDate(date, now, config);
+    if (date === task.date) return { state, notifications: [] };
+    const checkout = task.manual ? null : (task.checkoutDate || task.date);
+    if (checkout && date < checkout) throw new Error(`Die Reinigung kann nicht vor dem Check-out (${formatDate(checkout)}) liegen`);
+    if (checkout) {
+      let arrival = null;
+      for (const r of Object.values(state.reservations || {})) {
+        if (r.apartmentId !== task.apartmentId || r.id === task.id || r.blocked || r.arrival < checkout) continue;
+        if (!arrival || r.arrival < arrival) arrival = r.arrival;
+      }
+      if (arrival && date > arrival) throw new Error(`Am ${formatDate(arrival)} reist der nächste Gast an – die Reinigung muss spätestens an diesem Tag sein`);
+    }
+    const nowIso = toIso(now);
+    const oldDate = task.date;
+    if (checkout) {
+      task.checkoutDate = checkout;
+      task.movedByAdmin = date !== checkout;
+    }
+    task.date = date;
+    resetForNewDate(task, nowIso);
+    task.prevDate = oldDate;
+    const diff = dayDiffText(oldDate, date);
+    log(task, nowIso, `Vom Admin verschoben (${diff}): ${formatDate(oldDate)} → ${formatDate(date)}`);
+    return { state, notifications: notify(team(config, task), 'rescheduled', task, 'Reinigung verschoben',
+      `WICHTIG – ${task.apartmentName}: Reinigung jetzt am ${formatDate(date)} statt ${formatDate(oldDate)} (${diff}). Bitte neu bestätigen.`) };
+  }
+
+  /**
+   * Muss in Smoobu blockiert werden? Zwischen Check-out und (letztem) Reinigungstag darf kein Gast buchen.
+   * Liefert { from, to } (Nächte from … to-1) oder null, wenn nichts nötig bzw. schon blockiert ist.
+   */
+  function needsBlock(state, task) {
+    if (task.manual || !isActive(task)) return null;
+    const from = task.checkoutDate || task.date;
+    const to = lastDay(task);
+    if (to <= from) return null;
+    const blocks = Object.values(state.reservations || {}).filter((r) => r.blocked && r.apartmentId === task.apartmentId);
+    for (let d = from; d < to; d = addDays(d, 1)) {
+      if (!blocks.some((b) => b.arrival <= d && d < b.departure)) return { from, to };
+    }
+    return null;
+  }
+
   function cancelManualCleaning(state, taskId, now, config) {
     config = withConfig(config);
     state = clone(state);
@@ -554,6 +628,7 @@
     if (task.assignedTo !== userId) throw new Error('Diese Reinigung ist dir nicht zugewiesen');
     const nowIso = toIso(now);
     task.staffConfirmedAt = nowIso;
+    task.prevDate = null; // Änderung gesehen und bestätigt
     log(task, nowIso, `Bestätigt von ${personName(config, userId)}`);
     const before = task.status;
     updateStatus(task);
@@ -604,8 +679,10 @@
     const duration = minutes != null ? ` (Dauer ${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')} Std.)` : '';
     log(task, nowIso, `Erledigt von ${personName(config, userId)}${duration} · Gästeschlüssel ${input.keysInBox ? 'in der Box ✓' : 'NICHT in der Box'}${keysNote ? ': ' + keysNote : ''}`);
     const to = [config.owner.id, ...leadIds(config)].filter((id) => id !== userId);
-    const notifications = notify(to, 'done', task, 'Reinigung erledigt',
-      `${task.apartmentName} ist sauber – ${personName(config, userId)}${duration}. Schlüssel ${input.keysInBox ? 'in der Box ✓' : 'fehlen!'}`);
+    const next = nextBooking(state, task);
+    const nextText = next ? ` Nächste Anreise: ${formatDate(next.arrival)}${next.checkIn ? ' ab ' + next.checkIn + ' Uhr' : ''}${next.guests ? ' (' + next.guests + ')' : ''}.` : '';
+    const notifications = notify(to, 'done', task, `Wohnung fertig: ${task.apartmentName}`,
+      `Fertig um ${hhmm(nowIso, config.timezone)} Uhr – ${personName(config, userId)}${duration}. Schlüssel ${input.keysInBox ? 'in der Box ✓' : 'fehlen!'}${nextText}`);
     if (newSupplies.length) notifications.push(...suppliesNote(config, task, userId, newSupplies));
     if (!input.keysInBox) {
       notifications.push(...notify([config.owner.id], 'keys', task, `Schlüssel fehlen: ${task.apartmentName}`,
@@ -1033,8 +1110,11 @@
     if (!text && !photos.length) throw new Error('Bitte einen Text eingeben oder ein Foto anhängen');
     const nowIso = toIso(now);
     const author = user.role === 'owner' ? config.owner.name : personName(config, user.id);
-    task.reports.push({ id: String(report.id), at: nowIso, by: user.id, byRole: user.role, text, photos, resolved: false });
-    log(task, nowIso, `${user.role === 'owner' ? 'Hinweis' : 'Meldung'} von ${author}`);
+    // final = Abschlussbericht beim Beenden (Fotos/Videos, was gemacht wurde) – kein offenes Problem, keine eigene Push
+    const final = !!report.final;
+    task.reports.push({ id: String(report.id), at: nowIso, by: user.id, byRole: user.role, text, photos, resolved: final, final });
+    log(task, nowIso, `${final ? 'Abschlussbericht' : user.role === 'owner' ? 'Hinweis' : 'Meldung'} von ${author}`);
+    if (final) return { state, notifications: [] };
     const summary = text ? (text.length > 120 ? text.slice(0, 117) + '…' : text) : 'Fotos angehängt';
     const photoText = photos.length ? ` (${photos.length} Foto${photos.length > 1 ? 's' : ''})` : '';
     const fromOwner = user.role === 'owner';
@@ -1098,6 +1178,7 @@
         nextArrival: nextArrival(state, t),
         nextBooking: nextBooking(state, t),
         supplies: Object.keys((state.supplies || {})[t.apartmentId] || {}),
+        needsBlock: needsBlock(state, t),
         periodLimit: isActive(t) ? periodLimit(state, t, config) : null,
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
@@ -1172,7 +1253,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 
