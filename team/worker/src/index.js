@@ -266,7 +266,7 @@ async function statsView(env, cfg, state, now) {
   const settings = await loadSettings(env.DB);
   const current = currentOccupancy(state, cfg, now);
   const names = Object.fromEntries(apartmentList(state).map((a) => [a.id, a.name]));
-  const history = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0])).slice(-180).map(([date, v]) => ({ date, ...v }));
+  const history = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0])).slice(-600).map(([date, v]) => ({ date, ...v }));
   const perApartment = Object.entries(current.perApartment).map(([id, v]) => {
     const i = (settings.aptInfo || {})[id] || {};
     return { id, name: names[id] || id, ...v, bookedPct: STAT_DAYS ? Math.round((v.booked / STAT_DAYS) * 1000) / 10 : 0,
@@ -278,13 +278,23 @@ async function statsView(env, cfg, state, now) {
   const avg = (k) => (last30.length ? Math.round((last30.reduce((s, h) => s + h.actual[k], 0) / last30.length) * 10) / 10 : null);
   return { days: STAT_DAYS, current: { ...current, perApartment }, groups: sizeGroups(settings, perApartment, STAT_DAYS),
     actual30: last30.length ? { pct: avg('pct'), bookedPct: avg('bookedPct'), blockedPct: avg('blockedPct'), nights: last30.length } : null,
-    apartments: perApartment.length, history, backfill: stats.backfill || null };
+    apartments: perApartment.length, excluded: statsApartments(state).excluded.map((a) => a.name), history, backfill: stats.backfill || null };
 }
 
 const STAT_DAYS = 30;
+/**
+ * Wohnungen, die in der Statistik zählen: die nummerierten Einheiten aus config.sizeByNumber (#EINS … #DREIZEHN).
+ * Weitere Einheiten in Smoobu (z. B. alte oder übergeordnete) würden die Quote sonst verfälschen.
+ */
+function statsApartments(state) {
+  const all = apartmentList(state);
+  const numbered = all.filter((a) => (config.sizeByNumber || {})[L.apartmentNumber(a.name)]);
+  const counted = numbered.length ? numbered : all;
+  return { counted, excluded: all.filter((a) => !counted.includes(a)) };
+}
 function currentOccupancy(state, cfg, now) {
   const today = L.localParts(now, cfg.timezone).date;
-  const ids = apartmentList(state).map((a) => a.id);
+  const ids = statsApartments(state).counted.map((a) => a.id);
   return L.occupancy(L.nightIndex(L.reservationEntries(state)), ids, today, STAT_DAYS);
 }
 /** Wert für heute festhalten (jeder Lauf überschreibt den heutigen Wert – am Tagesende steht der letzte Stand) */
@@ -292,7 +302,7 @@ async function trackOccupancy(env, cfg, state, now) {
   if (!state.initialized || !apartmentList(state).length) return;
   const today = L.localParts(now, cfg.timezone).date;
   const o = currentOccupancy(state, cfg, now);
-  const ids = apartmentList(state).map((a) => a.id);
+  const ids = statsApartments(state).counted.map((a) => a.id);
   const night = L.nightOccupancy(L.nightIndex(L.reservationEntries(state)), ids, today);
   const stats = await loadStats(env.DB);
   const prev = stats.days[today];
@@ -815,26 +825,33 @@ async function handleApi(request, env, url, ctx) {
     return view((await loadState(env.DB)).state);
   }
 
-  // Statistik rückwirkend berechnen: Buchungen der letzten Monate aus Smoobu mit Eintragungs-/Stornodatum
+  // Statistik rückwirkend berechnen – in Abschnitten (max. 62 Tage je Aufruf, wegen Rechenzeit-Grenze von Cloudflare).
+  // Die App ruft das nacheinander für bis zu 1,5 Jahre auf. Buchungen mit Eintragungs-/Stornodatum aus Smoobu.
   if (path === '/api/stats/backfill' && request.method === 'POST') {
     const creds = smoobuCreds(env);
     if (!creds.key) return fail('Smoobu ist nicht verbunden');
     const { date: today } = L.localParts(now, cfg.timezone);
-    const back = Math.min(365, Math.max(7, Number((await readJson()).days) || 90));
+    const body = await readJson();
+    const isDay = (x) => /^\d{4}-\d{2}-\d{2}$/.test(x || '');
+    let to = isDay(body.to) ? body.to : L.addDays(today, -1);
+    if (to >= today) to = L.addDays(today, -1);
+    let from = isDay(body.from) ? body.from : L.addDays(to, -(Math.min(62, Math.max(1, Number(body.days) || 60)) - 1));
+    if (from < L.addDays(to, -61)) from = L.addDays(to, -61);
+    if (from > to) return fail('Zeitraum ungültig');
     let raw;
     const fetchInfo = {};
     try {
-      raw = await fetchBookings(creds, L.addDays(today, -back - 60), L.addDays(today, STAT_DAYS + 60), fetchInfo);
+      // Abreise ab „from“ (sonst keine Nacht im Zeitraum); lange Aufenthalte bis ~7 Monate nach dem Zeitraum berücksichtigt
+      raw = await fetchBookings(creds, from, L.addDays(to, STAT_DAYS + 210), fetchInfo);
     } catch (e) {
       return fail('Smoobu: ' + e.message, 502);
     }
     const { state } = await loadState(env.DB);
-    const ids = apartmentList(state).map((a) => a.id);
+    const ids = statsApartments(state).counted.map((a) => a.id);
     const index = L.nightIndex(L.smoobuEntries(raw));
     const stats = await loadStats(env.DB);
     let added = 0;
-    for (let i = back; i >= 1; i--) {
-      const d = L.addDays(today, -i);
+    for (let d = from; d <= to; d = L.addDays(d, 1)) {
       // tatsächliche Belegung der Nacht: immer aus dem heutigen (endgültigen) Stand
       const night = L.nightOccupancy(index, ids, d);
       const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct };
@@ -844,10 +861,12 @@ async function handleApi(request, env, url, ctx) {
       added++;
     }
     const withCreated = raw.filter((r) => r && (r['created-at'] || r.createdAt || r.created_at)).length;
-    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated, apartments: ids.length,
-      pages: fetchInfo.pages, total: fetchInfo.total };
+    const prev = stats.backfill || {};
+    stats.backfill = { at: new Date(now).toISOString(), oldest: prev.oldest && prev.oldest < from ? prev.oldest : from,
+      bookings: raw.length, withCreated, apartments: ids.length, pages: fetchInfo.pages, total: fetchInfo.total, from, to };
     await saveStats(env.DB, stats);
-    return view((await loadState(env.DB)).state, { backfilled: added });
+    if (body.quiet) return json({ backfilled: added, from, to, bookings: raw.length });
+    return view((await loadState(env.DB)).state, { backfilled: added, from, to });
   }
 
   // Größenkategorie einer Wohnung selbst festlegen (leer = automatisch aus Smoobu)
@@ -875,7 +894,7 @@ async function handleApi(request, env, url, ctx) {
       return fail('Smoobu: ' + e.message, 502);
     }
     const { state } = await loadState(env.DB);
-    const apartments = apartmentList(state);
+    const { counted: apartments, excluded } = statsApartments(state);
     const rows = apartments.map((a) => {
       const covering = raw.filter((r) => r && String(r.apartment && r.apartment.id) === a.id && r.arrival <= day && day < r.departure);
       const active = covering.filter((r) => r.type !== 'cancellation');
@@ -884,7 +903,7 @@ async function handleApi(request, env, url, ctx) {
         arrival: pick ? pick.arrival : null, departure: pick ? pick.departure : null, cancelledOnly: !active.length && covering.length > 0 };
     });
     const idsInSmoobu = [...new Set(raw.map((r) => String(r && r.apartment && r.apartment.id)))].filter((id) => !apartments.some((a) => a.id === id));
-    return json({ day, rows, fetch: info, unknownApartments: idsInSmoobu });
+    return json({ day, rows, fetch: info, unknownApartments: idsInSmoobu, excluded: excluded.map((a) => a.name) });
   }
 
   // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche

@@ -1193,15 +1193,19 @@
    * Index Wohnung|Nacht → Einträge. entries: [{ apartmentId, arrival, departure, blocked, created, cancelled }]
    * (created/cancelled als 'YYYY-MM-DD' oder null)
    */
+  // Tagesnummer (Tage seit 1970) – schneller als Datumsrechnung mit Texten (Cloudflare: 10 ms Rechenzeit)
+  const dayNum = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86400000;
+
   function nightIndex(entries) {
-    const index = new Map();
+    const index = new Map(); // Wohnung → Map(Tagesnummer → Einträge)
     for (const e of entries) {
       if (!e || !e.arrival || !e.departure || e.departure <= e.arrival) continue;
-      let guard = 0;
-      for (let d = e.arrival; d < e.departure && guard < 400; d = addDays(d, 1), guard++) {
-        const key = `${e.apartmentId}|${d}`;
-        if (!index.has(key)) index.set(key, []);
-        index.get(key).push(e);
+      const a = dayNum(e.arrival), b = Math.min(dayNum(e.departure), a + 400);
+      let byDay = index.get(e.apartmentId);
+      if (!byDay) index.set(e.apartmentId, (byDay = new Map()));
+      for (let d = a; d < b; d++) {
+        const list = byDay.get(d);
+        if (list) list.push(e); else byDay.set(d, [e]);
       }
     }
     return index;
@@ -1215,11 +1219,12 @@
   function occupancy(index, apartmentIds, from, days, asOf) {
     let booked = 0, blocked = 0;
     const perApartment = {};
-    const dates = Array.from({ length: days }, (_, i) => addDays(from, i)); // einmal berechnen (Rechenzeit)
+    const start = dayNum(from);
     for (const apt of apartmentIds) {
+      const byDay = index.get(apt);
       let b = 0, k = 0;
-      for (let i = 0; i < days; i++) {
-        const list = index.get(`${apt}|${dates[i]}`);
+      for (let i = 0; byDay && i < days; i++) {
+        const list = byDay.get(start + i);
         if (!list) continue;
         let isBooked = false, isBlocked = false;
         for (const e of list) {
@@ -1242,8 +1247,10 @@
   /** Tatsächliche Belegung einer Nacht (nach heutigem Stand, Stornos zählen nicht) */
   function nightOccupancy(index, apartmentIds, day) {
     let booked = 0, blocked = 0;
+    const d = dayNum(day);
     for (const apt of apartmentIds) {
-      const list = (index.get(`${apt}|${day}`) || []).filter((e) => !e.cancelled);
+      const byDay = index.get(apt);
+      const list = ((byDay && byDay.get(d)) || []).filter((e) => !e.cancelled);
       if (list.some((e) => !e.blocked)) booked++; else if (list.length) blocked++;
     }
     const n = apartmentIds.length;

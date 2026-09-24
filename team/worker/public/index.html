@@ -1262,8 +1262,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </div>`;
     return `${actualPanel}${forwardPanel}
       <div class="panel" style="margin-top:14px">
-        <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> aus Smoobu.${st.backfill ? ` Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen${st.backfill.pages ? ` (${st.backfill.pages} Seite${st.backfill.pages === 1 ? '' : 'n'}${st.backfill.total != null ? `, Smoobu meldet ${st.backfill.total}` : ''})` : ''}, davon ${st.backfill.withCreated} mit Eintragungsdatum.` : ''}</p>
-        <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
+        <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> (#EINS–#DREIZEHN).${(st.excluded || []).length ? ` Nicht mitgezählt: ${st.excluded.map(esc).join(', ')}.` : ''}
+          ${st.backfill ? ` Rückwirkend berechnet ${fmtTime(st.backfill.at)}${st.backfill.oldest ? ` ab ${fmt(st.backfill.oldest)}` : ''}.` : ''}</p>
+        <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (1,5 Jahre)' : 'Rückwirkend berechnen (letzte 1,5 Jahre)'}</button></div>
       </div>
       <details class="more" id="night-check"><summary>Nacht prüfen (direkt aus Smoobu)</summary><div class="panel">
         <div class="form-grid"><label class="field">Nacht vom <input type="date" id="night-day" value="${addDays(data.today, -1)}"></label>
@@ -2067,10 +2068,21 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
             ${x.arrival ? `<span class="meta"> ${esc(fmt(x.arrival))} – ${esc(fmt(x.departure))}</span>` : ''}${x.cancelledOnly ? ' <span class="meta">(nur storniert)</span>' : ''}</td></tr>`).join('')}</table>
           ${r.unknownApartments.length ? `<p class="meta">Einträge zu Einheiten, die hier nicht vorkommen: ${r.unknownApartments.map(esc).join(', ')}</p>` : ''}`;
       } else if (d.backfill !== undefined) {
-        b.disabled = true; b.textContent = 'Berechne …';
-        const next = await api('/api/stats/backfill', 'POST', { days: 90 });
-        update(next);
-        toast(`Rückwirkend berechnet: ${next.backfilled} Tage`);
+        // 1,5 Jahre in Abschnitten zu 60 Tagen (Cloudflare erlaubt je Anfrage nur wenig Rechenzeit)
+        b.disabled = true;
+        const oldest = addDays(data.today, -548);
+        const steps = Math.ceil(548 / 60);
+        let to = addDays(data.today, -1), step = 0, total = 0;
+        while (to >= oldest) {
+          const from = addDays(to, -59) < oldest ? oldest : addDays(to, -59);
+          step++;
+          b.textContent = `Berechne … ${step}/${steps} (${fmt(from)} – ${fmt(to)})`;
+          const r = await api('/api/stats/backfill', 'POST', { from, to, quiet: true });
+          total += r.backfilled;
+          to = addDays(from, -1);
+        }
+        await refresh(true);
+        toast(`Rückwirkend berechnet: ${steps} Abschnitte, ${total} Tage`);
       } else if (d.supply) {
         supplyTask = supplyTask === d.supply ? null : d.supply; render();
       } else if (d.supplyClose !== undefined) {

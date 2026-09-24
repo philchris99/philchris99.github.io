@@ -95,7 +95,7 @@ export async function loadStats(db) {
 export async function saveStats(db, stats) {
   await ensureStats(db);
   const dates = Object.keys(stats.days).sort();
-  for (const d of dates.slice(0, Math.max(0, dates.length - 400))) delete stats.days[d]; // höchstens ~13 Monate
+  for (const d of dates.slice(0, Math.max(0, dates.length - 800))) delete stats.days[d]; // höchstens ~2 Jahre
   await db.prepare('INSERT OR REPLACE INTO stats (id, data) VALUES (1, ?)').bind(JSON.stringify(stats)).run();
 }
 

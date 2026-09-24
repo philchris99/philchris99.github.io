@@ -626,8 +626,9 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
   const today = new Date().toISOString().slice(0, 10);
   const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   smoobuBookings = [
-    booking(500, plus(10), { arrival: plus(0), apartment: { id: 111, name: 'FeWo Elbblick' }, 'created-at': plus(-20) + ' 10:00' }),
-    { id: 501, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(5), apartment: { id: 222, name: 'Loft Altstadt' }, 'created-at': plus(-2) + ' 09:00' },
+    booking(500, plus(10), { arrival: plus(0), apartment: { id: 4004, name: '#VIER | Test' }, 'created-at': plus(-20) + ' 10:00' }),
+    { id: 501, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(5), apartment: { id: 4005, name: '#FÜNF | Test' }, 'created-at': plus(-2) + ' 09:00' },
+    booking(510, plus(70), { arrival: plus(68), apartment: { id: 4005, name: '#FÜNF | Test' } }), // macht die Wohnung bekannt
   ];
   await runSync(env);
   const st = (await me(admin)).stats;
@@ -655,24 +656,26 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
 test('Auswertung nach Wohnungsgröße: Größe aus Smoobu, eigene Kategorie möglich, gebucht vs. inkl. Blockierungen', async () => {
   const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   smoobuBookings = [
-    booking(600, plus(15), { arrival: plus(0), apartment: { id: 111, name: 'FeWo Elbblick' } }), // 15 Nächte gebucht
-    { id: 601, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(6), apartment: { id: 222, name: 'Loft Altstadt' } },
+    booking(600, plus(15), { arrival: plus(0), apartment: { id: 4004, name: '#VIER | Test' } }), // 15 Nächte gebucht
+    { id: 601, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(6), apartment: { id: 4005, name: '#FÜNF | Test' } },
+    booking(610, plus(70), { arrival: plus(68), apartment: { id: 4005, name: '#FÜNF | Test' } }), // macht die Wohnung bekannt
   ];
   await runSync(env);
   let st = (await me(admin)).stats;
-  const g1 = st.groups.find((g) => g.category === '1 Schlafzimmer');
-  const g2 = st.groups.find((g) => g.category === '2 Schlafzimmer');
+  const g1 = st.groups.find((g) => g.category === '1 Zimmer');
+  const g2 = st.groups.find((g) => g.category === '3 Zimmer');
   assert.ok(g1 && g2, JSON.stringify(st.groups));
   assert.ok(g1.bookedPct > 0);
   assert.equal(g2.bookedPct, 0);
   assert.ok(g2.pct > g2.bookedPct, 'Blockierung zählt nur in „inkl. Blockierungen“');
-  assert.equal(st.current.perApartment.find((a) => a.id === '111').maxOccupancy, 2);
+  assert.ok(!st.current.perApartment.some((a) => a.id === '111'), 'Einheit ohne Nummer zählt nicht mit');
+  assert.ok(st.excluded.includes('FeWo Elbblick'));
   // eigene Kategorie
   assert.equal((await call('POST', '/api/apt-category', { session: lea, body: { apartmentId: '222', category: 'x' } })).status, 404);
-  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '222', category: 'Familie' } })).body.stats;
+  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '4005', category: 'Familie' } })).body.stats;
   assert.ok(st.groups.some((g) => g.category === 'Familie'));
-  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '222', category: '' } })).body.stats;
-  assert.ok(st.groups.some((g) => g.category === '2 Schlafzimmer'));
+  st = (await call('POST', '/api/apt-category', { session: admin, body: { apartmentId: '4005', category: '' } })).body.stats;
+  assert.ok(st.groups.find((g) => g.category === '3 Zimmer').apartments.includes('4005'));
 });
 
 test('Feste Größen-Zuordnung nach Wohnungsnummer: 1 Zimmer / 3 Zimmer', async () => {
@@ -714,15 +717,17 @@ test('Smoobu-Seiten: holt alle Seiten, auch ohne Seitenzahl in der Antwort; „N
   const day = new Date().toISOString().slice(0, 10);
   const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
   smoobuBookings = [
-    booking(800, plus(2), { arrival: plus(-1), apartment: { id: 111, name: 'FeWo Elbblick' } }),
-    { id: 801, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(4), apartment: { id: 222, name: 'Loft Altstadt' } },
+    booking(800, plus(2), { arrival: plus(-1), apartment: { id: 4004, name: '#VIER | Test' } }),
+    { id: 801, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(4), apartment: { id: 4005, name: '#FÜNF | Test' } },
+    booking(710, plus(70), { arrival: plus(68), apartment: { id: 4005, name: '#FÜNF | Test' } }), // macht die Wohnung bekannt
   ];
   await runSync(env);
   const r = await call('GET', `/api/stats/night?day=${day}`, { session: admin });
   assert.equal(r.status, 200);
   const st = Object.fromEntries(r.body.rows.map((x) => [x.id, x.status]));
-  assert.equal(st['111'], 'gebucht');
-  assert.equal(st['222'], 'blockiert');
+  assert.equal(st['4004'], 'gebucht');
+  assert.equal(st['4005'], 'blockiert');
+  assert.ok(!('111' in st) && r.body.excluded.includes('FeWo Elbblick'), 'Einheit ohne Nummer nicht gezählt');
   assert.equal((await call('GET', `/api/stats/night?day=${day}`, { session: lea })).status, 404);
 });
 

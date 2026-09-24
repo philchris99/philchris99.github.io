@@ -71,11 +71,13 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   Anzahl Tage an Reinigungsleitung und zugewiesene Mitarbeiterin; auf der Karte „⚠ Datum geändert – vorher …“ bis zur
   neuen Bestätigung. Hat der Admin die Reinigung auf einen späteren Tag gelegt, bleibt dieser, solange er nach dem neuen
   Check-out liegt
-- **Statistik (Admin)** zeigt zwei Kennzahlen getrennt: **Tatsächliche Belegung** je Nacht (rückblickend, Ø letzte 30 Nächte,
+- **Statistik (Admin)** – gezählt werden nur die 13 nummerierten Wohnungen (#EINS–#DREIZEHN); weitere Einheiten in Smoobu
+  werden als „nicht mitgezählt“ angezeigt. Zwei Kennzahlen getrennt: **Tatsächliche Belegung** je Nacht (rückblickend, Ø letzte 30 Nächte,
   aus dem endgültigen Buchungsstand) und den **Vorausblick** – Kern-KPI **Auslastung der nächsten 30 Nächte inkl. Blockierungen** (gebuchte + blockierte Nächte ÷
   Wohnungen × 30), Veränderung ggü. vor 7/30 Tagen, Verlauf als Diagramm (Tooltip), je Wohnung, Tabelle. Wird bei jedem
   Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“): holt die Buchungen der letzten
-  Monate aus Smoobu und rechnet mit dem Eintragungsdatum (`created-at`) je Tag nach, was damals schon gebucht/blockiert war;
+  Monate aus Smoobu (bis 1,5 Jahre, in Abschnitten zu 60 Tagen wegen der Rechenzeit-Grenze) und rechnet mit dem
+  Eintragungsdatum (`created-at`) je Tag nach, was damals schon gebucht/blockiert war;
   stornierte Buchungen zählen bis zum Storno (Änderungsdatum), Einträge ohne Eintragungsdatum (z. B. Sperrzeiten) zählen als
   schon vorhanden. Echte Tageswerte des Vorausblicks werden nie überschrieben; die tatsächliche Belegung wird immer neu berechnet
 - **Auswertung nach Wohnungsgröße** (Statistik): Auslastung der nächsten 30 Nächte je Größe – Balken = gebucht (Nachfrage),
