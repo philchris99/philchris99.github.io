@@ -872,13 +872,24 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   /** „Was ist knapp?“ – Artikel zum Antippen; bereits gemeldete sind markiert */
   function supplyGrid(t, name) {
     const reported = new Set(t.supplies || []);
+    const custom = (t.supplies || []).filter((id) => id.startsWith('x:'));
     return `<div class="supply-grid">${(data.supplyItems || []).map((s) => reported.has(s.id)
       ? `<label class="reported"><input type="checkbox" checked disabled> ${esc(itemLabel(s))} · gemeldet</label>`
-      : `<label><input type="checkbox" name="${name}" value="${esc(s.id)}"> ${esc(itemLabel(s))}</label>`).join('')}</div>`;
+      : `<label><input type="checkbox" name="${name}" value="${esc(s.id)}"> ${esc(itemLabel(s))}</label>`).join('')}
+      ${custom.map((id) => `<label class="reported"><input type="checkbox" checked disabled> ${esc(id.slice(2))} · gemeldet</label>`).join('')}</div>
+      <label class="field" style="margin-top:8px">✏️ Sonstiges (nicht in der Liste)
+        <input name="${name}-other" maxlength="200" placeholder="z. B. Föhn defekt, Kerzen, Spülbürste"></label>`;
+  }
+  /** Angetippte Artikel + freie Eingabe (mehrere mit Komma getrennt) */
+  function pickedSupplies(form, name) {
+    const items = [...form.querySelectorAll(`input[name=${name}]:checked`)].map((i) => i.value);
+    const other = form.elements[name + '-other'];
+    if (other && other.value.trim()) for (const x of other.value.split(/[,;\n]/)) if (x.trim()) items.push('x:' + x.trim());
+    return items;
   }
   function supplyForm(t) {
     return `<form class="report-form" data-supply-form="${esc(t.id)}">
-      <b>🛒 Was fehlt?</b> <span class="meta">Antippen, dann „Melden“.</span>
+      <b>🛒 Was fehlt?</b> <span class="meta">Antippen oder eintragen, dann „Melden“.</span>
       ${supplyGrid(t, 'item')}
       <div class="actions"><button class="primary" type="submit">Melden</button><button type="button" data-supply-close>Abbrechen</button></div>
     </form>`;
@@ -1453,7 +1464,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function shoppingBlock() {
     const list = data.shopping || [];
     if (!list.length) return '<p class="empty">Nichts gemeldet – alles aufgefüllt.</p>';
-    return list.map((x) => `<article class="task"><div class="task-top"><h3>🛒 ${esc(x.de)}</h3>
+    return list.map((x) => `<article class="task"><div class="task-top"><h3>🛒 ${esc(x.de)}${x.custom ? ' <span class="chip manual">✏️ frei eingetragen</span>' : ''}</h3>
         <button class="small go" data-supply-done data-item="${esc(x.id)}">Überall aufgefüllt</button></div>
       <div class="chips">${x.apartments.map((a) => `<button class="small" data-supply-done data-item="${esc(x.id)}" data-apt="${esc(a.id)}"
         title="gemeldet ${esc(fmtTime(a.at))} von ${esc(nameOf(a.by))}">✓ ${esc(a.name)}</button>`).join('')}</div></article>`).join('')
@@ -1934,7 +1945,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         if (checked.length < (data.checklist || []).length) throw new Error('Bitte zuerst alle Punkte der Checkliste abhaken');
         const choice = form.elements.keys.value;
         if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
-        const supplies = [...form.querySelectorAll('input[name=supply]:checked')].map((i) => i.value);
+        const supplies = pickedSupplies(form, 'supply');
         const text = form.elements.report.value.trim();
         const media = pending['f' + id] || [];
         if (text || media.length) {
@@ -1972,14 +1983,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const keysInBox = choice === '1';
         const checked = [...form.querySelectorAll('input[name=check]:checked')].map((i) => i.value);
         if (checked.length < (data.checklist || []).length) throw new Error('Bitte zuerst alle Punkte der Checkliste abhaken');
-        const supplies = [...form.querySelectorAll('input[name=supply]:checked')].map((i) => i.value);
+        const supplies = pickedSupplies(form, 'supply');
         doneTask = null;
         await sendAction(form.dataset.doneForm, 'done', { keysInBox, keysNote: form.elements.note.value, checklist: checked, supplies });
         render();
         toast(keysInBox ? 'Als erledigt gemeldet – danke!' : 'Erledigt gemeldet – Apartments Strauss wurde sofort wegen der Schlüssel benachrichtigt');
       } else if (form.dataset.supplyForm) {
-        const items = [...form.querySelectorAll('input[name=item]:checked')].map((i) => i.value);
-        if (!items.length) throw new Error('Bitte mindestens einen Artikel antippen');
+        const items = pickedSupplies(form, 'item');
+        if (!items.length) throw new Error('Bitte mindestens einen Artikel antippen oder eintragen');
         supplyTask = null;
         await sendAction(form.dataset.supplyForm, 'supplies', { items }, 'Gemeldet – danke!');
       } else if (form.dataset.periodForm) {

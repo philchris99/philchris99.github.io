@@ -5,6 +5,11 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '✏️ Sonstiges (nicht in der Liste)': '✏️ Egyéb (nincs a listán)',
+    'z. B. Föhn defekt, Kerzen, Spülbürste': 'pl. hajszárító hibás, gyertya, mosogatókefe',
+    'Antippen oder eintragen, dann „Melden“.': 'Koppints vagy írd be, majd „Jelentés“.',
+    'Bitte mindestens einen Artikel antippen oder eintragen': 'Koppints legalább egy tételre vagy írj be egyet',
+    '✏️ frei eingetragen': '✏️ szabadon beírva',
     'Trotzdem jetzt starten?': 'Mégis elindítod most?',
     '🔄 Neue Version – tippen zum Aktualisieren': '🔄 Új verzió – koppints a frissítéshez',
     'Bitte persönlichen 6-stelligen Code eingeben': 'Add meg a személyes 6 jegyű kódodat',

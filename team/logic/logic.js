@@ -717,8 +717,14 @@
     state.supplies = state.supplies || {};
     const list = state.supplies[task.apartmentId] = state.supplies[task.apartmentId] || {};
     const added = [];
-    for (const id of Array.isArray(items) ? items : []) {
-      if (!known.has(id) || list[id]) continue;
+    for (const raw of Array.isArray(items) ? items : []) {
+      let id = String(raw || '');
+      if (id.startsWith(CUSTOM)) { // freie Eingabe („x:Föhn defekt“)
+        const text = id.slice(CUSTOM.length).replace(/\s+/g, ' ').trim().slice(0, 60);
+        if (!text) continue;
+        id = Object.keys(list).find((k) => k.toLowerCase() === (CUSTOM + text).toLowerCase()) || CUSTOM + text;
+      } else if (!known.has(id)) continue;
+      if (list[id]) continue;
       list[id] = { at: nowIso, by: userId, taskId: task.id };
       added.push(id);
     }
@@ -726,7 +732,8 @@
     return added;
   }
 
-  const supplyName = (config, id) => (config.supplies.find((s) => s.id === id) || { de: id }).de;
+  const CUSTOM = 'x:'; // Kennung für frei eingegebene Artikel
+  const supplyName = (config, id) => id.startsWith(CUSTOM) ? id.slice(CUSTOM.length) : (config.supplies.find((s) => s.id === id) || { de: id }).de;
 
   function suppliesNote(config, task, userId, ids) {
     return notify([config.owner.id], 'supplies', task, `Knapp: ${task.apartmentName}`,
@@ -750,7 +757,7 @@
     state.supplies = state.supplies || {};
     for (const apt of Object.keys(state.supplies)) {
       if (apartmentId && apt !== String(apartmentId)) continue;
-      for (const id of Object.keys(state.supplies[apt])) if (!itemId || id === itemId) delete state.supplies[apt][id];
+      for (const id of Object.keys(state.supplies[apt])) if (!itemId || id === itemId || (id.startsWith(CUSTOM) && id.toLowerCase() === String(itemId).toLowerCase())) delete state.supplies[apt][id];
       if (!Object.keys(state.supplies[apt]).length) delete state.supplies[apt];
     }
     return { state, notifications: [] };
@@ -769,6 +776,20 @@
         if (list[s.id]) apartments.push({ id: apt, name: names[apt] || apt, at: list[s.id].at, by: list[s.id].by });
       }
       if (apartments.length) out.push({ id: s.id, de: s.de, hu: s.hu, apartments: apartments.sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true })) });
+    }
+    // Frei eingegebene Artikel (gleiche Schreibweise ohne Groß/klein zusammengefasst)
+    const custom = new Map();
+    for (const [apt, list] of Object.entries(state.supplies || {})) {
+      for (const [id, v] of Object.entries(list)) {
+        if (!id.startsWith(CUSTOM)) continue;
+        const key = id.toLowerCase();
+        if (!custom.has(key)) custom.set(key, { id, de: supplyName(config, id), hu: supplyName(config, id), custom: true, apartments: [] });
+        custom.get(key).apartments.push({ id: apt, name: names[apt] || apt, at: v.at, by: v.by });
+      }
+    }
+    for (const c of [...custom.values()].sort((a, b) => a.de.localeCompare(b.de, 'de'))) {
+      c.apartments.sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
+      out.push(c);
     }
     return out;
   }

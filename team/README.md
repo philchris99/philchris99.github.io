@@ -105,7 +105,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Zu früh gestartet?** Wer vor dem Reinigungstag oder vor der Check-out-Uhrzeit (aus Smoobu, sonst `checkoutTime` 10:00)
   auf „Reinigung starten“ tippt, bekommt die Sicherheitsfrage „Trotzdem jetzt starten?“
 - **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Küchenrolle, Handseife, Spülmittel, Schwämme, Müllbeutel, Kaffee,
-  Bettwäsche, Handtücher, Batterien, Glühbirnen; `supplies` in `logic/logic.js`), auch beim
+  Bettwäsche, Handtücher, Batterien, Glühbirnen; `supplies` in `logic/logic.js`) oder unter „✏️ Sonstiges“ frei eintragen
+  (mehrere mit Komma getrennt), auch beim
   Beenden. Admin bekommt eine Push-Nachricht und die **Einkaufsliste** (je Artikel die Wohnungen; „aufgefüllt“ antippen)
 - **Ungarisch**: Knopf „🇭🇺 HU“ oben (bzw. auf der Anmeldeseite) – je Person gespeichert. Übersetzungen in
   `worker/public/i18n-hu.js`; Push-Überschriften für diese Personen ebenfalls ungarisch (Text der Nachricht bleibt deutsch)

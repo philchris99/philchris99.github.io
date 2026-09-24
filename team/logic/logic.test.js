@@ -473,6 +473,19 @@ test('Zugangscodes: nur Admin, Leitung und zugewiesene Mitarbeiterin; nach Erled
   assert.match(L.logCodeAccess(state, '100', MIA, NOW, CFG).state.tasks['100'].history.at(-1).text, /Zugangscodes abgerufen von Mia/);
 });
 
+test('Fehlt etwas: frei eingetragene Artikel (nicht in der Liste) → Nachricht, Einkaufsliste, aufgefüllt', () => {
+  const state = confirmedTask();
+  assert.throws(() => L.reportSupplies(state, '100', MIA, ['x:   '], NOW, CFG), /mindestens einen/);
+  let res = L.reportSupplies(state, '100', MIA, ['x: Föhn  defekt ', 'kaffee'], NOW, CFG);
+  assert.match(res.notifications[0].body, /Mia meldet: Föhn defekt, Kaffee\./);
+  assert.throws(() => L.reportSupplies(res.state, '100', MIA, ['x:föhn defekt'], NOW, CFG), /noch nicht gemeldet/, 'gleiche Eingabe nicht doppelt');
+  const list = L.shoppingList(res.state, CFG);
+  assert.deepEqual(list.map((x) => [x.id, x.de, !!x.custom]), [['kaffee', 'Kaffee', false], ['x:Föhn defekt', 'Föhn defekt', true]]);
+  assert.ok(L.listCleanings(res.state, {}, CFG).find((t) => t.id === '100').supplies.includes('x:Föhn defekt'));
+  res = L.resolveSupplies(res.state, null, 'x:Föhn defekt');
+  assert.deepEqual(L.shoppingList(res.state, CFG).map((x) => x.id), ['kaffee']);
+});
+
 test('Verbrauchsmaterial: „knapp“ melden → eine Nachricht an Admin, Einkaufsliste, aufgefüllt', () => {
   let state = confirmedTask();
   assert.throws(() => L.reportSupplies(state, '100', MIA, [], NOW, CFG), /mindestens einen/);
