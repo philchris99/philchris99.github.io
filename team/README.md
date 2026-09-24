@@ -4,7 +4,7 @@ Web-App unter **team.apartments-strauss.de**:
 Buchungen aus Smoobu → Endreinigungen → Bestätigung durch die Reinigungskraft → Push-Nachrichten.
 
 ```
-Smoobu ──(alle 5 Min. + optional Webhook)──▶ Cloudflare Worker „strauss-team“ ──▶ ntfy-Push aufs Handy
+Smoobu ──(alle 5 Min. + optional Webhook)──▶ Cloudflare Worker „apartment-strauss-team“ ──▶ ntfy-Push aufs Handy
                                                │  D1-Datenbank, Fristen 6 Std. / überfällig ab 12 / 15 Uhr
 team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶ Worker (Web-App + API)
 ```
@@ -160,10 +160,10 @@ Die Database ID steht bereits in `worker/wrangler.toml`.
 
 **2. Worker anlegen**
 *Workers & Pages → Create → Import a repository* → dieses Repository wählen →
-Name `strauss-team`, **Root directory: `worker`**, Deploy-Befehl `npx wrangler deploy` → *Deploy*.
+Name `apartment-strauss-team`, **Root directory: `worker`**, Deploy-Befehl `npx wrangler deploy` → *Deploy*.
 
 **3. Geheimnisse eintragen**
-Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ **Secret**:
+Worker `apartment-strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ **Secret**:
 - `SMOOBU_API_KEY` – der **API-Key** aus Smoobu (*Einstellungen → API Keys*)
 - `SMOOBU_API_SECRET` – das zugehörige **Secret** (wird in Smoobu nur einmal beim Erstellen angezeigt)
   Smoobu verlangt seit 25.09.2026 signierte Anfragen (HMAC); ohne Secret wird das alte Verfahren versucht.
@@ -177,13 +177,13 @@ Worker `strauss-team` → *Settings → Variables and Secrets* → *Add* → Typ
 > (zusätzlich abgesichert durch `keep_vars = true` in `wrangler.toml`).
 
 **4. Erster Test (noch ohne eigene Adresse)**
-`https://strauss-team.<euer-konto>.workers.dev/admin` öffnen → ADMIN_PASSWORD → „Jetzt abgleichen“ (unter „System & Smoobu“).
+`https://apartment-strauss-team.<euer-konto>.workers.dev/admin` öffnen → ADMIN_PASSWORD → „Jetzt abgleichen“ (unter „System & Smoobu“).
 Unter „Team“ Reinigungskräfte anlegen und die Codes weitergeben.
 
 **5. Pages für die eigene Adresse**
 *Workers & Pages → Create → Pages → Import a Git repository* → dasselbe Repository →
 Name z. B. `strauss-team-web`, **Root directory: `pages`**, Build-Befehl leer, **Output directory: `public`** → *Deploy*.
-Danach *Settings → Bindings → Add → Service binding*: Name **`APP`**, Service **`strauss-team`** → neu deployen.
+Danach *Settings → Bindings → Add → Service binding*: Name **`APP`**, Service **`apartment-strauss-team`** → neu deployen.
 
 **6. Subdomain verbinden**
 Pages-Projekt → *Custom domains → Set up a custom domain* → `team.apartments-strauss.de`.

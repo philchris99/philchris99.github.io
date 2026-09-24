@@ -1,5 +1,5 @@
 # Cloudflare Worker: Web-App + API + Zeitsteuerung
-name = "strauss-team"
+name = "apartment-strauss-team"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 # Im Dashboard eingetragene Variablen bei neuen Versionen NICHT löschen
