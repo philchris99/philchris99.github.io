@@ -9,6 +9,11 @@ export default {
   finishBy: '15:00',           // Reinigungstag: bis dahin erledigt, sonst „überfällig“ + Erinnerung
   repeatMinutes: 30,           // Erinnerung wiederholen, solange überfällig (Prüfung alle 5 Min.)
   quietFrom: '22:00',          // ab dann keine Erinnerungen mehr
+  // Wohnungsgröße für die Statistik (Wohnungsnummer aus dem Namen: #EINS = 1 …) – geht vor den Smoobu-Angaben
+  sizeByNumber: {
+    1: '1 Zimmer', 2: '1 Zimmer', 4: '1 Zimmer', 7: '1 Zimmer', 8: '1 Zimmer', 10: '1 Zimmer', 11: '1 Zimmer', 12: '1 Zimmer',
+    3: '3 Zimmer', 5: '3 Zimmer', 6: '3 Zimmer', 9: '3 Zimmer', 13: '3 Zimmer',
+  },
   routeCity: 'Braunschweig',   // Ort der Wohnungen – für die Routenplanung (Adressen → Koordinaten über OpenStreetMap)
   maxPeriodDays: 7,            // Zeitraum für eine Reinigung: höchstens so viele Tage nach dem Check-out
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)

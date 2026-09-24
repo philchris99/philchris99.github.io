@@ -230,10 +230,12 @@ async function loadApartmentInfo(env, state, now) {
   await saveSettings(env.DB, settings);
 }
 
-/** Größenkategorie: eigene Festlegung des Admins, sonst aus Smoobu (Schlafzimmer, sonst max. Personen) */
-function sizeCategory(settings, id) {
+/** Größenkategorie: eigene Festlegung in der App, sonst feste Zuordnung (config.sizeByNumber), sonst aus Smoobu */
+function sizeCategory(settings, id, name) {
   const own = ((settings.aptCategory || {})[id] || '').trim();
   if (own) return own;
+  const fixed = (config.sizeByNumber || {})[L.apartmentNumber(name)];
+  if (fixed) return fixed;
   const i = (settings.aptInfo || {})[id] || {};
   if (i.bedrooms === 0) return 'Studio';
   if (i.bedrooms != null) return i.bedrooms === 1 ? '1 Schlafzimmer' : `${i.bedrooms} Schlafzimmer`;
@@ -245,7 +247,7 @@ function sizeCategory(settings, id) {
 function sizeGroups(settings, perApartment, days) {
   const groups = new Map();
   for (const a of perApartment) {
-    const cat = sizeCategory(settings, a.id);
+    const cat = sizeCategory(settings, a.id, a.name);
     if (!groups.has(cat)) groups.set(cat, { category: cat, apartments: [], booked: 0, blocked: 0 });
     const g = groups.get(cat);
     g.apartments.push(a.id);
@@ -268,7 +270,7 @@ async function statsView(env, cfg, state, now) {
   const perApartment = Object.entries(current.perApartment).map(([id, v]) => {
     const i = (settings.aptInfo || {})[id] || {};
     return { id, name: names[id] || id, ...v, bookedPct: STAT_DAYS ? Math.round((v.booked / STAT_DAYS) * 1000) / 10 : 0,
-      category: sizeCategory(settings, id), ownCategory: ((settings.aptCategory || {})[id] || ''), bedrooms: i.bedrooms ?? null, maxOccupancy: i.maxOccupancy ?? null };
+      category: sizeCategory(settings, id, names[id] || ''), ownCategory: ((settings.aptCategory || {})[id] || ''), bedrooms: i.bedrooms ?? null, maxOccupancy: i.maxOccupancy ?? null };
   }).sort((a, b) => L.compareApartments(a.name, b.name));
   return { days: STAT_DAYS, current: { ...current, perApartment }, groups: sizeGroups(settings, perApartment, STAT_DAYS),
     history, backfill: stats.backfill || null };

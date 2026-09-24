@@ -672,6 +672,21 @@ test('Auswertung nach Wohnungsgröße: Größe aus Smoobu, eigene Kategorie mög
   assert.ok(st.groups.some((g) => g.category === '2 Schlafzimmer'));
 });
 
+test('Feste Größen-Zuordnung nach Wohnungsnummer: 1 Zimmer / 3 Zimmer', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(700, plus(10), { arrival: plus(0), apartment: { id: 7001, name: '#EINS | A' } }),
+    booking(701, plus(3), { arrival: plus(0), apartment: { id: 7003, name: '#DREI | B' } }),
+    booking(702, plus(3), { arrival: plus(0), apartment: { id: 7013, name: '#DREIZEHN | C' } }),
+  ];
+  await runSync(env);
+  const st = (await me(admin)).stats;
+  const cat = (id) => st.current.perApartment.find((a) => a.id === id).category;
+  assert.deepEqual([cat('7001'), cat('7003'), cat('7013')], ['1 Zimmer', '3 Zimmer', '3 Zimmer']);
+  const g3 = st.groups.find((g) => g.category === '3 Zimmer');
+  assert.ok(g3.apartments.includes('7003') && g3.apartments.includes('7013'));
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

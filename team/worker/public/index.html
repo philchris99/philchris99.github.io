@@ -1279,9 +1279,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   /** Größenkategorie je Wohnung selbst festlegen (leer = automatisch aus Smoobu) */
   function categoryEditor(st) {
-    const cats = [...new Set((st.groups || []).map((g) => g.category).concat(['Studio', '1 Schlafzimmer', '2 Schlafzimmer', '3 Schlafzimmer', 'Familie']))];
+    const cats = [...new Set((st.groups || []).map((g) => g.category).concat(['1 Zimmer', '2 Zimmer', '3 Zimmer']))];
     return `<details class="more"><summary>Kategorien festlegen</summary><div class="panel">
-      <p class="meta">Standard: aus Smoobu (Schlafzimmer, sonst max. Personen). Eigene Bezeichnung überschreibt das – leer lassen für automatisch.</p>
+      <p class="meta">Standard: feste Zuordnung (1 Zimmer: Wohnungen 1, 2, 4, 7, 8, 10, 11, 12 · 3 Zimmer: 3, 5, 6, 9, 13), sonst aus Smoobu. Eigene Bezeichnung überschreibt das – leer lassen für Standard.</p>
       <datalist id="cat-list">${cats.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>
       <table class="bars">${st.current.perApartment.map((a) => `<tr><td>${esc(a.name)}<div class="meta">${a.bedrooms != null ? `${a.bedrooms} Schlafz.` : ''}${a.bedrooms != null && a.maxOccupancy != null ? ' · ' : ''}${a.maxOccupancy != null ? `bis ${a.maxOccupancy} Pers.` : ''}${a.bedrooms == null && a.maxOccupancy == null ? 'keine Angabe aus Smoobu' : ''}</div></td>
         <td><input list="cat-list" data-cat-input="${esc(a.id)}" value="${esc(a.ownCategory)}" placeholder="${esc(a.category)}" aria-label="Kategorie ${esc(a.name)}" style="width:100%"></td>
