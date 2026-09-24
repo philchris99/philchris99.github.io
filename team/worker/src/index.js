@@ -358,7 +358,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
   const since = new Date(now - 14 * 86400000).toISOString();
   const base = {
     user: { id: user.id, name: user.name, role: user.role }, today, time, now: new Date(now).toISOString(),
-    startBy: cfg.startBy, finishBy: cfg.finishBy, confirmWithinHours: cfg.confirmWithinHours,
+    startBy: cfg.startBy, finishBy: cfg.finishBy, checkoutTime: cfg.checkoutTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
     leads: await teamFor(env, cfg.leads, user.role === 'owner'),
     staff: await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'),

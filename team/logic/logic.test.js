@@ -173,8 +173,10 @@ test('erledigt → keine Erinnerungen; Dauer wird aus Start/Ende berechnet', () 
   const day = '2026-10-02';
   let { state } = L.startCleaning(confirmedTask(), '100', 'mia', at(day, '10:00'), CFG);
   assert.throws(() => L.startCleaning(state, '100', 'ida', at(day, '10:00'), CFG), /nicht zugewiesen/);
-  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true }), /Checkliste.*es fehlt: Bettwäsche/);
-  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true, checklist: ALL.slice(1) }), /es fehlt: Bettwäsche gewechselt/);
+  const CHK = { ...CFG, checklist: [{ id: 'bett', de: 'Bettwäsche gewechselt', hu: 'Ágynemű' }, { id: 'bad', de: 'Bad', hu: 'Fürdő' }] };
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CHK, { keysInBox: true }), /Checkliste.*es fehlt: Bettwäsche/);
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CHK, { keysInBox: true, checklist: ['bad'] }), /es fehlt: Bettwäsche gewechselt/);
+  assert.equal(L.DEFAULT_CONFIG.checklist.length, 0, 'Checkliste derzeit abgeschaltet');
   assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { checklist: ALL }), /Gästeschlüssel/);
   const done = L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { checklist: ALL, keysInBox: true });
   assert.equal(done.state.tasks['100'].status, 'erledigt');
@@ -404,6 +406,16 @@ test('Gästezahl: aus Smoobu übernommen, im Kalender und bei der Reinigung davo
   assert.equal(x.adults, null);
 });
 
+test('Check-out-Uhrzeit aus Smoobu (für den Hinweis „zu früh“ beim Starten), sonst Standard aus der Konfiguration', () => {
+  const b = L.fromSmoobuBooking({ id: 310, type: 'reservation', arrival: '2026-10-01', departure: '2026-10-04', apartment: { id: '3', name: 'Loft' }, 'check-out': '10:00' });
+  assert.equal(b.checkOut, '10:00');
+  const { state } = L.applyBooking(L.createState(), b, NOW, CFG);
+  assert.equal(L.listCleanings(state, {}, CFG).find((t) => t.id === '310').checkOut, '10:00');
+  const c = L.fromSmoobuBooking({ id: 311, type: 'reservation', arrival: '2026-10-01', departure: '2026-10-05', apartment: { id: '4', name: 'Studio' } });
+  const s2 = L.applyBooking(state, c, NOW, CFG).state;
+  assert.equal(L.listCleanings(s2, {}, CFG).find((t) => t.id === '311').checkOut, L.DEFAULT_CONFIG.checkoutTime);
+});
+
 test('Späterer Tag nur, wenn die Folgetage frei sind: Wechseltag und Sperrzeit verhindern den Antrag', () => {
   // Wechseltag: nächster Gast reist am Check-out-Tag an
   let { state } = L.applyBooking(confirmedTask(), booking({ id: '201', arrival: '2026-10-02', departure: '2026-10-05' }), NOW, CFG);
@@ -468,18 +480,18 @@ test('Verbrauchsmaterial: „knapp“ melden → eine Nachricht an Admin, Einkau
   assert.deepEqual(who(res.notifications), ['owner:supplies']);
   assert.match(res.notifications[0].body, /Mia meldet: Toilettenpapier, Kaffee|Mia meldet: Kaffee, Toilettenpapier/);
   assert.throws(() => L.reportSupplies(res.state, '100', MIA, ['kaffee'], NOW, CFG), /noch nicht gemeldet/);
-  assert.throws(() => L.reportSupplies(res.state, '100', IDA, ['tee'], NOW, CFG), /Keine Berechtigung/);
+  assert.throws(() => L.reportSupplies(res.state, '100', IDA, ['handtuecher'], NOW, CFG), /Keine Berechtigung/);
   let list = L.shoppingList(res.state, CFG);
   assert.deepEqual(list.map((x) => x.id), ['klopapier', 'kaffee']);
   assert.equal(list[0].apartments[0].name, 'Loft am Markt');
   assert.deepEqual(L.listCleanings(res.state, {}, CFG).find((t) => t.id === '100').supplies.sort(), ['kaffee', 'klopapier']);
   // beim Beenden mitmelden
-  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: true, supplies: ['tee', 'kaffee'] });
+  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: true, supplies: ['handtuecher', 'kaffee'] });
   assert.deepEqual(who(done.notifications.filter((n) => n.kind === 'supplies')), ['owner:supplies']);
-  assert.match(done.notifications.find((n) => n.kind === 'supplies').body, /Tee\./);
+  assert.match(done.notifications.find((n) => n.kind === 'supplies').body, /Handtücher\./);
   assert.deepEqual(done.state.tasks['100'].checklistDone, ALL);
   res = L.resolveSupplies(done.state, '3', 'kaffee');
-  assert.deepEqual(L.shoppingList(res.state, CFG).map((x) => x.id), ['klopapier', 'tee']);
+  assert.deepEqual(L.shoppingList(res.state, CFG).map((x) => x.id), ['klopapier', 'handtuecher']);
   res = L.resolveSupplies(res.state, '3', null);
   assert.equal(L.shoppingList(res.state, CFG).length, 0);
 });

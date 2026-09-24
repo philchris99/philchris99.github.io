@@ -30,35 +30,24 @@
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
     repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
     quietFrom: '22:00',
+    checkoutTime: '11:00',       // Check-out-Uhrzeit, falls Smoobu keine liefert (Hinweis „zu früh“ beim Starten)
     maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out
-    // Feste Punkte, die vor dem Beenden abgehakt sein müssen (de = Deutsch, hu = Ungarisch)
-    checklist: [
-      { id: 'bett', de: 'Bettwäsche gewechselt, Betten gemacht', hu: 'Ágynemű cserélve, ágyak bevetve' },
-      { id: 'bad', de: 'Bad & WC gereinigt, Handtücher ausgetauscht', hu: 'Fürdőszoba és WC kitakarítva, törölközők kicserélve' },
-      { id: 'kueche', de: 'Küche gereinigt, Geschirr sauber & eingeräumt, Kühlschrank geleert', hu: 'Konyha kitakarítva, edények tiszták és elpakolva, hűtő kiürítve' },
-      { id: 'boden', de: 'Böden gesaugt & gewischt', hu: 'Padló porszívózva és felmosva' },
-      { id: 'staub', de: 'Staub gewischt (Flächen, Regale, Fensterbänke)', hu: 'Portörlés (felületek, polcok, ablakpárkányok)' },
-      { id: 'muell', de: 'Müll entsorgt, neue Beutel eingelegt', hu: 'Szemét kivive, új zsák behelyezve' },
-      { id: 'auffuellen', de: 'Verbrauchsmaterial aufgefüllt (Toilettenpapier, Seife, Kaffee …)', hu: 'Fogyóeszközök feltöltve (WC-papír, szappan, kávé …)' },
-      { id: 'fenster', de: 'Fenster geschlossen, Heizung/Klima heruntergeregelt', hu: 'Ablakok bezárva, fűtés/klíma lejjebb véve' },
-      { id: 'licht', de: 'Licht & Geräte aus, Wohnung abgeschlossen', hu: 'Világítás és készülékek kikapcsolva, lakás bezárva' },
-    ],
+    // Feste Punkte, die vor dem Beenden abgehakt sein müssen – derzeit keine (auf Wunsch abgeschaltet).
+    // Format: [{ id: 'bett', de: 'Bettwäsche gewechselt', hu: 'Ágynemű cserélve' }, …]
+    checklist: [],
     // „Knapp“-Knöpfe → Einkaufsliste für den Admin
     supplies: [
       { id: 'klopapier', de: 'Toilettenpapier', hu: 'WC-papír' },
       { id: 'kuechenrolle', de: 'Küchenrolle', hu: 'Papírtörlő' },
       { id: 'seife', de: 'Handseife', hu: 'Kézszappan' },
-      { id: 'duschgel', de: 'Duschgel / Shampoo', hu: 'Tusfürdő / sampon' },
       { id: 'spuelmittel', de: 'Spülmittel', hu: 'Mosogatószer' },
-      { id: 'tabs', de: 'Spülmaschinentabs', hu: 'Mosogatógép-tabletta' },
       { id: 'schwamm', de: 'Schwämme / Lappen', hu: 'Szivacs / törlőkendő' },
       { id: 'muellbeutel', de: 'Müllbeutel', hu: 'Szemeteszsák' },
       { id: 'kaffee', de: 'Kaffee', hu: 'Kávé' },
-      { id: 'tee', de: 'Tee', hu: 'Tea' },
-      { id: 'zucker', de: 'Zucker / Salz / Pfeffer', hu: 'Cukor / só / bors' },
-      { id: 'reiniger', de: 'Reinigungsmittel', hu: 'Tisztítószer' },
-      { id: 'waesche', de: 'Bettwäsche / Handtücher', hu: 'Ágynemű / törölköző' },
-      { id: 'batterien', de: 'Batterien / Glühbirnen', hu: 'Elem / izzó' },
+      { id: 'bettwaesche', de: 'Bettwäsche', hu: 'Ágynemű' },
+      { id: 'handtuecher', de: 'Handtücher', hu: 'Törölköző' },
+      { id: 'batterien', de: 'Batterien', hu: 'Elem' },
+      { id: 'gluehbirnen', de: 'Glühbirnen', hu: 'Izzó' },
     ],          // ab dann keine Erinnerungen mehr (Nachtruhe)
     owner: { id: 'owner', name: 'Apartments Strauss' },
     leads: [],                   // [{ id, name }]
@@ -242,6 +231,7 @@
       adults: count(r.adults),
       children: count(r.children),
       checkIn: timeOf(r['check-in']),
+      checkOut: timeOf(r['check-out']),
       created: r['created-at'] ? String(r['created-at']).slice(0, 10) : null,
     };
   }
@@ -321,7 +311,7 @@
     state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure,
       guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '', created: booking.created || null,
       adults: booking.adults == null ? null : booking.adults, children: booking.children == null ? null : booking.children,
-      checkIn: booking.checkIn || '' };
+      checkIn: booking.checkIn || '', checkOut: booking.checkOut || '' };
 
     if (!existing || existing.status === STATUS.CANCELLED) {
       const task = newTask({
@@ -1230,6 +1220,7 @@
       .filter((t) => !options.user || canAccess(config, t, options.user))
       .map((t) => Object.assign({}, t, {
         reports: t.reports || [],
+        checkOut: t.manual ? '' : ((state.reservations[t.id] || {}).checkOut || config.checkoutTime || ''),
         sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
         nextArrival: nextArrival(state, t),
         nextBooking: nextBooking(state, t),

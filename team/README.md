@@ -101,9 +101,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   OpenStreetMap (max. 2 je Lauf) und speichert sie; Ort in `worker/src/config.js` (`routeCity`)
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
   und im Abschluss-Ablauf
-- **Checkliste (Pflicht)** vor dem Beenden: feste Punkte (Bettwäsche, Bad, Küche, Böden, Staub, Müll, Verbrauchsmaterial,
-  Fenster/Heizung, Licht/abschließen) – anpassbar in `logic/logic.js` (`checklist`, deutsch + ungarisch)
-- **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Kaffee, Spülmittel …; `supplies` in `logic/logic.js`), auch beim
+- **Checkliste** vor dem Beenden: derzeit abgeschaltet; bei Bedarf Punkte in `logic/logic.js` (`checklist`) eintragen
+- **Zu früh gestartet?** Wer vor dem Reinigungstag oder vor der Check-out-Uhrzeit (aus Smoobu, sonst `checkoutTime` 11:00)
+  auf „Reinigung starten“ tippt, bekommt die Sicherheitsfrage „Trotzdem jetzt starten?“
+- **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Küchenrolle, Handseife, Spülmittel, Schwämme, Müllbeutel, Kaffee,
+  Bettwäsche, Handtücher, Batterien, Glühbirnen; `supplies` in `logic/logic.js`), auch beim
   Beenden. Admin bekommt eine Push-Nachricht und die **Einkaufsliste** (je Artikel die Wohnungen; „aufgefüllt“ antippen)
 - **Ungarisch**: Knopf „🇭🇺 HU“ oben (bzw. auf der Anmeldeseite) – je Person gespeichert. Übersetzungen in
   `worker/public/i18n-hu.js`; Push-Überschriften für diese Personen ebenfalls ungarisch (Text der Nachricht bleibt deutsch)

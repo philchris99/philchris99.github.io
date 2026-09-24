@@ -525,7 +525,8 @@ test('Checkliste Pflicht, „knapp“ melden → Einkaufsliste; Sprache Ungarisc
   await call('POST', '/api/tasks/99/assign', { session: lea, body: { to: miaId } });
   await call('POST', '/api/tasks/99/confirm', { session: mia });
   const m = await me(mia);
-  assert.equal(m.checklist.length, ALL.length);
+  assert.equal(m.checklist.length, 0);
+  assert.ok(m.supplyItems.some((s) => s.id === 'bettwaesche') && m.supplyItems.some((s) => s.id === 'handtuecher') && !m.supplyItems.some((s) => s.id === 'tee'));
   assert.ok(m.supplyItems.some((s) => s.hu === 'Kávé'));
   assert.equal(m.lang, 'de');
   assert.equal((await call('POST', '/api/lang', { session: mia, body: { lang: 'hu' } })).body.lang, 'hu');
@@ -534,10 +535,10 @@ test('Checkliste Pflicht, „knapp“ melden → Einkaufsliste; Sprache Ungarisc
   assert.deepEqual(s.body.tasks.find((t) => t.id === '99').supplies.sort(), ['kaffee', 'klopapier']);
   assert.deepEqual(pushes.map((p) => p.title), ['Knapp: FeWo Elbblick'], 'Admin auf Deutsch');
   assert.deepEqual((await me(admin)).shopping.map((x) => x.id), ['klopapier', 'kaffee']);
-  assert.equal((await call('POST', '/api/tasks/99/done', { session: mia, body: { keysInBox: true, checklist: ALL.slice(2) } })).status, 409);
+  assert.equal((await call('POST', '/api/tasks/99/done', { session: mia, body: { checklist: ALL } })).status, 409, 'Schlüssel-Frage ist Pflicht');
   pushes = [];
   const at = Date.now() - 30 * 60000; // offline erfasst vor 30 Min.
-  const d = await call('POST', '/api/tasks/99/done', { session: mia, body: { keysInBox: true, checklist: ALL, supplies: ['tee'], at } });
+  const d = await call('POST', '/api/tasks/99/done', { session: mia, body: { keysInBox: true, checklist: ALL, supplies: ['handtuecher'], at } });
   assert.equal(Date.parse(d.body.tasks.find((t) => t.id === '99').doneAt), at, 'Uhrzeit vom Gerät übernommen');
   assert.equal((await call('POST', '/api/supplies/resolve', { session: mia, body: {} })).status, 404);
   assert.equal((await call('POST', '/api/supplies/resolve', { session: admin, body: { itemId: 'kaffee' } })).body.shopping.some((x) => x.id === 'kaffee'), false);

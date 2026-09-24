@@ -926,21 +926,19 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const key = 'f' + t.id;
     $('finish').innerHTML = `<div class="finish-inner"><form data-finish-form="${esc(t.id)}">
       <div class="finish-head"><div class="eyebrow">🏁 Fertig melden</div><h2>${esc(t.apartmentName)}</h2>
-        ${t.location && t.location.address ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}</div>
+        ${shortLoc(t.location) ? `<div class="meta">📍 ${esc(shortLoc(t.location))}</div>` : ''}</div>
       ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
-      <div class="step checklist"><b><span class="num">1</span>✅ Alles erledigt? Bitte abhaken <span style="color:var(--bad)">*</span></b>
-        ${(data.checklist || []).map((c) => `<label><input type="checkbox" name="check" value="${esc(c.id)}" required> ${esc(itemLabel(c))}</label>`).join('')}</div>
-      <div class="step"><b><span class="num">2</span>📷 Fotos oder Video</b> <span class="meta">(freiwillig)</span>
+      <div class="step"><b><span class="num">1</span>📷 Fotos oder Video</b> <span class="meta">(freiwillig)</span>
         <div class="pick">
           <label>📷 Foto<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(key)}"></label>
           <label>🎥 Video<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(key)}"></label>
           <label>🖼️ Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(key)}"></label>
         </div>
         <div class="thumbs" data-previews="${esc(key)}">${previewsHtml(key)}</div></div>
-      <div class="step"><b><span class="num">3</span>🛒 Fehlt etwas?</b> <span class="meta">(freiwillig)</span>${supplyGrid(t, 'supply')}</div>
-      <div class="step"><b><span class="num">4</span>📝 Besonderheiten?</b> <span class="meta">(freiwillig)</span>
+      <div class="step"><b><span class="num">2</span>🛒 Fehlt etwas?</b> <span class="meta">(freiwillig)</span>${supplyGrid(t, 'supply')}</div>
+      <div class="step"><b><span class="num">3</span>📝 Besonderheiten?</b> <span class="meta">(freiwillig)</span>
         <textarea name="report" rows="3" maxlength="2000" placeholder="z. B. Fleck auf dem Sofa"></textarea></div>
-      <fieldset class="step keys-check" style="border:1px solid var(--line)"><legend style="display:contents"><b><span class="num">5</span>🔑 Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></b></legend>
+      <fieldset class="step keys-check" style="border:1px solid var(--line)"><legend style="display:contents"><b><span class="num">4</span>🔑 Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></b></legend>
         <label class="choice"><input type="radio" name="keys" value="1" required> 👍 Ja, alle da</label>
         <label class="choice no"><input type="radio" name="keys" value="0"> ⚠️ Nein, fehlen</label>
         <label class="field" style="margin-top:10px">Bei „Nein“: kurz erklären (freiwillig)
@@ -1009,6 +1007,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </div>`;
   }
 
+  /** Start zu früh? (vor dem Reinigungstag oder vor dem Check-out) → Text für die Sicherheitsfrage */
+  function earlyWarning(t) {
+    if (!t) return '';
+    const now = new Date().toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
+    if (data.today < t.date) return tr(`Zu früh? Die Reinigung ist erst für ${dayWord(t.date)} (${fmt(t.date)}) geplant – eventuell sind noch Gäste in der Wohnung.`) + '\n\n' + tr('Trotzdem jetzt starten?');
+    if (data.today === t.date && t.checkOut && now < t.checkOut) return tr(`Zu früh? Check-out ist erst um ${t.checkOut} Uhr – eventuell sind noch Gäste in der Wohnung.`) + '\n\n' + tr('Trotzdem jetzt starten?');
+    return '';
+  }
   function taskCard(t, opts) {
     opts = opts || {};
     const r = role();
@@ -2096,6 +2102,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.confirm) {
         b.disabled = true; await taskAction(d.confirm, 'confirm', null, '✅ Angenommen – danke!');
       } else if (d.start) {
+        const warn = earlyWarning((data.tasks || []).find((x) => x.id === d.start));
+        if (warn && !confirm(warn)) return;
         b.disabled = true; await taskAction(d.start, 'start', null, '▶️ Gestartet – gutes Gelingen!');
       } else if (d.done) {
         openFinish(d.done);
