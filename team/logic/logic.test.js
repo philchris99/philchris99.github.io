@@ -573,3 +573,21 @@ test('Route: Anreise heute zuerst (nach Check-in), dann nächstgelegene, „kann
   assert.ok(r.totalKm > 10 && r.totalKm < 60);
   assert.equal(r.stops[0].km, null);
 });
+
+test('Auslastung: Buchungen + Sperrzeiten, keine Doppelzählung; rückwirkend nach Eintragungs- und Stornodatum', () => {
+  const entries = L.smoobuEntries([
+    { id: 1, apartment: { id: 1 }, arrival: '2026-10-01', departure: '2026-10-11', 'created-at': '2026-09-01 10:00' }, // 10 Nächte
+    { id: 2, apartment: { id: 2 }, arrival: '2026-10-05', departure: '2026-10-10', 'created-at': '2026-09-20 08:00', 'is-blocked-booking': true }, // 5 blockiert
+    { id: 3, apartment: { id: 1 }, arrival: '2026-10-05', departure: '2026-10-08', 'created-at': '2026-09-10', 'is-blocked-booking': true }, // überlappt Buchung
+    { id: 4, apartment: { id: 2 }, arrival: '2026-10-20', departure: '2026-10-25', 'created-at': '2026-09-05', type: 'cancellation', modifiedAt: '2026-09-15 09:00' },
+  ]);
+  const index = L.nightIndex(entries);
+  const now = L.occupancy(index, ['1', '2'], '2026-10-01', 30);
+  assert.deepEqual([now.bookedNights, now.blockedNights, now.capacity, now.pct], [10, 5, 60, 25]);
+  assert.equal(now.perApartment['1'].pct, 33.3);
+  // Stand am 10.09.: Buchung 1 schon da, Sperre 2 noch nicht, Storno 4 noch aktiv
+  const past = L.occupancy(index, ['1', '2'], '2026-10-01', 30, '2026-09-10');
+  assert.deepEqual([past.bookedNights, past.blockedNights], [15, 0]);
+  // am 16.09. ist 4 storniert
+  assert.equal(L.occupancy(index, ['1', '2'], '2026-10-01', 30, '2026-09-16').bookedNights, 10);
+});

@@ -157,6 +157,18 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .route .n { display: inline-flex; width: 26px; height: 26px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
 .route .km { font-size: 12px; color: var(--muted); }
 .route button.link { background: none; border: 0; padding: 0; min-height: 0; font: inherit; font-weight: 650; color: var(--text); text-align: left; cursor: pointer; }
+.kpi { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; }
+.kpi .big { font-size: 44px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.kpi .delta { font-size: 14px; color: var(--muted); }
+.chart { --chart: #1E64B4; --grid: #E6E1D8; position: relative; margin-top: 12px; }
+@media (prefers-color-scheme: dark) { .chart { --chart: #4F8FD6; --grid: #34332F; } }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px;
+  font-size: 13px; box-shadow: 0 2px 8px rgba(0,0,0,.12); max-width: 240px; transform: translateY(-110%); }
+.chart .tip b { display: block; font-size: 15px; }
+.bars td { padding: 4px 6px; font-size: 13px; vertical-align: middle; }
+.bars .bar { height: 10px; border-radius: 0 4px 4px 0; background: #1E64B4; }
+@media (prefers-color-scheme: dark) { .bars .bar { background: #4F8FD6; } }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
@@ -1186,6 +1198,92 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </div>`).join('');
   }
 
+  // ---- Statistik (Admin): Auslastung der nächsten 30 Nächte inkl. Sperrzeiten ----
+  const pctText = (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} %`;
+  function statsBlock() {
+    const st = data.stats;
+    if (!st) return '';
+    const c = st.current;
+    const hist = st.history || [];
+    const ago = (n) => hist.find((h) => h.date === addDays(data.today, -n));
+    const delta = (h, label) => h ? `<span class="delta">${c.pct - h.pct >= 0 ? '▲' : '▼'} ${pctText(Math.abs(c.pct - h.pct))} ggü. ${label}</span>` : '';
+    const rows = c.perApartment.map((a) => `<tr><td>${esc(a.name)}</td><td style="width:45%"><div class="bar" style="width:${Math.max(a.pct, 0.5)}%"></div></td>
+      <td style="text-align:right;font-variant-numeric:tabular-nums">${pctText(a.pct)}</td><td class="meta">${a.booked} gebucht${a.blocked ? ` · ${a.blocked} blockiert` : ''}</td></tr>`).join('');
+    return `<div class="panel">
+      <div class="eyebrow">Auslastung nächste ${st.days} Tage · inkl. Blockierungen</div>
+      <div class="kpi"><span class="big">${pctText(c.pct)}</span>${delta(ago(7), 'vor 7 Tagen')}${delta(ago(30), 'vor 30 Tagen')}</div>
+      <p class="meta" style="margin-top:4px">${c.bookedNights + c.blockedNights} von ${c.capacity} Nächten belegt · gebucht ${pctText(c.bookedPct)} · blockiert ${pctText(c.blockedPct)}</p>
+      ${hist.length > 1 ? `<div class="chart" id="occ-chart" role="img" aria-label="Verlauf der Auslastung (nächste ${st.days} Tage) je Tag">${chartSvg(hist)}<div class="tip" hidden></div></div>
+        <p class="meta">Jeder Punkt = an diesem Tag gemessene Auslastung der folgenden ${st.days} Nächte.${hist.some((h) => h.source === 'rückwirkend') ? ' Gestrichelt = rückwirkend aus dem Buchungsdatum berechnet.' : ''}</p>`
+        : '<p class="meta" style="margin-top:8px">Der Verlauf füllt sich ab heute täglich automatisch.</p>'}
+      <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
+      ${st.backfill ? `<p class="meta">Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen (${st.backfill.withCreated} mit Eintragungsdatum).</p>` : ''}
+    </div>
+    <details class="more"><summary>Je Wohnung (nächste ${st.days} Nächte)</summary><div class="panel scroll"><table class="bars">${rows}</table></div></details>
+    <details class="more"><summary>Werte als Tabelle</summary><div class="panel scroll"><table>
+      ${hist.slice().reverse().map((h) => `<tr><td>${fmt(h.date)}</td><td style="text-align:right">${pctText(h.pct)}</td><td class="meta">gebucht ${pctText(h.bookedPct)} · blockiert ${pctText(h.blockedPct)}${h.source === 'rückwirkend' ? ' · rückwirkend' : ''}</td></tr>`).join('')}</table></div></details>`;
+  }
+
+  /** Liniendiagramm (eine Reihe, 0–100 %), rückwirkende Werte gestrichelt */
+  const CH = { w: 600, h: 190, l: 34, r: 44, t: 10, b: 24 };
+  function chartSvg(hist) {
+    // Maßstab 1:1 zur Bildschirmbreite, damit Schrift auf dem Handy lesbar bleibt
+    CH.w = Math.round(Math.min(640, Math.max(300, (window.innerWidth || 600) - 70)));
+    CH.h = CH.w < 420 ? 170 : 190;
+    const n = hist.length;
+    const x = (i) => CH.l + (n === 1 ? 0 : (i / (n - 1)) * (CH.w - CH.l - CH.r));
+    const y = (v) => CH.t + (1 - v / 100) * (CH.h - CH.t - CH.b);
+    const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${CH.l}" x2="${CH.w - CH.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
+      <text x="${CH.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`).join('');
+    // Segmente je Quelle, damit rückwirkend gestrichelt und live durchgezogen ist
+    let paths = '';
+    for (let i = 1; i < n; i++) {
+      const dashed = hist[i].source === 'rückwirkend' || hist[i - 1].source === 'rückwirkend';
+      paths += `<line x1="${x(i - 1)}" y1="${y(hist[i - 1].pct)}" x2="${x(i)}" y2="${y(hist[i].pct)}" stroke="var(--chart)" stroke-width="2" stroke-linecap="round"${dashed ? ' stroke-dasharray="4 4"' : ''}/>`;
+    }
+    const last = hist[n - 1];
+    const labels = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i)
+      .map((i) => `<text x="${x(i)}" y="${CH.h - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" font-size="11" fill="var(--muted)">${fmt(hist[i].date)}</text>`).join('');
+    return `<svg viewBox="0 0 ${CH.w} ${CH.h}" aria-hidden="true">${grid}${paths}
+      <circle cx="${x(n - 1)}" cy="${y(last.pct)}" r="5" fill="var(--chart)" stroke="var(--card)" stroke-width="2"/>
+      <text x="${x(n - 1) + 8}" y="${y(last.pct) + 4}" font-size="12" font-weight="700" fill="var(--text)">${pctText(last.pct)}</text>
+      ${labels}
+      <line class="cross" x1="0" x2="0" y1="${CH.t}" y2="${CH.h - CH.b}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
+      <circle class="dot" r="5" fill="var(--chart)" stroke="var(--card)" stroke-width="2" visibility="hidden"/>
+      <rect class="hit" x="${CH.l}" y="0" width="${CH.w - CH.l - CH.r}" height="${CH.h}" fill="transparent"/></svg>`;
+  }
+  /** Fadenkreuz + Tooltip: springt zum nächsten Tag */
+  function bindChart() {
+    const box = document.getElementById('occ-chart');
+    if (!box || !data.stats) return;
+    const hist = data.stats.history, n = hist.length;
+    const svg = box.querySelector('svg'), tip = box.querySelector('.tip');
+    const cross = svg.querySelector('.cross'), dot = svg.querySelector('.dot');
+    const move = (e) => {
+      const r = svg.getBoundingClientRect();
+      const sx = ((e.clientX - r.left) / r.width) * CH.w;
+      const i = Math.max(0, Math.min(n - 1, Math.round(((sx - CH.l) / (CH.w - CH.l - CH.r)) * (n - 1))));
+      const px = CH.l + (n === 1 ? 0 : (i / (n - 1)) * (CH.w - CH.l - CH.r));
+      const py = CH.t + (1 - hist[i].pct / 100) * (CH.h - CH.t - CH.b);
+      cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
+      dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.setAttribute('visibility', 'visible');
+      tip.hidden = false;
+      tip.style.top = `${Math.max((py / CH.h) * r.height, 60)}px`;
+      tip.textContent = '';
+      const b = document.createElement('b'); b.textContent = pctText(hist[i].pct);
+      const small = document.createElement('span'); small.className = 'meta';
+      small.textContent = `${fmt(hist[i].date)} · gebucht ${pctText(hist[i].bookedPct)} · blockiert ${pctText(hist[i].blockedPct)}${hist[i].source === 'rückwirkend' ? ' · rückwirkend' : ''}`;
+      tip.append(b, small);
+      // innerhalb des Diagramms halten
+      const left = (px / CH.w) * r.width - tip.offsetWidth / 2;
+      tip.style.left = `${Math.max(0, Math.min(r.width - tip.offsetWidth, left))}px`;
+    };
+    const leave = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+    svg.addEventListener('pointermove', move);
+    svg.addEventListener('pointerdown', move);
+    svg.addEventListener('pointerleave', leave);
+  }
+
   function shoppingBlock() {
     const list = data.shopping || [];
     if (!list.length) return '<p class="empty">Nichts gemeldet – alles aufgefüllt.</p>';
@@ -1263,11 +1361,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${tile('heute', unconfirmed.length, 'nicht bestätigt', unconfirmed.some((t) => t.date <= t1))}
         ${tile('meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
         ${tile('heute', alarms.length, 'überfällig', alarms.length > 0)}
+        ${data.stats ? tile('statistik', pctText(data.stats.current.pct), 'Auslastung 30 Tage', false, true) : ''}
       </div>
       ${pushBanner()}
       ${urgent.length ? `<div class="todo"><b>Handlungsbedarf</b><ul>${urgent.map(([id, text]) => `<li><button type="button" data-jump="${esc(id)}">${esc(text)}</button></li>`).join('')}</ul></div>` : ''}
       ${requests.length ? section('antraege', 'Anträge auf späteren Reinigungstag', requests.length + ' offen',
         list(requests.map((q) => tasks.find((t) => t.id === q.taskId)).filter(Boolean), ''), 'key') : ''}
+      ${section('statistik', 'Statistik', '', statsBlock())}
       ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine Reinigungen an.'), 'key')}
       ${section('routen', 'Routen', 'empfohlene Reihenfolge je Person', `<b>Heute</b>${routeBlock(t0, true)}<details class="more"><summary>Morgen</summary>${routeBlock(t1, true)}</details>`)}
       ${section('meldungen', 'Offene Meldungen', reports.length ? reports.length + ' offen' : '', reportsBlock(reports))}
@@ -1459,6 +1559,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     renderWho();
     $('app').innerHTML = offlineBanner() + (role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff());
     translate($('app')); translate($('who'));
+    bindChart();
   }
 
   function renderWho() {
@@ -1780,6 +1881,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         b.disabled = true;
         update(await api('/api/login-locks/release', 'POST', { ip: d.unlock }));
         toast('Freigeschaltet – wieder 3 Versuche möglich');
+      } else if (d.backfill !== undefined) {
+        b.disabled = true; b.textContent = 'Berechne …';
+        const next = await api('/api/stats/backfill', 'POST', { days: 90 });
+        update(next);
+        toast(`Rückwirkend berechnet: ${next.backfilled} Tage`);
       } else if (d.supply) {
         supplyTask = supplyTask === d.supply ? null : d.supply; render();
       } else if (d.supplyClose !== undefined) {

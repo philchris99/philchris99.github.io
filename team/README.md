@@ -66,6 +66,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   Anzahl Tage an Reinigungsleitung und zugewiesene Mitarbeiterin; auf der Karte „⚠ Datum geändert – vorher …“ bis zur
   neuen Bestätigung. Hat der Admin die Reinigung auf einen späteren Tag gelegt, bleibt dieser, solange er nach dem neuen
   Check-out liegt
+- **Statistik (Admin)**: Kern-KPI **Auslastung der nächsten 30 Nächte inkl. Blockierungen** (gebuchte + blockierte Nächte ÷
+  Wohnungen × 30), Veränderung ggü. vor 7/30 Tagen, Verlauf als Diagramm (Tooltip), je Wohnung, Tabelle. Wird bei jedem
+  Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“): holt die Buchungen der letzten
+  Monate aus Smoobu und rechnet mit dem Eintragungsdatum (`created-at`) je Tag nach, was damals schon gebucht/blockiert war;
+  stornierte Buchungen zählen bis zum Storno (Änderungsdatum). Echte Tageswerte werden nie überschrieben
 - **Empfohlene Route je Tag** (heute + morgen): Mitarbeiterin sieht ihre Route, Admin/Leitung je Person. Reihenfolge:
   1. Wohnungen mit Anreise am selben Tag (nach Check-in-Zeit) 2. übrige Pflicht-Reinigungen nach kürzestem Weg
   (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und

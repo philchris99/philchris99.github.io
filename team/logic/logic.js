@@ -242,6 +242,7 @@
       adults: count(r.adults),
       children: count(r.children),
       checkIn: timeOf(r['check-in']),
+      created: r['created-at'] ? String(r['created-at']).slice(0, 10) : null,
     };
   }
 
@@ -318,7 +319,7 @@
     }
 
     state.reservations[id] = { id, apartmentId: String(booking.apartmentId), arrival: booking.arrival, departure: booking.departure,
-      guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '',
+      guest: booking.guest || '', phone: booking.guestPhone || '', channel: booking.channel || '', created: booking.created || null,
       adults: booking.adults == null ? null : booking.adults, children: booking.children == null ? null : booking.children,
       checkIn: booking.checkIn || '' };
 
@@ -1185,6 +1186,75 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Statistik: Auslastung (Buchungen + Sperrzeiten) der nächsten 30 Nächte
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Index Wohnung|Nacht → Einträge. entries: [{ apartmentId, arrival, departure, blocked, created, cancelled }]
+   * (created/cancelled als 'YYYY-MM-DD' oder null)
+   */
+  function nightIndex(entries) {
+    const index = new Map();
+    for (const e of entries) {
+      if (!e || !e.arrival || !e.departure || e.departure <= e.arrival) continue;
+      let guard = 0;
+      for (let d = e.arrival; d < e.departure && guard < 400; d = addDays(d, 1), guard++) {
+        const key = `${e.apartmentId}|${d}`;
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(e);
+      }
+    }
+    return index;
+  }
+
+  /**
+   * Auslastung für die Nächte from … from+days-1. asOf ('YYYY-MM-DD'): nur Einträge, die an diesem Tag schon
+   * eingetragen und noch nicht storniert waren (für die rückwirkende Berechnung). Ohne asOf: aktueller Stand.
+   * Buchung zählt vor Sperrzeit (keine Doppelzählung).
+   */
+  function occupancy(index, apartmentIds, from, days, asOf) {
+    let booked = 0, blocked = 0;
+    const perApartment = {};
+    for (const apt of apartmentIds) {
+      let b = 0, k = 0;
+      for (let i = 0; i < days; i++) {
+        const list = index.get(`${apt}|${addDays(from, i)}`);
+        if (!list) continue;
+        let isBooked = false, isBlocked = false;
+        for (const e of list) {
+          if (!asOf && e.cancelled) continue; // aktueller Stand: Stornos zählen nicht
+          if (asOf && ((e.created && e.created > asOf) || (e.cancelled && e.cancelled <= asOf))) continue;
+          if (asOf && !e.created) continue; // Eintragungsdatum unbekannt → rückwirkend nicht zählen
+          if (e.blocked) isBlocked = true; else isBooked = true;
+        }
+        if (isBooked) b++; else if (isBlocked) k++;
+      }
+      booked += b; blocked += k;
+      perApartment[apt] = { booked: b, blocked: k, pct: days ? Math.round(((b + k) / days) * 1000) / 10 : 0 };
+    }
+    const capacity = apartmentIds.length * days;
+    const pct = (x) => (capacity ? Math.round((x / capacity) * 1000) / 10 : 0);
+    return { from, days, capacity, bookedNights: booked, blockedNights: blocked,
+      pct: pct(booked + blocked), bookedPct: pct(booked), blockedPct: pct(blocked), perApartment };
+  }
+
+  /** Einträge aus dem aktuellen Stand (state.reservations) */
+  function reservationEntries(state) {
+    return Object.values(state.reservations || {}).map((r) => ({ apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure,
+      blocked: !!r.blocked, created: r.created || null, cancelled: null }));
+  }
+
+  /** Einträge aus Smoobu-Rohdaten (mit Eintragungs- und Stornodatum) für die rückwirkende Berechnung */
+  function smoobuEntries(raw) {
+    const day = (x) => (x ? String(x).slice(0, 10) : null);
+    return (raw || []).filter(Boolean).map((r) => ({
+      apartmentId: String(r.apartment && r.apartment.id), arrival: r.arrival, departure: r.departure,
+      blocked: !!r['is-blocked-booking'], created: day(r['created-at']),
+      cancelled: r.type === 'cancellation' ? day(r.modifiedAt || r['modified-at']) || day(r['created-at']) : null,
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
   // Empfohlene Route je Tag
   // ---------------------------------------------------------------------------
 
@@ -1340,7 +1410,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, nightIndex, occupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

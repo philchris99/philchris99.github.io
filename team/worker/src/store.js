@@ -83,6 +83,22 @@ async function deleteVideo(db, id) {
   await db.prepare('DELETE FROM media WHERE id = ?').bind(id).run();
 }
 
+// ---- Statistik: Auslastung je Tag (ein JSON-Eintrag, bleibt beim Zurücksetzen erhalten) ----
+async function ensureStats(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY, data TEXT NOT NULL)').run();
+}
+export async function loadStats(db) {
+  await ensureStats(db);
+  const row = await db.prepare('SELECT data FROM stats WHERE id = 1').first();
+  return row ? JSON.parse(row.data) : { days: {} };
+}
+export async function saveStats(db, stats) {
+  await ensureStats(db);
+  const dates = Object.keys(stats.days).sort();
+  for (const d of dates.slice(0, Math.max(0, dates.length - 400))) delete stats.days[d]; // höchstens ~13 Monate
+  await db.prepare('INSERT OR REPLACE INTO stats (id, data) VALUES (1, ?)').bind(JSON.stringify(stats)).run();
+}
+
 // ---- Einstellungen (Team) – bleiben beim Zurücksetzen erhalten ---------------
 async function ensureSettings(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)').run();

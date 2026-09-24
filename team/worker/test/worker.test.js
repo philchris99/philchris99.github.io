@@ -620,6 +620,33 @@ test('Route: Adressen werden einmalig nachgeschlagen (max. 2 je Lauf), Route je 
   assert.ok(ownerRoutes.some((x) => x.whoName === 'Mia K.' || x.who === miaId));
 });
 
+test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend aus Eintragungsdatum berechenbar', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(500, plus(10), { arrival: plus(0), apartment: { id: 111, name: 'FeWo Elbblick' }, 'created-at': plus(-20) + ' 10:00' }),
+    { id: 501, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(5), apartment: { id: 222, name: 'Loft Altstadt' }, 'created-at': plus(-2) + ' 09:00' },
+  ];
+  await runSync(env);
+  const st = (await me(admin)).stats;
+  assert.equal(st.days, 30);
+  assert.ok(st.current.capacity >= 60);
+  assert.ok(st.current.bookedNights >= 10 && st.current.blockedNights >= 5);
+  const todayRow = st.history.find((h) => h.date === today);
+  assert.equal(todayRow.source, 'live');
+  assert.equal(todayRow.pct, st.current.pct);
+  assert.equal((await call('GET', '/api/me', { session: mia })).body.stats, undefined, 'nur für Admin');
+  const bf = await call('POST', '/api/stats/backfill', { session: admin, body: { days: 30 } });
+  assert.ok(bf.body.backfilled >= 28 && bf.body.backfilled <= 30, 'echte Tageswerte werden nicht überschrieben');
+  const h = bf.body.stats.history;
+  const d5 = h.find((x) => x.date === plus(-5));   // vor 5 Tagen: Buchung schon eingetragen, Sperre noch nicht
+  const d25 = h.find((x) => x.date === plus(-25)); // vor 25 Tagen: noch nichts eingetragen
+  assert.equal(d5.source, 'rückwirkend');
+  assert.ok(d5.bookedPct > 0 && d5.blockedPct === 0);
+  assert.equal(d25.pct, 0);
+  assert.equal(h.find((x) => x.date === today).source, 'live', 'heutiger echter Wert bleibt');
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

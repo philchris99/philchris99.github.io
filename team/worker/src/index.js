@@ -10,7 +10,7 @@ import {
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
-  loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts,
+  loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, diagnose } from './smoobu.js';
@@ -116,6 +116,7 @@ export async function runSync(env, now = Date.now(), cfg) {
   }
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
   await geocodeMissing(env, cfg, result.state, now).catch((e) => console.error('Geocoding', e.message));
+  await trackOccupancy(env, cfg, result.state, now).catch((e) => console.error('Statistik', e.message));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
@@ -207,6 +208,36 @@ function mapsUrl(stops) {
   const p = new URLSearchParams({ api: '1', origin: list[0], destination: list[list.length - 1], travelmode: 'driving' });
   if (list.length > 2) p.set('waypoints', list.slice(1, -1).join('|'));
   return 'https://www.google.com/maps/dir/?' + p.toString();
+}
+
+// ---- Statistik: Auslastung der nächsten 30 Nächte (Buchungen + Sperrzeiten) ----
+async function statsView(env, cfg, state, now) {
+  const stats = await loadStats(env.DB);
+  const current = currentOccupancy(state, cfg, now);
+  const names = Object.fromEntries(apartmentList(state).map((a) => [a.id, a.name]));
+  const history = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0])).slice(-180).map(([date, v]) => ({ date, ...v }));
+  return { days: STAT_DAYS, current: { ...current, perApartment: Object.entries(current.perApartment)
+    .map(([id, v]) => ({ id, name: names[id] || id, ...v })).sort((a, b) => L.compareApartments(a.name, b.name)) },
+  history, backfill: stats.backfill || null };
+}
+
+const STAT_DAYS = 30;
+function currentOccupancy(state, cfg, now) {
+  const today = L.localParts(now, cfg.timezone).date;
+  const ids = apartmentList(state).map((a) => a.id);
+  return L.occupancy(L.nightIndex(L.reservationEntries(state)), ids, today, STAT_DAYS);
+}
+/** Wert für heute festhalten (jeder Lauf überschreibt den heutigen Wert – am Tagesende steht der letzte Stand) */
+async function trackOccupancy(env, cfg, state, now) {
+  if (!state.initialized || !apartmentList(state).length) return;
+  const today = L.localParts(now, cfg.timezone).date;
+  const o = currentOccupancy(state, cfg, now);
+  const stats = await loadStats(env.DB);
+  const prev = stats.days[today];
+  const row = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: o.capacity / STAT_DAYS, source: 'live' };
+  if (prev && prev.source === 'live' && prev.pct === row.pct && prev.bookedPct === row.bookedPct) return;
+  stats.days[today] = row;
+  await saveStats(env.DB, stats);
 }
 
 /** Zugangscodes je Wohnungs-ID: in der App gespeicherte haben Vorrang, sonst die fest hinterlegten */
@@ -315,6 +346,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     lastSync: state.lastSync || null, lastSyncCount: state.lastSyncCount ?? null, lastRun: state.lastRun || null, syncError: state.syncError || null,
     pushReport: state.pushReport || null,
     loginLocks: await listCodeLocks(env.DB, now),
+    stats: await statsView(env, cfg, state, now),
     aptNotes: settings.aptNotes || {},
     rules: { startBy: cfg.startBy, finishBy: cfg.finishBy, repeatMinutes: cfg.repeatMinutes, quietFrom: cfg.quietFrom },
     apartments: apartmentList(state),
@@ -718,6 +750,36 @@ async function handleApi(request, env, url, ctx) {
     else delete settings.aptNotes[id];
     await saveSettings(env.DB, settings);
     return view((await loadState(env.DB)).state);
+  }
+
+  // Statistik rückwirkend berechnen: Buchungen der letzten Monate aus Smoobu mit Eintragungs-/Stornodatum
+  if (path === '/api/stats/backfill' && request.method === 'POST') {
+    const creds = smoobuCreds(env);
+    if (!creds.key) return fail('Smoobu ist nicht verbunden');
+    const { date: today } = L.localParts(now, cfg.timezone);
+    const back = Math.min(365, Math.max(7, Number((await readJson()).days) || 90));
+    let raw;
+    try {
+      raw = await fetchBookings(creds, L.addDays(today, -back - 60), L.addDays(today, STAT_DAYS + 60));
+    } catch (e) {
+      return fail('Smoobu: ' + e.message, 502);
+    }
+    const { state } = await loadState(env.DB);
+    const ids = apartmentList(state).map((a) => a.id);
+    const index = L.nightIndex(L.smoobuEntries(raw));
+    const stats = await loadStats(env.DB);
+    let added = 0;
+    for (let i = back; i >= 1; i--) {
+      const d = L.addDays(today, -i);
+      if (stats.days[d] && stats.days[d].source === 'live') continue; // echte Tageswerte haben Vorrang
+      const o = L.occupancy(index, ids, d, STAT_DAYS, d);
+      stats.days[d] = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'rückwirkend' };
+      added++;
+    }
+    const withCreated = raw.filter((r) => r && r['created-at']).length;
+    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated };
+    await saveStats(env.DB, stats);
+    return view((await loadState(env.DB)).state, { backfilled: added });
   }
 
   // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche
