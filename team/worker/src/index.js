@@ -115,6 +115,7 @@ export async function runSync(env, now = Date.now(), cfg) {
     } }, notifications: [] }), now).catch((e) => console.error(e));
   }
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
+  await geocodeMissing(env, cfg, result.state, now).catch((e) => console.error('Geocoding', e.message));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
@@ -155,6 +156,57 @@ export function builtinFor(name) {
     if (byUnit.length === 1) return byUnit[0][1];
   }
   return null;
+}
+
+// ---- Routenplanung: Adressen der Wohnungen → Koordinaten (OpenStreetMap, einmalig, gespeichert) ----
+const cleanAddress = (a) => String(a || '').replace(/\([^)]*\)/g, '').replace(/(\d+[a-z]?)\/\d+/i, '$1').replace(/\s+/g, ' ').trim();
+
+/** Fehlende Koordinaten nachschlagen – höchstens 2 je Lauf (Nutzungsregeln von OpenStreetMap: max. 1 Anfrage/Sek.) */
+async function geocodeMissing(env, cfg, state, now) {
+  const settings = await loadSettings(env.DB);
+  const geo = settings.geo || {};
+  const names = new Set([...Object.values(state.tasks || {}).map((t) => t.apartmentName), ...(state.apartments || []).map((a) => a.name)]);
+  const todo = [];
+  for (const name of names) {
+    const b = builtinFor(name);
+    if (!b || !b.address) continue;
+    const g = geo[b.address];
+    if (!g || (g.failed && now - Date.parse(g.at) > 7 * 86400000)) if (!todo.includes(b.address)) todo.push(b.address);
+  }
+  if (!todo.length) return;
+  for (const address of todo.slice(0, 2)) {
+    const q = `${cleanAddress(address)}, ${cfg.routeCity || ''}`.replace(/, $/, '');
+    const url = `${env.GEOCODE_URL || 'https://nominatim.openstreetmap.org/search'}?format=json&limit=1&countrycodes=de&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'apartments-strauss-team/1.0 (team.apartments-strauss.de)', 'Accept-Language': 'de' } });
+    const list = res.ok ? await res.json().catch(() => []) : [];
+    geo[address] = list[0] ? { lat: Number(list[0].lat), lon: Number(list[0].lon), at: new Date(now).toISOString() }
+      : { failed: true, at: new Date(now).toISOString() };
+  }
+  settings.geo = geo;
+  await saveSettings(env.DB, settings);
+}
+
+/** Punkte je Wohnungs-ID für die Route */
+function routePoints(settings, apartments, cfg) {
+  const points = {};
+  for (const a of apartments) {
+    const b = builtinFor(a.name);
+    if (!b || !b.address) continue;
+    const g = (settings.geo || {})[b.address];
+    points[a.id] = { address: b.address, lat: g && !g.failed ? g.lat : null, lon: g && !g.failed ? g.lon : null, city: cfg.routeCity || '' };
+  }
+  return points;
+}
+
+/** Link zu Google Maps mit allen Stopps in der empfohlenen Reihenfolge */
+function mapsUrl(stops) {
+  const where = (s) => (s.point && s.point.lat != null ? `${s.point.lat},${s.point.lon}` : s.point && s.point.address ? `${cleanAddress(s.point.address)}, ${s.point.city}` : '');
+  const list = stops.map(where).filter(Boolean);
+  if (!list.length) return '';
+  if (list.length === 1) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(list[0])}`;
+  const p = new URLSearchParams({ api: '1', origin: list[0], destination: list[list.length - 1], travelmode: 'driving' });
+  if (list.length > 2) p.set('waypoints', list.slice(1, -1).join('|'));
+  return 'https://www.google.com/maps/dir/?' + p.toString();
 }
 
 /** Zugangscodes je Wohnungs-ID: in der App gespeicherte haben Vorrang, sonst die fest hinterlegten */
@@ -235,8 +287,28 @@ async function viewFor(env, cfg, settings, state, user, now) {
     return out;
   });
 
-  if (user.role !== 'owner') return { ...base, tasks };
-  return { ...base, tasks,
+  // Empfohlene Route für heute und morgen – Mitarbeiterin: ihre eigene; Leitung/Admin: je Person (+ noch nicht zugewiesen)
+  const points = routePoints(settings, apts, cfg);
+  const routes = [];
+  for (const day of [today, L.addDays(today, 1)]) {
+    const onDay = list.filter((t) => (t.status === 'offen' || t.status === 'bestätigt') && t.date <= day && L.lastDay(t) >= day);
+    const groups = new Map();
+    for (const t of onDay) {
+      if (user.role === 'staff' && t.assignedTo !== user.id) continue;
+      const key = t.assignedTo || '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t.id);
+    }
+    for (const [who, ids] of groups) {
+      const r = L.planRoute(state, ids, day, points, cfg);
+      if (!r.stops.length) continue;
+      routes.push({ ...r, who, whoName: who ? (findUser(cfg, who) || {}).name || '' : '', mapsUrl: mapsUrl(r.stops),
+        stops: r.stops.map(({ point, ...s }) => ({ ...s, hasPoint: !!(point && point.lat != null) })) });
+    }
+  }
+
+  if (user.role !== 'owner') return { ...base, tasks, routes };
+  return { ...base, tasks, routes,
     allowReset: !!cfg.allowReset,
     hasOwnerCode: !!settings.ownerCode,
     log: (state.log || []).slice(0, 50).map((n) => ({ ...n, toName: n.to === cfg.owner.id ? 'Admin' : (findUser(cfg, n.to) || {}).name || n.to })),

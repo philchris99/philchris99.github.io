@@ -44,6 +44,7 @@ function smoobuAuthorized(url, headers) {
 let smoobuBookings = [];
 let pushes = [];
 let smoobuCalls = 0;
+const geocodeCalls = [];
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.startsWith('https://login.smoobu.com/api/')) {
@@ -63,6 +64,11 @@ globalThis.fetch = async (url, init = {}) => {
   if (url === 'https://ntfy.sh') {
     pushes.push(JSON.parse(init.body));
     return Response.json({ id: 'x' });
+  }
+  if (url.startsWith('https://nominatim.openstreetmap.org/search')) { // Koordinaten für die Routenplanung
+    geocodeCalls.push(decodeURIComponent(new URL(url).searchParams.get('q')));
+    const n = geocodeCalls.length;
+    return Response.json([{ lat: String(52.25 + n / 100), lon: String(10.5 + n / 100) }]);
   }
   throw new Error('Unerwarteter Aufruf: ' + url);
 };
@@ -587,6 +593,31 @@ test('Video zur Reinigung: in Stücken gespeichert, mit Range abspielbar, lösch
   assert.equal((await me(mia)).tasks.find((x) => x.id === '120').aptNote, 'Kinderbett aufgebaut lassen');
   await call('POST', '/api/apt-notes', { session: admin, body: { apartmentId: '111', text: '' } });
   assert.equal((await me(mia)).tasks.find((x) => x.id === '120').aptNote, '');
+});
+
+test('Route: Adressen werden einmalig nachgeschlagen (max. 2 je Lauf), Route je Person mit Google-Maps-Link', async (t) => {
+  const BUILTIN = (await import('../src/access-codes.js')).default;
+  if (!BUILTIN['#EINS']) return t.skip('keine fest hinterlegten Adressen in dieser Kopie');
+  const day = new Date().toISOString().slice(0, 10);
+  smoobuBookings = ['#EINS | a', '#ZWEI | b', '#DREI | c'].map((name, i) => booking(300 + i, day, { apartment: { id: 900 + i, name } }));
+  let before = geocodeCalls.length;
+  for (let i = 0; i < 5; i++) {
+    await runSync(env);
+    assert.ok(geocodeCalls.length - before <= 2, 'höchstens 2 je Lauf');
+    before = geocodeCalls.length;
+  }
+  assert.match(geocodeCalls[0], /Braunschweig$/);
+  const settled = geocodeCalls.length;
+  await runSync(env);
+  assert.equal(geocodeCalls.length, settled, 'gespeichert, nicht erneut');
+  for (const id of [300, 301, 302]) await call('POST', `/api/tasks/${id}/assign`, { session: lea, body: { to: miaId } });
+  const r = (await me(mia)).routes.find((x) => x.day === day);
+  assert.equal(r.stops.length, 3);
+  assert.ok(r.stops.every((s) => s.hasPoint));
+  assert.match(r.mapsUrl, /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&origin=/);
+  assert.ok(r.totalKm > 0);
+  const ownerRoutes = (await me(admin)).routes.filter((x) => x.day === day);
+  assert.ok(ownerRoutes.some((x) => x.whoName === 'Mia K.' || x.who === miaId));
 });
 
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {

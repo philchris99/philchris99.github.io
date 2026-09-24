@@ -553,3 +553,23 @@ test('Abschlussbericht (Fotos/Text beim Beenden) ist keine offene Meldung und sc
   assert.equal(L.openReports(res.state).length, 0);
   assert.equal(res.state.tasks['100'].reports[0].final, true);
 });
+
+test('Route: Anreise heute zuerst (nach Check-in), dann nächstgelegene, „kann auch morgen“ zum Schluss', () => {
+  let state = L.createState();
+  const mk = (id, apt, day, extra) => { ({ state } = L.applyBooking(state, booking(Object.assign({ id, apartmentId: apt, apartmentName: 'W' + apt, arrival: '2026-09-28', departure: day }, extra)), NOW, CFG)); };
+  mk('1', 'A', '2026-10-02'); mk('2', 'B', '2026-10-02'); mk('3', 'C', '2026-10-02'); mk('4', 'D', '2026-10-02'); mk('5', 'E', '2026-10-01');
+  // Anreise heute in B (16:00) und C (14:00)
+  mk('20', 'B', '2026-10-05', { arrival: '2026-10-02', checkIn: '16:00', adults: 2 });
+  mk('21', 'C', '2026-10-05', { arrival: '2026-10-02', checkIn: '14:00' });
+  // E: Check-out gestern, Zeitraum bis 03.10. → heute flexibel
+  ({ state } = L.setPeriod(state, '5', '2026-10-03', at('2026-10-01', '08:00'), CFG));
+  const points = { A: { lat: 52.26, lon: 10.52, address: 'A-Str 1' }, B: { lat: 52.27, lon: 10.53, address: 'B-Str 1' },
+    C: { lat: 52.20, lon: 10.40, address: 'C-Str 1' }, D: { lat: 52.201, lon: 10.401, address: 'D-Str 1' }, E: { lat: 52.26, lon: 10.52, address: 'E' } };
+  const r = L.planRoute(state, ['1', '2', '3', '4', '5'], '2026-10-02', points, CFG);
+  assert.deepEqual(r.stops.map((s) => s.apartmentId), ['C', 'B', 'A', 'D', 'E']); // nach B ist A am nächsten
+  assert.equal(r.stops[0].reason, 'Anreise heute ab 14:00 Uhr');
+  assert.equal(r.stops[1].reason, 'Anreise heute ab 16:00 Uhr · 2 Erwachsene');
+  assert.match(r.stops[4].reason, /kann auch bis Sa, 03\.10\.2026/);
+  assert.ok(r.totalKm > 10 && r.totalKm < 60);
+  assert.equal(r.stops[0].km, null);
+});

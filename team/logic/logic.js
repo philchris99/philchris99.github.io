@@ -1184,6 +1184,93 @@
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
 
+  // ---------------------------------------------------------------------------
+  // Empfohlene Route je Tag
+  // ---------------------------------------------------------------------------
+
+  function distanceKm(a, b) {
+    if (!a || !b || a.lat == null || b.lat == null) return null;
+    const rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.sqrt(h));
+  }
+
+  /**
+   * Empfohlene Reihenfolge der Reinigungen an einem Tag.
+   * 1. Wohnungen, in die heute noch ein Gast einzieht (nach Check-in-Zeit)  2. übrige Pflicht-Reinigungen
+   * 3. Reinigungen, die laut Zeitraum auch später erledigt werden dürfen („kann bis …“).
+   * Innerhalb jeder Gruppe immer der nächstgelegene Stopp (gleiches Haus = 0 km).
+   * points: { [apartmentId]: { lat, lon, address } }
+   */
+  function planRoute(state, taskIds, day, points, config) {
+    config = withConfig(config);
+    points = points || {};
+    const stops = [];
+    for (const id of taskIds) {
+      const t = state.tasks[id];
+      if (!t || !isActive(t) || t.date > day || lastDay(t) < day) continue;
+      const next = nextBooking(state, t);
+      const arrivalToday = !!next && next.arrival === day;
+      const flexible = lastDay(t) > day;
+      stops.push({
+        taskId: t.id, apartmentId: t.apartmentId, apartmentName: t.apartmentName,
+        address: (points[t.apartmentId] && points[t.apartmentId].address) || '', point: points[t.apartmentId] || null,
+        group: arrivalToday && !flexible ? 0 : flexible ? 2 : 1,
+        checkIn: arrivalToday ? next.checkIn || '' : '', guests: arrivalToday ? next.guests || '' : '',
+        until: flexible ? lastDay(t) : null, started: !!t.startedAt,
+      });
+    }
+    const out = [];
+    let prev = null;
+    for (const g of [0, 1, 2]) {
+      let pool = stops.filter((s) => s.group === g);
+      if (g === 0) { // Check-in-Zeit hat Vorrang, dann Entfernung
+        pool.sort((a, b) => (a.checkIn || '99:99').localeCompare(b.checkIn || '99:99'));
+        const byTime = [];
+        while (pool.length) {
+          const time = pool[0].checkIn;
+          const same = pool.filter((s) => s.checkIn === time);
+          pool = pool.filter((s) => s.checkIn !== time);
+          byTime.push(...nearestOrder(same, prev));
+          prev = byTime[byTime.length - 1];
+        }
+        out.push(...byTime);
+      } else {
+        const ordered = nearestOrder(pool, prev);
+        out.push(...ordered);
+        if (ordered.length) prev = ordered[ordered.length - 1];
+      }
+    }
+    let total = 0;
+    out.forEach((s, i) => {
+      const d = i ? distanceKm(out[i - 1].point, s.point) : null;
+      s.km = d == null ? null : Math.round(d * 10) / 10;
+      if (d != null) total += d;
+      s.reason = s.group === 0 ? `Anreise heute${s.checkIn ? ' ab ' + s.checkIn + ' Uhr' : ''}${s.guests ? ' · ' + s.guests : ''}`
+        : s.group === 2 ? `kann auch bis ${formatDate(s.until)}` : '';
+    });
+    return { day, stops: out, totalKm: Math.round(total * 10) / 10 };
+  }
+
+  /** Nächster-Nachbar-Reihenfolge (ohne Koordinaten: gleiche Adresse zusammen, sonst Wohnungsnummer) */
+  function nearestOrder(pool, start) {
+    pool = pool.slice().sort((a, b) => compareApartments(a.apartmentName, b.apartmentName));
+    const out = [];
+    let cur = start;
+    while (pool.length) {
+      let best = 0, bestD = Infinity;
+      pool.forEach((s, i) => {
+        let d = distanceKm(cur && cur.point, s.point);
+        if (d == null) d = cur && cur.address && s.address && cur.address.split('(')[0].trim() === s.address.split('(')[0].trim() ? 0 : 1e6 + i;
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      cur = pool.splice(best, 1)[0];
+      out.push(cur);
+    }
+    return out;
+  }
+
   // Wohnungsnummer aus dem Namen: „#EINS | …“ = 1 … „#DREIZEHN | …“ = 13 (auch „Wohnung 7“, „Apt. 12“)
   const NUMBER_WORDS = ['eins', 'zwei', 'drei', 'vier', 'fuenf', 'sechs', 'sieben', 'acht', 'neun', 'zehn', 'elf', 'zwoelf',
     'dreizehn', 'vierzehn', 'fuenfzehn', 'sechzehn', 'siebzehn', 'achtzehn', 'neunzehn', 'zwanzig'];
@@ -1253,7 +1340,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

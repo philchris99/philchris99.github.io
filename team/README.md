@@ -66,6 +66,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   Anzahl Tage an Reinigungsleitung und zugewiesene Mitarbeiterin; auf der Karte „⚠ Datum geändert – vorher …“ bis zur
   neuen Bestätigung. Hat der Admin die Reinigung auf einen späteren Tag gelegt, bleibt dieser, solange er nach dem neuen
   Check-out liegt
+- **Empfohlene Route je Tag** (heute + morgen): Mitarbeiterin sieht ihre Route, Admin/Leitung je Person. Reihenfolge:
+  1. Wohnungen mit Anreise am selben Tag (nach Check-in-Zeit) 2. übrige Pflicht-Reinigungen nach kürzestem Weg
+  (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und
+  Knopf „Route in Google Maps öffnen“. Koordinaten der Adressen (aus `access-codes.js`) holt der Server einmalig über
+  OpenStreetMap (max. 2 je Lauf) und speichert sie; Ort in `worker/src/config.js` (`routeCity`)
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
   und im Abschluss-Ablauf
 - **Checkliste (Pflicht)** vor dem Beenden: feste Punkte (Bettwäsche, Bad, Küche, Böden, Staub, Müll, Verbrauchsmaterial,
