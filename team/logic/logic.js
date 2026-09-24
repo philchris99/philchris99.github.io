@@ -764,14 +764,15 @@
 
   /**
    * Erster Tag nach dem Check-out, an dem die Wohnung laut Smoobu NICHT frei ist: in der Nacht davor war schon ein
-   * anderer Gast (oder eine Sperrzeit) da. Der Anreisetag selbst ist noch nutzbar (Reinigung bis 15 Uhr, vor dem Check-in).
+   * anderer Gast da. Der Anreisetag selbst ist noch nutzbar (Reinigung bis 15 Uhr, vor dem Check-in).
+   * Sperrzeiten zählen nicht – sie werden oft gerade für die Reinigung eingetragen.
    * Liefert { date, arrival, blocked, sameDay } oder null (alles frei).
    */
   function firstOccupied(state, task) {
     const d0 = addDays(task.date, 1);
     let best = null;
     for (const r of Object.values(state.reservations || {})) {
-      if (r.apartmentId !== task.apartmentId || r.id === task.id || !r.arrival || !r.departure) continue;
+      if (r.apartmentId !== task.apartmentId || r.id === task.id || r.blocked || !r.arrival || !r.departure) continue;
       const afterArrival = addDays(r.arrival, 1);
       const start = afterArrival > d0 ? afterArrival : d0;
       if (r.departure < start) continue; // Nacht vor „start“ nicht belegt

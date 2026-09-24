@@ -42,7 +42,7 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (für Smoobu- und manuelle Reinigungen). Auch am späteren Tag gilt: bis 15 Uhr erledigt (steht im Formular und in den
   Nachrichten). Erinnerungen 12/15 Uhr gelten dann erst am letzten Tag. Grenzen: höchstens
   `maxPeriodDays` (7) Tage und **nur Tage, an denen die Wohnung laut Smoobu frei ist** (in der Nacht davor kein anderer
-  Gast, keine Sperrzeit). Der Anreisetag des nächsten Gastes ist noch möglich (bis 15 Uhr, vor dem Check-in). Bei
+  Gast). Sperrzeiten zählen nicht – sie werden oft extra für die Reinigung eingetragen. Der Anreisetag des nächsten Gastes ist noch möglich (bis 15 Uhr, vor dem Check-in). Bei
   Wechseltag (Anreise am Check-out-Tag) ist kein Antrag möglich; die App zeigt den Grund. Kommt später eine Buchung in einen genehmigten Zeitraum, wird er sofort verkürzt/aufgehoben und
   Team + Admin bekommen eine Push-Nachricht; offene Anträge, die nicht mehr passen, entfallen. Ändert Smoobu den Check-out,
   entfällt der Zeitraum (neu beantragen/festlegen). Im Kalender als gestrichelte Linie, offener Antrag mit „?“.

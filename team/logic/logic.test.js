@@ -416,10 +416,10 @@ test('Späterer Tag nur, wenn die Folgetage frei sind: Wechseltag und Sperrzeit 
   assert.equal(L.listCleanings(state, {}, CFG).find((t) => t.id === '100').periodLimit.last, '2026-10-03');
   assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-03', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.until, '2026-10-03');
   assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG), /03\.10\.2026 reist der nächste Gast an.*spätestens am Sa, 03\.10\.2026 möglich/);
-  // Sperrzeit ab 04.10. → bis 04.10. möglich, danach nicht
+  // Sperrzeit direkt nach dem Check-out (z. B. extra für die Reinigung geblockt) → späterer Tag trotzdem möglich
   state = confirmedTask();
-  state.reservations.b1 = { id: 'b1', apartmentId: '3', arrival: '2026-10-04', departure: '2026-10-10', blocked: true };
-  assert.throws(() => L.requestPeriod(state, '100', MIA, { until: '2026-10-05', reason: 'Engpass' }, NOW, CFG), /blockiert/);
+  state.reservations.b1 = { id: 'b1', apartmentId: '3', arrival: '2026-10-02', departure: '2026-10-05', blocked: true };
+  assert.equal(L.listCleanings(state, {}, CFG).find((t) => t.id === '100').periodLimit.last, '2026-10-09');
   assert.equal(L.requestPeriod(state, '100', MIA, { until: '2026-10-04', reason: 'Engpass' }, NOW, CFG).state.tasks['100'].periodRequest.status, 'offen');
   // ohne Folgebuchung: bis zu 7 Tage
   state = confirmedTask();
