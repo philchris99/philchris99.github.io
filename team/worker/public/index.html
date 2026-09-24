@@ -547,6 +547,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <div class="actions"><button data-code-import>In die Liste übernehmen</button></div>
         <div id="code-import-result" class="meta"></div>
       </div>
+      ${(() => { const none = codeEditor.apartments.filter((a) => !codeEditor.codes[a.id]);
+        return none.length ? `<div class="notice bad"><span><b>Ohne Codes (${none.length}):</b> ${none.map((a) => esc(a.name)).join(', ')}
+          – bitte unten eintragen oder die genauen Namen an den Support geben.</span></div>` : '<p class="meta">Alle Wohnungen haben Codes ✓</p>'; })()}
       <div class="panel scroll"><table class="code-table">
         <tr><th>Wohnung</th><th>Gäste</th><th>Service</th><th>Beschreibung</th></tr>${rows ||
           '<tr><td colspan="4" class="meta">Wohnungen erscheinen nach dem ersten Abgleich mit Smoobu.</td></tr>'}</table></div>

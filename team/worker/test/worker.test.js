@@ -446,6 +446,22 @@ test('Fest hinterlegte Zugangscodes: Zuordnung über das Kürzel, App-Änderung 
   assert.equal(list.codes['333'].builtin, true);
 });
 
+test('Zuordnung der fest hinterlegten Codes ist tolerant gegenüber Schreibweisen', async (t) => {
+  const BUILTIN = (await import('../src/access-codes.js')).default;
+  if (!BUILTIN['#EINS']) return t.skip('keine fest hinterlegten Codes in dieser Kopie');
+  const { builtinFor } = await import('../src/index.js');
+  const is = (name, key) => assert.equal(builtinFor(name), key ? BUILTIN[key] : null, name);
+  is('#EINS | Allerstraße 9', '#EINS');
+  is('EINS Allerstr. 9', '#EINS');
+  is('#DREI | x', '#DREI');
+  is('#DREIZEHN | x', '#DREIZEHN');
+  is('Fuenf', '#FÜNF');
+  is('Zwölf', '#ZWÖLF');
+  is('Berliner Platz 1c WE 078', '#VIER');
+  is('Berliner Platz 1c', null);
+  is('Wohnung 9', null);
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

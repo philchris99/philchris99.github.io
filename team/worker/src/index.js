@@ -125,15 +125,30 @@ async function loadSavedCodes(env, settings) {
 }
 
 const normName = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
-/** Fest hinterlegter Code zu einem Smoobu-Wohnungsnamen: über das Kürzel („#EINS | …“), sonst über die Adresse */
-function builtinFor(name) {
-  const token = normName(String(name || '').split('|')[0]);
-  for (const [key, entry] of Object.entries(BUILTIN_CODES)) {
-    if (token && normName(key) === token) return entry;
-  }
-  const full = normName(name);
-  for (const entry of Object.values(BUILTIN_CODES)) {
-    if (entry.address && full.includes(normName(entry.address))) return entry;
+/** Für Adressvergleich: „Allerstraße 9“ = „Allerstr. 9“ = „allerstrasse 9“ */
+const normAddress = (x) => String(x || '').toLowerCase().replace(/ß/g, 'ss')
+  .replace(/stra?sse|str\./g, 'str').replace(/[^a-z0-9äöü]/g, '');
+const translit = (x) => String(x || '').toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue');
+const words = (x) => translit(x).split(/[^a-z0-9]+/).filter(Boolean);
+
+/**
+ * Fest hinterlegter Eintrag zu einem Smoobu-Wohnungsnamen:
+ * 1. Kürzel als eigenes Wort („#EINS | …“, „EINS – …“, „Apartment Eins“; „DREI“ ≠ „DREIZEHN“)
+ * 2. sonst eindeutige Adresse („Allerstr. 9“, „Berliner Platz 1c (070)“)
+ */
+export function builtinFor(name) {
+  const entries = Object.entries(BUILTIN_CODES);
+  const w = words(name);
+  const byWord = entries.filter(([key]) => w.includes(translit(key).replace('#', '')));
+  if (byWord.length === 1) return byWord[0][1];
+  const full = normAddress(name);
+  const byAddress = entries.filter(([, e]) => e.address && full.includes(normAddress(e.address)));
+  if (byAddress.length === 1) return byAddress[0][1];
+  // „Berliner Platz 1c“ ohne Wohnungsnummer passt auf mehrere – dann über „(070)“ bzw. „WE 070“
+  const unit = /\b(\d{3})\b/.exec(String(name || ''));
+  if (unit) {
+    const byUnit = entries.filter(([, e]) => e.address && e.address.includes(`(${unit[1]})`));
+    if (byUnit.length === 1) return byUnit[0][1];
   }
   return null;
 }
@@ -435,7 +450,10 @@ async function handleApi(request, env, url, ctx) {
     const task = (await loadState(env.DB)).state.tasks[id];
     if (!task || !L.mayViewCodes(cfg, task, user, now)) return fail('Codes für diese Reinigung nicht verfügbar', 403);
     const entry = (await loadAccessCodes(env, settings, [{ id: task.apartmentId, name: task.apartmentName }]))[task.apartmentId];
-    if (!entry || !(entry.guest || entry.service)) return fail('Für diese Wohnung sind noch keine Codes hinterlegt – bitte Apartments Strauss fragen', 404);
+    if (!entry || !(entry.guest || entry.service)) {
+      return fail(role === 'staff' ? 'Für diese Wohnung sind noch keine Codes hinterlegt – bitte Apartments Strauss fragen'
+        : `Für „${task.apartmentName}“ sind keine Codes hinterlegt – bitte unter „Zugangscodes der Wohnungen“ eintragen`, 404);
+    }
     try {
       await mutate(env.DB, (st) => L.logCodeAccess(st, id, user, now, cfg), now);
     } catch (e) {
