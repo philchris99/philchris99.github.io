@@ -17,6 +17,11 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 
 ## Funktionen
 
+**Aufbau (Admin)**: Seiten **Reinigungen** (Hauptseite: Handlungsbedarf, Anträge, Heute, Routen, Morgen, 14 Tage, Später,
+manuelle Reinigung) · **Kalender** · **Meldungen** (offene Meldungen, Einkaufsliste) · **Statistik** · **Team** (Reinigungsteam
+mit Anmeldecodes, gesperrte Anmeldungen) · **Einstellungen** (Zugangscodes, Admin-Code, Push, verschickte Nachrichten,
+System & Smoobu, Testphase). Leitung: Reinigungen · Kalender · Team & Meldungen. Abschnitte ohne Inhalt werden nicht angezeigt.
+
 **Rollen** (genau **eine** Reinigungsleitung)
 - **Admin** (Apartments Strauss): alles sehen, manuelle Reinigungen anlegen/verschieben/absagen, Hinweise + Fotos an Reinigungen,
   Meldungen als behoben markieren, Team verwalten (Reinigungsleitung + Mitarbeiterinnen)

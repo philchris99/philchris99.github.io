@@ -17,6 +17,8 @@
     'Keine Internetverbindung': 'Nincs internetkapcsolat',
     // Abschluss (Vollbild), Videos, Hinweis zur Wohnung
     'Reinigung abschließen': 'Takarítás lezárása',
+    'Reinigungen': 'Takarítások', 'Einstellungen': 'Beállítások', 'Reinigungsteam': 'Takarítócsapat', 'Team': 'Csapat', 'Team & Meldungen': 'Csapat és bejelentések', 'Bereiche': 'Területek',
+    '🗺️ Routen – empfohlene Reihenfolge je Person': '🗺️ Útvonalak – javasolt sorrend személyenként',
     'Meine Route heute': 'Mai útvonalam', 'empfohlene Reihenfolge': 'javasolt sorrend', 'Route morgen': 'Holnapi útvonal',
     'Routen': 'Útvonalak', 'empfohlene Reihenfolge je Person': 'javasolt sorrend személyenként', 'Noch nicht zugewiesen': 'Még nincs kiosztva',
     '🗺️ Route in Google Maps öffnen': '🗺️ Útvonal megnyitása a Google Térképben',
@@ -272,6 +274,7 @@
     [/^📍 (.+)$/, (m, x) => '📍 ' + place(x)],
     [/^⚠ Datum geändert – vorher (.+)$/, '⚠ Dátum módosult – korábban: $1'],
     [/^(\d+) Stopps?$/, '$1 megálló'],
+    [/^(\d+) Reinigungen$/, '$1 takarítás'],
     [/^· ca\. (.+) km Luftlinie$/, '· kb. $1 km légvonalban'],
     [/ · ca\. (.+) km Luftlinie/, ' · kb. $1 km légvonalban'],
     [/^↳ (.+) km vom vorherigen Stopp$/, '↳ $1 km az előző megállótól'],
