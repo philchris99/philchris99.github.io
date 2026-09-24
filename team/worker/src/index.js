@@ -175,7 +175,7 @@ function apartmentList(state) {
   for (const t of Object.values(state.tasks)) apartments[t.apartmentId] = t.apartmentName;
   for (const a of state.apartments || []) apartments[a.id] = a.name;
   return Object.entries(apartments).map(([id, name]) => ({ id, name }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true }));
+    .sort((a, b) => L.compareApartments(a.name, b.name)); // #EINS … #DREIZEHN in Zahlenfolge
 }
 
 const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt });
@@ -544,6 +544,10 @@ async function handleApi(request, env, url, ctx) {
     const body = await readJson();
     const kind = body.role === 'lead' ? 'lead' : 'staff';
     if (!mayManage(kind)) return fail('Nicht erlaubt', 403);
+    // Es gibt genau eine Reinigungsleitung
+    if (kind === 'lead' && settings.leads.length) {
+      return fail('Es gibt bereits eine Reinigungsleitung – zum Wechseln bitte zuerst Namen ändern oder die bisherige entfernen');
+    }
     const name = String(body.name || '').trim().slice(0, 60);
     if (!name) return fail('Bitte einen Namen eingeben');
     const entry = { id: randomId(kind === 'lead' ? 'l' : 'm', 8), name, version: 1, createdAt: new Date(now).toISOString(), createdBy: user.id };

@@ -483,3 +483,16 @@ test('Verbrauchsmaterial: „knapp“ melden → eine Nachricht an Admin, Einkau
   res = L.resolveSupplies(res.state, '3', null);
   assert.equal(L.shoppingList(res.state, CFG).length, 0);
 });
+
+test('Wohnungsnummer aus dem Namen: Kalender in Reihenfolge 1–13, Nummer im Kreis passt zum Namen', () => {
+  const names = ['#ACHT | A', '#DREI | B', '#DREIZEHN | C', '#EINS | D', '#ELF | E', '#FÜNF | F', '#NEUN | G', '#SECHS | H',
+    '#SIEBEN | I', '#VIER | J', '#ZEHN | K', '#ZWEI | L', '#ZWÖLF | M'];
+  const state = L.createState();
+  state.apartments = names.map((n, i) => ({ id: String(100 + i), name: n }));
+  const cal = L.calendar(state, '2026-10-01', 7, false, CFG, NOW);
+  assert.deepEqual(cal.apartments.map((a) => a.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+  assert.deepEqual(cal.apartments.map((a) => a.name.split(' ')[0]), ['#EINS', '#ZWEI', '#DREI', '#VIER', '#FÜNF', '#SECHS', '#SIEBEN', '#ACHT', '#NEUN', '#ZEHN', '#ELF', '#ZWÖLF', '#DREIZEHN']);
+  assert.equal(L.apartmentNumber('Wohnung 7'), 7);
+  assert.equal(L.apartmentNumber('Loft am Markt'), null);
+  assert.equal(L.apartmentNumber('Zwoelf'), 12);
+});

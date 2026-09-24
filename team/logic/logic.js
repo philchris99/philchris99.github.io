@@ -1103,6 +1103,25 @@
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
   }
 
+  // Wohnungsnummer aus dem Namen: „#EINS | …“ = 1 … „#DREIZEHN | …“ = 13 (auch „Wohnung 7“, „Apt. 12“)
+  const NUMBER_WORDS = ['eins', 'zwei', 'drei', 'vier', 'fuenf', 'sechs', 'sieben', 'acht', 'neun', 'zehn', 'elf', 'zwoelf',
+    'dreizehn', 'vierzehn', 'fuenfzehn', 'sechzehn', 'siebzehn', 'achtzehn', 'neunzehn', 'zwanzig'];
+  function apartmentNumber(name) {
+    const words = String(name || '').toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
+      .split(/[^a-z0-9]+/).filter(Boolean);
+    for (const w of words) { const i = NUMBER_WORDS.indexOf(w); if (i >= 0) return i + 1; }
+    const m = /^\s*#?\s*(?:wohnung|apartment|apt\.?|nr\.?)?\s*(\d{1,3})\b/i.exec(String(name || ''));
+    return m ? Number(m[1]) : null;
+  }
+  /** Sortierung der Wohnungen: nach Nummer (1–13), sonst alphabetisch dahinter */
+  function compareApartments(a, b) {
+    const na = apartmentNumber(a), nb = apartmentNumber(b);
+    if (na != null && nb != null && na !== nb) return na - nb;
+    if (na != null && nb == null) return -1;
+    if (na == null && nb != null) return 1;
+    return String(a).localeCompare(String(b), 'de', { numeric: true });
+  }
+
   /**
    * Belegungskalender: Wohnungen durchnummeriert, Buchungen/Sperrzeiten und Reinigungen
    * im Zeitraum. showNames = Gastname und Telefonnummer anzeigen.
@@ -1113,9 +1132,15 @@
     const names = {};
     for (const t of Object.values(state.tasks)) names[t.apartmentId] = t.apartmentName;
     for (const a of state.apartments || []) names[a.id] = a.name;
-    const apartments = Object.entries(names)
-      .sort((a, b) => a[1].localeCompare(b[1], 'de', { numeric: true }))
-      .map(([id, name], i) => ({ id, name, number: i + 1 }));
+    const sorted = Object.entries(names).sort((a, b) => compareApartments(a[1], b[1]));
+    const used = new Set();
+    const apartments = sorted.map(([id, name], i) => {
+      // Nummer im Kreis = Nummer aus dem Namen (#EINS = 1); ohne erkennbare Nummer fortlaufend
+      let number = apartmentNumber(name);
+      if (number == null || used.has(number)) { number = i + 1; while (used.has(number)) number++; }
+      used.add(number);
+      return { id, name, number };
+    });
     const bookings = Object.values(state.reservations)
       .filter((r) => r.arrival < to && r.departure > from)
       .map((r) => ({ id: r.id, apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure, blocked: !!r.blocked,
@@ -1147,7 +1172,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

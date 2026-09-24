@@ -142,8 +142,8 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .lang { min-height: 30px; padding: 2px 10px; font-size: 13px; margin-left: 6px; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
-.cal-period { position: absolute; top: 49px; height: 6px; border-top: 3px dashed var(--accent); pointer-events: none; }
-.cal-clean.req::after { content: '?'; position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 99px; background: var(--open); color: #fff; font-size: 11px; line-height: 16px; }
+.cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
+.cal-clean.req::after { content: '?'; position: absolute; top: -7px; right: -8px; width: 14px; height: 14px; font-size: 10px; line-height: 14px; border-radius: 99px; background: var(--open); color: #fff; font-size: 11px; line-height: 16px; }
 .origin { margin-top: 6px; font-size: 13px; color: var(--muted); }
 .note { margin-top: 10px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 8px 8px 0; font-size: 15px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
@@ -221,34 +221,36 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 .cal-nav { display: flex; gap: 6px; flex-wrap: wrap; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 10px 0; }
 .legend i { display: inline-block; width: 22px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
-.cal { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--card); -webkit-overflow-scrolling: touch; }
-.cal-grid { display: grid; grid-template-columns: 132px calc(var(--days) * var(--w)); --w: 42px; width: max-content; }
-.cal-apt, .cal-corner { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  padding: 6px 8px; font-size: 13px; line-height: 1.25; display: flex; align-items: center; gap: 6px; min-height: 72px; }
-.cal-corner { min-height: 46px; }
+.cal { --cal-line: #C9C1B4; --cal-we: #ECE6DC; --cal-today: #FFE9A8; --c-book: #33414E; --c-open: #E07400; --c-ok: #1E64B4; --c-done: #2E7D32; --c-bad: #C62828;
+  overflow-x: auto; border: 1px solid var(--cal-line); border-radius: 12px; background: var(--card); -webkit-overflow-scrolling: touch; }
+@media (prefers-color-scheme: dark) { .cal { --cal-line: #4A4740; --cal-we: #282724; --cal-today: #4A3D10; --c-book: #8FA3B8; } }
+.cal-grid { display: grid; grid-template-columns: 120px calc(var(--days) * var(--w)); --w: 42px; width: max-content; }
+.cal-apt, .cal-corner { position: sticky; left: 0; z-index: 2; background: var(--card); border-right: 2px solid var(--cal-line); border-bottom: 1px solid var(--cal-line);
+  padding: 2px 6px; font-size: 12px; line-height: 1.15; display: flex; align-items: center; gap: 6px; min-height: 46px; }
+.cal-corner { min-height: 40px; }
 .cal-apt b { display: inline-flex; width: 22px; height: 22px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); font-size: 12px; align-items: center; justify-content: center; flex: none; }
 .cal-apt span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .cal-corner { z-index: 3; font-weight: 600; }
-.cal-days, .cal-row { position: relative; display: flex; border-bottom: 1px solid var(--line); }
-.cal-day { width: var(--w); flex: none; text-align: center; font-size: 11px; line-height: 1.2; padding: 4px 0; color: var(--muted); border-left: 1px solid var(--line); }
+.cal-days, .cal-row { position: relative; display: flex; border-bottom: 1px solid var(--cal-line); }
+.cal-day { width: var(--w); flex: none; text-align: center; font-size: 11px; line-height: 1.15; padding: 3px 0; color: var(--muted); border-left: 1px solid var(--cal-line); }
 .cal-day b { display: block; font-size: 14px; color: var(--text); }
-.cal-day.we { background: var(--bg); }
-.cal-day.today { background: var(--accent-soft); color: var(--accent); }
-.cal-day.today b { color: var(--accent); }
+.cal-day.we { background: var(--cal-we); }
+.cal-day.today { background: var(--cal-today); color: var(--text); font-weight: 700; }
 .cal-day.month { border-left: 2px solid var(--brand); }
-.cal-cell { width: var(--w); flex: none; border-left: 1px solid var(--line); min-height: 72px; }
-.cal-cell.we { background: var(--bg); }
-.cal-cell.today { background: var(--accent-soft); }
-.cal-bar { position: absolute; top: 6px; height: 26px; border-radius: 6px; background: var(--brand); color: var(--brand-ink); font-size: 12px; font-weight: 600;
-  padding: 0 7px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; cursor: pointer; border: 0; min-height: 0; justify-content: flex-start; }
-.cal-bar.blocked { background: repeating-linear-gradient(135deg, var(--done-bg) 0 6px, var(--line) 6px 12px); color: var(--muted); border: 1px solid var(--line); }
+.cal-cell { width: var(--w); flex: none; border-left: 1px solid var(--cal-line); min-height: 46px; }
+.cal-cell.we { background: var(--cal-we); }
+.cal-cell.today { background: var(--cal-today); }
+.cal-bar { position: absolute; top: 3px; height: 20px; border-radius: 5px; background: var(--c-book); color: #fff; font-size: 11px; font-weight: 700;
+  padding: 0 6px; display: flex; align-items: center; overflow: hidden; white-space: nowrap; cursor: pointer; border: 0; min-height: 0; justify-content: flex-start; }
+@media (prefers-color-scheme: dark) { .cal-bar { color: #10151B; } }
+.cal-bar.blocked { background: repeating-linear-gradient(135deg, #B9B2A6 0 5px, #8C8579 5px 10px); color: #1E1E1C; border: 1px solid #6F695F; }
 .cal-bar.cut-l { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .cal-bar.cut-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.cal-clean { position: absolute; top: 37px; width: 30px; height: 30px; min-height: 0; padding: 0; border-radius: 99px; transform: translateX(-50%);
-  border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--line); color: #fff; font-weight: 800; font-size: 15px; line-height: 1; }
-.cal-clean.manual { border-radius: 7px; }
-.cal-clean.offen { background: #D98A1C; } .cal-clean.bestätigt { background: var(--accent); } .cal-clean.erledigt { background: #2F6B3F; }
-.cal-clean.overdue { background: var(--bad); animation: pulse 1.6s ease-in-out infinite; }
+.cal-clean { position: absolute; top: 24px; width: 21px; height: 21px; min-height: 0; padding: 0; border-radius: 99px; transform: translateX(-50%);
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); color: #fff; font-weight: 800; font-size: 12px; line-height: 1; z-index: 1; }
+.cal-clean.manual { border-radius: 5px; }
+.cal-clean.offen { background: var(--c-open); } .cal-clean.bestätigt { background: var(--c-ok); } .cal-clean.erledigt { background: var(--c-done); }
+.cal-clean.overdue { background: var(--c-bad); animation: pulse 1.6s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .cal-clean.overdue { animation: none; } }
 @keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(176, 53, 53, .25); } }
 .legend .sym { display: inline-flex; width: 20px; height: 20px; border-radius: 99px; color: #fff; font-weight: 800; font-size: 12px; align-items: center; justify-content: center; vertical-align: middle; margin-right: 5px; }
@@ -993,13 +995,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <button class="small" data-newcode="${esc(p.id)}">Neuen Code erzeugen</button>
           <button class="small danger" data-remove="${esc(p.id)}">Entfernen</button>
         </div></div>`).join('');
+    // Es gibt genau eine Reinigungsleitung – dann kein weiteres Anlegen
+    const canAdd = !(kind === 'lead' && persons.length);
     return `<h3 style="margin:14px 0 8px; font-size:16px">${title}</h3>
       ${rows || '<p class="empty">Noch niemand angelegt.</p>'}
+      ${!canAdd ? '<p class="meta" style="margin-top:6px">Es gibt genau eine Reinigungsleitung. Zum Wechseln: Namen ändern und „Neuen Code erzeugen“ – oder entfernen und neu anlegen.</p>' : `
       <form class="panel" data-add-person="${kind}" style="margin-top:10px">
-        <div class="form-grid"><label class="field">${kind === 'lead' ? 'Reinigungsleitung hinzufügen' : 'Mitarbeiterin hinzufügen'}
+        <div class="form-grid"><label class="field">${kind === 'lead' ? 'Reinigungsleitung anlegen' : 'Mitarbeiterin hinzufügen'}
           <input name="name" required maxlength="60" placeholder="Name"></label>
           <button class="primary" type="submit">Anlegen und Code erzeugen</button></div>
-      </form>`;
+      </form>`}`;
   }
   function codeBox() {
     return newCode ? `<div class="codebox"><div class="eyebrow">Anmeldecode für ${esc(newCode.name)}</div>
@@ -1312,7 +1317,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           style="left:${(diffDays(cal.from, c.date) + 0.5) * W}px" data-cal-clean="${esc(c.id)}"
           aria-label="Reinigung ${esc(a.name)} ${fmt(c.date)}: ${esc(c.status)}">${sym}</button>`;
       }).join('');
-      return `<div class="cal-apt"><b>${a.number}</b><span>${esc(a.name)}</span></div>
+      // Nummer steht im Kreis → daneben nur die Adresse („#EINS | Allerstraße 9“ → „Allerstraße 9“)
+      const label = a.name.includes('|') ? a.name.split('|').slice(1).join('|').trim() : a.name;
+      return `<div class="cal-apt" title="${esc(a.name)}"><b>${a.number}</b><span>${esc(label)}</span></div>
         <div class="cal-row">${days.map((d) => `<div class="cal-cell ${cls(d)}"></div>`).join('')}${bars}${marks}</div>`;
     }).join('');
     $('app').innerHTML = `
@@ -1322,16 +1329,17 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div>
       <h1 style="margin-top:14px">Belegungskalender</h1>
       <p class="meta">${fmtLong(cal.from)} – ${fmtLong(addDays(cal.from, cal.days - 1))} · Buchung oder Reinigung antippen für Details</p>
-      <div class="legend"><span><i style="background:var(--brand)"></i>Buchung (z. B. „2+1 P.“ = 2 Erwachsene, 1 Kind)</span>
-        <span><i style="background:repeating-linear-gradient(135deg,var(--done-bg) 0 4px,var(--line) 4px 8px)"></i>blockiert</span></div>
+      <div class="legend"><span><i style="background:#33414E"></i>Buchung (z. B. „2+1 P.“ = 2 Erwachsene, 1 Kind)</span>
+        <span><i style="background:repeating-linear-gradient(135deg,#B9B2A6 0 4px,#8C8579 4px 8px)"></i>blockiert</span>
+        <span><i style="background:#FFE9A8;border:1px solid #C9C1B4"></i>heute</span></div>
       <div class="legend" style="margin-top:0"><b style="color:var(--text)">Reinigung:</b>
-        <span><span class="sym" style="background:#D98A1C">!</span>offen</span>
-        <span><span class="sym" style="background:var(--accent)">✓</span>bestätigt</span>
-        <span><span class="sym" style="background:#2F6B3F">✓</span>erledigt</span>
-        <span><span class="sym" style="background:var(--bad)">!</span>überfällig (12 Uhr nicht begonnen / 15 Uhr nicht fertig)</span>
-        <span><span class="sym sq" style="background:var(--muted)">■</span>manuelle Reinigung</span>
+        <span><span class="sym" style="background:#E07400">!</span>offen</span>
+        <span><span class="sym" style="background:#1E64B4">✓</span>bestätigt</span>
+        <span><span class="sym" style="background:#2E7D32">✓</span>erledigt</span>
+        <span><span class="sym" style="background:#C62828">!</span>überfällig (12 Uhr nicht begonnen / 15 Uhr nicht fertig)</span>
+        <span><span class="sym sq" style="background:#6E6A64">■</span>manuelle Reinigung</span>
         <span>● Check-out</span>
-        <span><i style="border-top:3px dashed var(--accent);height:0;background:none"></i>Zeitraum (späterer Tag erlaubt)</span>
+        <span><i style="border-top:3px dashed #1E64B4;height:0;background:none"></i>Zeitraum (späterer Tag erlaubt)</span>
         <span><span class="sym" style="background:var(--open)">?</span>Antrag offen</span></div>
       ${cal.apartments.length ? `<div class="cal" id="cal-scroll"><div class="cal-grid" style="--days:${cal.days}">
         <div class="cal-corner">Wohnung</div><div class="cal-days">${head}</div>

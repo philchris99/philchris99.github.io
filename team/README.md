@@ -17,7 +17,7 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 
 ## Funktionen
 
-**Rollen**
+**Rollen** (genau **eine** Reinigungsleitung)
 - **Admin** (Apartments Strauss): alles sehen, manuelle Reinigungen anlegen/verschieben/absagen, Hinweise + Fotos an Reinigungen,
   Meldungen als behoben markieren, Team verwalten (Reinigungsleitung + Mitarbeiterinnen)
 - **Reinigungsleitung**: bekommt alle neuen Reinigungen, bestätigt den Erhalt und **weist sie einer Mitarbeiterin zu**
@@ -81,7 +81,7 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Gästezahl** aus Smoobu (Erwachsene/Kinder): im Kalender an jeder Buchung (z. B. „2+1 P.“) und bei jeder offenen Reinigung
   als „Nächste Anreise: Fr, 25.09. ab 16:00 Uhr · 2 Erwachsene, 1 Kind“ zur Vorbereitung (Smoobu-Felder `adults`,
   `children`, `check-in`; „Diagnose“ zeigt, bei wie vielen Buchungen die Gästezahl hinterlegt ist)
-- **Belegungskalender** (Admin, Leitung): alle Wohnungen durchnummeriert, Tage fortlaufend, Buchungen mit Gastname und
+- **Belegungskalender** (Admin, Leitung): Wohnungen in Reihenfolge 1–13 (Nummer aus dem Namen: „#EINS“ = 1 … „#DREIZEHN“ = 13), Tage fortlaufend, Buchungen mit Gastname und
   Telefonnummer (nur Admin), blockierte Zeiträume aus Smoobu; Reinigungen als großes Symbol (Kreis = Check-out,
   Quadrat = manuell; orange offen, grün bestätigt/erledigt, rot überfällig), antippen zeigt alle Details
 - **Push einrichten**: Schritt-für-Schritt-Anleitung mit direktem Link zu ntfy im App Store / bei Google Play; oben nur, solange

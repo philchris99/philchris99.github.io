@@ -212,6 +212,7 @@
     '‹ Zurück zur Übersicht': '‹ Vissza az áttekintéshez',
     '‹ 2 Wochen': '‹ 2 hét', '2 Wochen ›': '2 hét ›',
     'Kalender wird geladen …': 'Naptár betöltése …',
+    'heute': 'ma',
     'blockiert': 'zárolva', 'Blockiert': 'Zárolva',
     'Reinigung:': 'Takarítás:',
     'offen': 'nyitott', 'bestätigt': 'visszaigazolva', 'erledigt': 'elvégezve',

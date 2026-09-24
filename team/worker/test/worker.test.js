@@ -116,6 +116,9 @@ test('Admin (Notzugang /admin) legt Leitung an, Leitung legt Mitarbeiterin an, A
   assert.equal((await me(lea)).user.role, 'lead');
 
   assert.equal((await call('POST', '/api/team', { session: lea, body: { name: 'X', role: 'lead' } })).status, 403, 'Leitung legt keine Leitung an');
+  const second = await call('POST', '/api/team', { session: admin, body: { name: 'Zweite', role: 'lead' } });
+  assert.equal(second.status, 400, 'nur eine Reinigungsleitung');
+  assert.match(second.body.error, /bereits eine Reinigungsleitung/);
   const staff = await call('POST', '/api/team', { session: lea, body: { name: 'Mia' } });
   assert.equal(staff.status, 200);
   miaId = staff.body.staff[0].id;
