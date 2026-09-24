@@ -1215,10 +1215,11 @@
   function occupancy(index, apartmentIds, from, days, asOf) {
     let booked = 0, blocked = 0;
     const perApartment = {};
+    const dates = Array.from({ length: days }, (_, i) => addDays(from, i)); // einmal berechnen (Rechenzeit)
     for (const apt of apartmentIds) {
       let b = 0, k = 0;
       for (let i = 0; i < days; i++) {
-        const list = index.get(`${apt}|${addDays(from, i)}`);
+        const list = index.get(`${apt}|${dates[i]}`);
         if (!list) continue;
         let isBooked = false, isBlocked = false;
         for (const e of list) {

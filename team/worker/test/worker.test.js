@@ -690,6 +690,42 @@ test('Feste Größen-Zuordnung nach Wohnungsnummer: 1 Zimmer / 3 Zimmer', async 
   assert.ok(g3.apartments.includes('7003') && g3.apartments.includes('7013'));
 });
 
+test('Smoobu-Seiten: holt alle Seiten, auch ohne Seitenzahl in der Antwort; „Nacht prüfen“ zeigt je Wohnung den Stand', async () => {
+  const { fetchBookings } = await import('../src/smoobu.js');
+  const realFetch = globalThis.fetch;
+  const all = Array.from({ length: 230 }, (_, i) => ({ id: 9000 + i, arrival: '2099-01-01', departure: '2099-01-03', apartment: { id: 111 } }));
+  let calls = 0;
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).includes('/api/reservations?')) return realFetch(url, init);
+    calls++;
+    const p = new URL(url).searchParams;
+    const page = Number(p.get('page')), size = Number(p.get('pageSize'));
+    return Response.json({ bookings: all.slice((page - 1) * size, page * size) }); // ohne page_count / total_items
+  };
+  try {
+    const info = {};
+    const got = await fetchBookings({ key: 'smoobu-test-key' }, '2099-01-01', '2099-02-01', info);
+    assert.equal(got.length, 230);
+    assert.equal(info.pages, 3);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // Nacht prüfen
+  const day = new Date().toISOString().slice(0, 10);
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(800, plus(2), { arrival: plus(-1), apartment: { id: 111, name: 'FeWo Elbblick' } }),
+    { id: 801, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(4), apartment: { id: 222, name: 'Loft Altstadt' } },
+  ];
+  await runSync(env);
+  const r = await call('GET', `/api/stats/night?day=${day}`, { session: admin });
+  assert.equal(r.status, 200);
+  const st = Object.fromEntries(r.body.rows.map((x) => [x.id, x.status]));
+  assert.equal(st['111'], 'gebucht');
+  assert.equal(st['222'], 'blockiert');
+  assert.equal((await call('GET', `/api/stats/night?day=${day}`, { session: lea })).status, 404);
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

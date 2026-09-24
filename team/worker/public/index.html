@@ -1262,9 +1262,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     </div>`;
     return `${actualPanel}${forwardPanel}
       <div class="panel" style="margin-top:14px">
-        <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> aus Smoobu.${st.backfill ? ` Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen (${st.backfill.withCreated} mit Eintragungsdatum).` : ''}</p>
+        <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> aus Smoobu.${st.backfill ? ` Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen${st.backfill.pages ? ` (${st.backfill.pages} Seite${st.backfill.pages === 1 ? '' : 'n'}${st.backfill.total != null ? `, Smoobu meldet ${st.backfill.total}` : ''})` : ''}, davon ${st.backfill.withCreated} mit Eintragungsdatum.` : ''}</p>
         <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
       </div>
+      <details class="more" id="night-check"><summary>Nacht prüfen (direkt aus Smoobu)</summary><div class="panel">
+        <div class="form-grid"><label class="field">Nacht vom <input type="date" id="night-day" value="${addDays(data.today, -1)}"></label>
+          <button class="primary" data-night-check>Prüfen</button></div>
+        <div id="night-result"></div></div></details>
     ${sizeBlock(st)}
     <details class="more"><summary>Je Wohnung (nächste ${st.days} Nächte)</summary><div class="panel scroll"><table class="bars">${rows}</table></div></details>
     ${categoryEditor(st)}
@@ -2051,6 +2055,17 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         b.disabled = true;
         update(await api('/api/apt-category', 'POST', { apartmentId: d.catSave, category: input ? input.value : '' }));
         toast('Kategorie gespeichert');
+      } else if (d.nightCheck !== undefined) {
+        b.disabled = true;
+        const r = await api(`/api/stats/night?day=${encodeURIComponent($('night-day').value)}`);
+        b.disabled = false;
+        const busy = r.rows.filter((x) => x.status !== 'frei').length;
+        const icon = { gebucht: '✓ gebucht', blockiert: '▨ blockiert', frei: '✗ frei' };
+        $('night-result').innerHTML = `<p style="margin-top:10px"><b>${busy} von ${r.rows.length} Wohnungen belegt</b> in der Nacht vom ${esc(fmt(r.day))}
+          <span class="meta">· Smoobu lieferte ${r.fetch.received} Einträge auf ${r.fetch.pages} Seite(n)${r.fetch.total != null ? `, meldet ${r.fetch.total}` : ''}</span></p>
+          <table class="bars">${r.rows.map((x) => `<tr><td>${esc(x.name)}</td><td><b style="color:${x.status === 'frei' ? 'var(--bad)' : 'var(--text)'}">${icon[x.status]}</b>
+            ${x.arrival ? `<span class="meta"> ${esc(fmt(x.arrival))} – ${esc(fmt(x.departure))}</span>` : ''}${x.cancelledOnly ? ' <span class="meta">(nur storniert)</span>' : ''}</td></tr>`).join('')}</table>
+          ${r.unknownApartments.length ? `<p class="meta">Einträge zu Einheiten, die hier nicht vorkommen: ${r.unknownApartments.map(esc).join(', ')}</p>` : ''}`;
       } else if (d.backfill !== undefined) {
         b.disabled = true; b.textContent = 'Berechne …';
         const next = await api('/api/stats/backfill', 'POST', { days: 90 });

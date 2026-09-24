@@ -107,15 +107,24 @@ function listOf(data) {
 }
 
 /** Alle Buchungen (inkl. Stornos und Sperrzeiten für den Kalender) mit Abreise im Zeitraum. */
-export async function fetchBookings(creds, departureFrom, departureTo) {
+export async function fetchBookings(creds, departureFrom, departureTo, info) {
   const bookings = [];
-  for (let page = 1; page <= 50; page++) {
+  const PAGE = 100;
+  let pages = 0, total = null;
+  for (let page = 1; page <= 40; page++) {
     const data = await call(creds, '/reservations', {
-      departureFrom, departureTo, showCancellation: 'true', pageSize: '100', page: String(page),
+      departureFrom, departureTo, showCancellation: 'true', pageSize: String(PAGE), page: String(page),
     });
-    bookings.push(...listOf(data));
-    if (!data || page >= (data.page_count || 1)) break;
+    const list = listOf(data);
+    bookings.push(...list);
+    pages = page;
+    const count = data && (data.page_count ?? data.pageCount ?? data.pages ?? data.last_page);
+    total = data && (data.total_items ?? data.totalItems ?? data.total ?? null);
+    // Weiterblättern: laut Seitenzahl, laut Gesamtzahl oder solange volle Seiten kommen
+    const more = count != null ? page < Number(count) : total != null ? bookings.length < Number(total) : list.length >= PAGE;
+    if (!data || !list.length || !more) break;
   }
+  if (info) Object.assign(info, { pages, total, received: bookings.length });
   return bookings;
 }
 

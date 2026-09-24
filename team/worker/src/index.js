@@ -822,8 +822,9 @@ async function handleApi(request, env, url, ctx) {
     const { date: today } = L.localParts(now, cfg.timezone);
     const back = Math.min(365, Math.max(7, Number((await readJson()).days) || 90));
     let raw;
+    const fetchInfo = {};
     try {
-      raw = await fetchBookings(creds, L.addDays(today, -back - 60), L.addDays(today, STAT_DAYS + 60));
+      raw = await fetchBookings(creds, L.addDays(today, -back - 60), L.addDays(today, STAT_DAYS + 60), fetchInfo);
     } catch (e) {
       return fail('Smoobu: ' + e.message, 502);
     }
@@ -843,7 +844,8 @@ async function handleApi(request, env, url, ctx) {
       added++;
     }
     const withCreated = raw.filter((r) => r && (r['created-at'] || r.createdAt || r.created_at)).length;
-    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated, apartments: ids.length };
+    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated, apartments: ids.length,
+      pages: fetchInfo.pages, total: fetchInfo.total };
     await saveStats(env.DB, stats);
     return view((await loadState(env.DB)).state, { backfilled: added });
   }
@@ -858,6 +860,31 @@ async function handleApi(request, env, url, ctx) {
     if (category) settings.aptCategory[id] = category; else delete settings.aptCategory[id];
     await saveSettings(env.DB, settings);
     return view((await loadState(env.DB)).state);
+  }
+
+  // Nacht prüfen: frisch aus Smoobu – welche Wohnung ist in dieser Nacht gebucht / blockiert / frei?
+  if (path === '/api/stats/night' && request.method === 'GET') {
+    const creds = smoobuCreds(env);
+    if (!creds.key) return fail('Smoobu ist nicht verbunden');
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('day') || '') ? url.searchParams.get('day') : L.localParts(now, cfg.timezone).date;
+    const info = {};
+    let raw;
+    try {
+      raw = await fetchBookings(creds, L.addDays(day, 1), L.addDays(day, 120), info); // Abreise nach dieser Nacht
+    } catch (e) {
+      return fail('Smoobu: ' + e.message, 502);
+    }
+    const { state } = await loadState(env.DB);
+    const apartments = apartmentList(state);
+    const rows = apartments.map((a) => {
+      const covering = raw.filter((r) => r && String(r.apartment && r.apartment.id) === a.id && r.arrival <= day && day < r.departure);
+      const active = covering.filter((r) => r.type !== 'cancellation');
+      const pick = active.find((r) => !r['is-blocked-booking']) || active[0] || null;
+      return { id: a.id, name: a.name, status: !pick ? 'frei' : pick['is-blocked-booking'] ? 'blockiert' : 'gebucht',
+        arrival: pick ? pick.arrival : null, departure: pick ? pick.departure : null, cancelledOnly: !active.length && covering.length > 0 };
+    });
+    const idsInSmoobu = [...new Set(raw.map((r) => String(r && r.apartment && r.apartment.id)))].filter((id) => !apartments.some((a) => a.id === id));
+    return json({ day, rows, fetch: info, unknownApartments: idsInSmoobu });
   }
 
   // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche
