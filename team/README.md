@@ -72,7 +72,9 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   neuen Bestätigung. Hat der Admin die Reinigung auf einen späteren Tag gelegt, bleibt dieser, solange er nach dem neuen
   Check-out liegt
 - **Statistik (Admin)** – gezählt werden nur die 13 nummerierten Wohnungen (#EINS–#DREIZEHN); weitere Einheiten in Smoobu
-  werden als „nicht mitgezählt“ angezeigt. Zwei Kennzahlen getrennt: **Tatsächliche Belegung** je Nacht (rückblickend, Ø letzte 30 Nächte,
+  werden als „nicht mitgezählt“ angezeigt. Verlauf standardmäßig 3 Monate, per Knopf je 3 Monate weiter zurück.
+  Läuft automatisch (jeder Abgleich hält den heutigen Wert fest); „Rückwirkend berechnen“ nur einmalig bzw. nach
+  nachträglichen Änderungen in Smoobu. Zwei Kennzahlen getrennt: **Tatsächliche Belegung** je Nacht (rückblickend, Ø letzte 30 Nächte,
   aus dem endgültigen Buchungsstand) und den **Vorausblick** – Kern-KPI **Auslastung der nächsten 30 Nächte inkl. Blockierungen** (gebuchte + blockierte Nächte ÷
   Wohnungen × 30), Veränderung ggü. vor 7/30 Tagen, Verlauf als Diagramm (Tooltip), je Wohnung, Tabelle. Wird bei jedem
   Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“): holt die Buchungen der letzten

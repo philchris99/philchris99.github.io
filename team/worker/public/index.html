@@ -189,6 +189,8 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .track .bar { height: 12px; border-radius: 0 4px 4px 0; background: #1E64B4; }
 @media (prefers-color-scheme: dark) { .track .bar { background: #4F8FD6; } }
 .track .avg { position: absolute; top: -3px; width: 2px; height: 18px; background: var(--text); }
+.actions.range { align-items: center; margin: 4px 0 12px; }
+.actions.range .meta { flex: 1 1 100%; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
@@ -1227,12 +1229,20 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   // ---- Statistik (Admin): Auslastung der nächsten 30 Nächte inkl. Sperrzeiten ----
   const pctText = (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} %`;
   const charts = {}; // Diagramm-ID → Punkte (für das Fadenkreuz)
+  let statsMonths = 3;  // angezeigter Zeitraum im Verlauf (Standard 3 Monate, per Knopf je 3 Monate mehr)
   function statsBlock() {
     const st = data.stats;
     if (!st) return '';
     const c = st.current;
-    const hist = st.history || [];
-    const ago = (n) => hist.find((h) => h.date === addDays(data.today, -n));
+    const allHist = st.history || [];
+    const since = addDays(data.today, -Math.round(statsMonths * 30.5));
+    const hist = allHist.filter((h) => h.date >= since);
+    const olderAvailable = allHist.some((h) => h.date < since);
+    const rangeBar = `<div class="actions range">
+      <span class="meta">Verlauf: letzte ${statsMonths} Monate${hist.length ? ` (ab ${fmt(hist[0].date)})` : ''}</span>
+      ${olderAvailable ? '<button class="small" data-stats-more>＋ 3 Monate früher</button>' : ''}
+      ${statsMonths > 3 ? '<button class="small" data-stats-reset>Nur 3 Monate</button>' : ''}</div>`;
+    const ago = (n) => allHist.find((h) => h.date === addDays(data.today, -n));
     const delta = (h, label) => h ? `<span class="delta">${c.pct - h.pct >= 0 ? '▲' : '▼'} ${pctText(Math.abs(c.pct - h.pct))} ggü. ${label}</span>` : '';
     const rows = c.perApartment.map((a) => `<tr><td>${esc(a.name)}</td><td style="width:45%"><div class="bar" style="width:${Math.max(a.pct, 0.5)}%"></div></td>
       <td style="text-align:right;font-variant-numeric:tabular-nums">${pctText(a.pct)}</td><td class="meta">${a.booked} gebucht${a.blocked ? ` · ${a.blocked} blockiert` : ''}</td></tr>`).join('');
@@ -1260,7 +1270,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <p class="meta">Jeder Punkt = an diesem Tag schon bekannte Belegung der folgenden ${st.days} Nächte.${hist.some((h) => h.source === 'rückwirkend') ? ' Gestrichelt = rückwirkend aus dem Buchungsdatum berechnet.' : ''}</p>`
         : '<p class="meta" style="margin-top:8px">Der Verlauf füllt sich ab heute täglich automatisch.</p>'}
     </div>`;
-    return `${actualPanel}${forwardPanel}
+    return `${rangeBar}${actualPanel}${forwardPanel}
       <div class="panel" style="margin-top:14px">
         <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> (#EINS–#DREIZEHN).${(st.excluded || []).length ? ` Nicht mitgezählt: ${st.excluded.map(esc).join(', ')}.` : ''}
           ${st.backfill ? ` Rückwirkend berechnet ${fmtTime(st.backfill.at)}${st.backfill.oldest ? ` ab ${fmt(st.backfill.oldest)}` : ''}.` : ''}</p>
@@ -2067,6 +2077,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <table class="bars">${r.rows.map((x) => `<tr><td>${esc(x.name)}</td><td><b style="color:${x.status === 'frei' ? 'var(--bad)' : 'var(--text)'}">${icon[x.status]}</b>
             ${x.arrival ? `<span class="meta"> ${esc(fmt(x.arrival))} – ${esc(fmt(x.departure))}</span>` : ''}${x.cancelledOnly ? ' <span class="meta">(nur storniert)</span>' : ''}</td></tr>`).join('')}</table>
           ${r.unknownApartments.length ? `<p class="meta">Einträge zu Einheiten, die hier nicht vorkommen: ${r.unknownApartments.map(esc).join(', ')}</p>` : ''}`;
+      } else if (d.statsMore !== undefined) {
+        statsMonths += 3; render();
+      } else if (d.statsReset !== undefined) {
+        statsMonths = 3; render();
       } else if (d.backfill !== undefined) {
         // 1,5 Jahre in Abschnitten zu 60 Tagen (Cloudflare erlaubt je Anfrage nur wenig Rechenzeit)
         b.disabled = true;
