@@ -191,6 +191,26 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .track .avg { position: absolute; top: -3px; width: 2px; height: 18px; background: var(--text); }
 .actions.range { align-items: center; margin: 4px 0 12px; }
 .actions.range .meta { flex: 1 1 100%; }
+.task h3 { font-size: 20px; margin: 2px 0 2px; }
+.task .loc { font-size: 14px; color: var(--muted); }
+.status-row { margin-top: 10px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; padding: 6px 12px; border-radius: 10px; background: var(--done-bg); color: var(--text); }
+.status.ok { background: var(--ok-bg); color: var(--ok); }
+.status.bad { background: var(--bad-bg); color: var(--bad); }
+.status.wait { background: var(--open-bg); color: var(--open); }
+.status.new { background: var(--new); color: #fff; }
+.status.run { background: var(--accent); color: #fff; }
+.status.gone { text-decoration: line-through; }
+.main-action { margin-top: 12px; }
+.main-action button.big { width: 100%; min-height: 56px; font-size: 18px; font-weight: 700; border-radius: 14px; }
+.more-actions { margin-top: 10px; }
+.more-actions > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 99px; font-weight: 600; font-size: 15px; background: var(--card); }
+.more-actions > summary::-webkit-details-marker { display: none; }
+.more-actions[open] > summary { background: var(--done-bg); }
+.more-list { display: grid; gap: 6px; margin-top: 8px; }
+.more-btn { display: flex; align-items: center; width: 100%; min-height: 48px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+  color: var(--text); font-size: 16px; text-align: left; justify-content: flex-start; text-decoration: none; cursor: pointer; }
+.more-btn.danger { color: var(--bad); }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 33px; height: 0; border-top: 3px dashed var(--c-ok, #1E64B4); pointer-events: none; }
@@ -668,35 +688,44 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   const periodLabel = (t) => `${fmt(t.date)} – ${fmt(lastDay(t))}`;
   const role = () => data.user.role;
 
+  /** Ein klarer Status mit Icon (statt vieler Einzel-Hinweise) */
+  function statusLine(t) {
+    const r = role();
+    if (t.status === 'storniert') return '<span class="status gone">✖️ Entfällt</span>';
+    if (t.status === 'erledigt') return `<span class="status ok">✅ Fertig${t.doneAt ? ' um ' + clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`;
+    if (t.overdue === 'start') return '<span class="status bad">⏰ Überfällig – noch nicht gestartet</span>';
+    if (t.overdue === 'finish') return `<span class="status bad">⏰ Überfällig – ${t.startedAt ? 'noch nicht fertig' : 'noch nicht gestartet'}</span>`;
+    if (t.overdue === 'past') return '<span class="status bad">⏰ Überfällig – nicht erledigt</span>';
+    if (t.startedAt) return `<span class="status run">▶️ Läuft seit ${clock(t.startedAt)}</span>`;
+    if (!t.assignedTo) return `<span class="status wait">👤 ${r === 'staff' ? 'Noch offen' : 'Noch niemand eingeteilt'}</span>`;
+    if (!t.staffConfirmedAt) return t.assignedTo === data.user.id ? '<span class="status new">🆕 Bitte annehmen</span>'
+      : `<span class="status wait">⏳ Wartet auf ${esc(nameOf(t.assignedTo))}</span>`;
+    return `<span class="status ok">👍 Angenommen${r === 'staff' ? '' : ' von ' + esc(nameOf(t.assignedTo))}</span>`;
+  }
+
+  /** Nur die wichtigsten Zusatz-Hinweise */
   function chips(t) {
     const out = [];
-    if (t.status === 'storniert') return '<span class="chip gone">entfällt</span>';
+    const r = role();
     if (t.status === 'erledigt') {
-      out.push(`<span class="chip yes">erledigt ✓ ${t.doneAt ? clock(t.doneAt) : ''}${t.startedAt && t.doneAt ? ' · ' + duration(t.startedAt, t.doneAt) : ''}</span>`);
-      if (t.keysInBox === true) out.push('<span class="chip yes">Schlüssel in der Box ✓</span>');
-      else if (t.keysInBox === false) out.push(t.keysResolvedAt ? '<span class="chip yes">Schlüssel geklärt ✓</span>' : '<span class="chip alert">Schlüssel NICHT in der Box</span>');
+      if (t.keysInBox === false) out.push(t.keysResolvedAt ? '<span class="chip yes">🔑 Schlüssel geklärt</span>' : '<span class="chip alert">🔑 Schlüssel fehlen!</span>');
     }
-    else {
-      if (t.overdue === 'start') out.push('<span class="chip alert">überfällig – noch nicht begonnen</span>');
-      else if (t.overdue === 'finish') out.push(`<span class="chip alert">überfällig – ${t.startedAt ? 'noch nicht beendet' : 'nicht begonnen'}</span>`);
-      else if (t.overdue === 'past') out.push('<span class="chip alert">überfällig – nicht erledigt</span>');
-      if (t.lateAlerted && t.status === 'offen') out.push('<span class="chip alert">nicht rechtzeitig bestätigt</span>');
-      out.push(t.leadConfirmedAt ? '<span class="chip yes">Leitung ✓</span>' : '<span class="chip wait">Leitung offen</span>');
-      if (!t.assignedTo) out.push('<span class="chip wait">nicht zugewiesen</span>');
-      else out.push(`<span class="chip ${t.staffConfirmedAt ? 'yes' : 'wait'}">${esc(nameOf(t.assignedTo))} ${t.staffConfirmedAt ? '✓' : 'offen'}</span>`);
-      if (t.startedAt) out.push(`<span class="chip run">läuft seit ${clock(t.startedAt)}</span>`);
+    if (isActive(t)) {
+      if (t.prevDate && !t.staffConfirmedAt) out.push(`<span class="chip alert">⚠️ Neuer Termin (vorher ${esc(fmt(t.prevDate))})</span>`);
+      if (t.sameDayArrival) out.push('<span class="chip alert">🔁 Neue Gäste kommen am selben Tag</span>');
+      if (lastDay(t) > t.date) out.push(`<span class="chip period">📅 Darf bis ${esc(fmt(lastDay(t)))}</span>`);
+      const req = t.periodRequest;
+      if (req && req.status === 'offen') out.push(`<span class="chip wait">📨 Späterer Tag beantragt (bis ${esc(fmt(req.until))})</span>`);
+      if (req && req.status === 'abgelehnt' && r !== 'owner') out.push('<span class="chip alert">✖️ Späterer Tag abgelehnt</span>');
+      if (t.checkoutDate && t.checkoutDate !== t.date) out.push(`<span class="chip wait">🔀 Verschoben (Check-out ${esc(fmt(t.checkoutDate))})</span>`);
+      if (t.lateAlerted && t.status === 'offen' && r === 'owner') out.push('<span class="chip alert">⏳ Nicht rechtzeitig angenommen</span>');
     }
-    if (t.prevDate && isActive(t) && !t.staffConfirmedAt) out.push(`<span class="chip alert">⚠ Datum geändert – vorher ${esc(fmt(t.prevDate))}</span>`);
-    if (t.checkoutDate && t.checkoutDate !== t.date && isActive(t)) out.push(`<span class="chip wait">Check-out ${esc(fmt(t.checkoutDate))} · Reinigung verschoben</span>`);
-    if (t.releaseBlock && role() === 'owner') out.push(`<span class="chip alert">⚠ Blockierung in Smoobu aufheben: ${esc(fmt(t.releaseBlock.from))} – ${esc(fmt(t.releaseBlock.to))}</span>`);
-    if (t.needsBlock && role() === 'owner') out.push(`<span class="chip alert">⚠ In Smoobu blockieren: ${esc(fmt(t.needsBlock.from))} – ${esc(fmt(t.needsBlock.to))}</span>`);
-    if (lastDay(t) > t.date && t.status !== 'erledigt') out.push(`<span class="chip period">Zeitraum ${esc(periodLabel(t))}</span>`);
-    const req = t.periodRequest;
-    if (req && req.status === 'offen' && isActive(t)) out.push(`<span class="chip wait">Zeitraum bis ${esc(fmt(req.until))} beantragt</span>`);
-    if (req && req.status === 'abgelehnt' && isActive(t) && role() !== 'owner') out.push('<span class="chip alert">Zeitraum abgelehnt</span>');
-    if (t.sameDayArrival && isActive(t)) out.push('<span class="chip alert">Wechseltag – Anreise am selben Tag</span>');
-    if (t.manual) out.push('<span class="chip manual">manuelle Reinigung</span>');
-    if ((t.supplies || []).length && (isActive(t) || role() === 'owner')) out.push(`<span class="chip wait">🛒 knapp: ${t.supplies.length}</span>`);
+    if (r === 'owner') {
+      if (t.needsBlock) out.push(`<span class="chip alert">🚫 In Smoobu blockieren: ${esc(fmt(t.needsBlock.from))} – ${esc(fmt(t.needsBlock.to))}</span>`);
+      if (t.releaseBlock) out.push(`<span class="chip alert">🔓 Blockierung in Smoobu aufheben: ${esc(fmt(t.releaseBlock.from))} – ${esc(fmt(t.releaseBlock.to))}</span>`);
+      if ((t.supplies || []).length) out.push(`<span class="chip wait">🛒 ${t.supplies.length} fehlt</span>`);
+    }
+    if (t.manual) out.push('<span class="chip manual">✋ Extra-Reinigung</span>');
     return out.join('');
   }
 
@@ -717,17 +746,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   function reportForm(t) {
-    const label = role() === 'owner' ? 'Hinweis für die Reinigung' : 'Was fehlt, was ist kaputt, was ist zu tun?';
+    const label = role() === 'owner' ? '📝 Hinweis für das Team' : '📷 Was ist kaputt oder stimmt nicht?';
     return `<form class="report-form" data-report-form="${esc(t.id)}">
       <label class="field">${label}
         <textarea name="text" id="text-${esc(t.id)}" placeholder="${role() === 'owner' ? 'z. B. Bitte Kaffee auffüllen …' : 'z. B. Handtücher fehlen, Glühbirne im Bad defekt …'}"></textarea></label>
       <div class="pick">
-        <label>Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
-        <label>Video aufnehmen<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
-        <label>Aus Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(t.id)}"></label>
+        <label>📷 Foto<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
+        <label>🎥 Video<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(t.id)}"></label>
+        <label>🖼️ Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(t.id)}"></label>
       </div>
       <div class="thumbs" data-previews="${esc(t.id)}">${previewsHtml(t.id)}</div>
-      <button class="primary" type="submit">${role() === 'owner' ? 'Hinweis senden' : 'Meldung senden'}</button>
+      <div class="actions"><button class="primary" type="submit">${role() === 'owner' ? 'Hinweis senden' : 'Meldung senden'}</button>
+        <button type="button" data-toggle-report="${esc(t.id)}">Abbrechen</button></div>
     </form>`;
   }
   function previewsHtml(taskId) {
@@ -752,9 +782,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function nextGuests(t) {
     if (!isActive(t)) return '';
     const n = t.nextBooking;
-    if (!n) return '<div class="next-guests meta">Nächste Anreise: noch keine Buchung</div>';
-    const when = ['Heute', 'Morgen'].includes(dayWord(n.arrival)) ? `<b>${dayWord(n.arrival)}</b>, ${fmt(n.arrival)}` : `<b>${fmt(n.arrival)}</b>`;
-    return `<div class="next-guests">Nächste Anreise: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''} · ${n.guests ? `<b>${esc(n.guests)}</b>` : 'Gästezahl in Smoobu nicht angegeben'}</div>`;
+    if (!n) return '';
+    const when = ['Heute', 'Morgen'].includes(dayWord(n.arrival)) ? `<b>${dayWord(n.arrival)}</b>` : `<b>${fmt(n.arrival)}</b>`;
+    return `<div class="next-guests">🧳 Nächste Gäste: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''}${n.guests ? ` · <b>${esc(n.guests)}</b>` : ''}</div>`;
   }
 
   function codesBox(c) {
@@ -829,7 +859,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
   function supplyForm(t) {
     return `<form class="report-form" data-supply-form="${esc(t.id)}">
-      <b>Was ist knapp oder fehlt?</b> <span class="meta">Antippen und „Melden“ – Apartments Strauss bekommt eine Einkaufsliste.</span>
+      <b>🛒 Was fehlt?</b> <span class="meta">Antippen, dann „Melden“.</span>
       ${supplyGrid(t, 'item')}
       <div class="actions"><button class="primary" type="submit">Melden</button><button type="button" data-supply-close>Abbrechen</button></div>
     </form>`;
@@ -876,28 +906,28 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (!t) return closeFinish();
     const key = 'f' + t.id;
     $('finish').innerHTML = `<div class="finish-inner"><form data-finish-form="${esc(t.id)}">
-      <div class="finish-head"><div class="eyebrow">Reinigung abschließen</div><h2>${esc(t.apartmentName)}</h2>
+      <div class="finish-head"><div class="eyebrow">🏁 Fertig melden</div><h2>${esc(t.apartmentName)}</h2>
         ${t.location && t.location.address ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}</div>
       ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
-      <div class="step checklist"><b><span class="num">1</span>Checkliste – bitte alles abhaken <span style="color:var(--bad)">*</span></b>
+      <div class="step checklist"><b><span class="num">1</span>✅ Alles erledigt? Bitte abhaken <span style="color:var(--bad)">*</span></b>
         ${(data.checklist || []).map((c) => `<label><input type="checkbox" name="check" value="${esc(c.id)}" required> ${esc(itemLabel(c))}</label>`).join('')}</div>
-      <div class="step"><b><span class="num">2</span>Fotos / Videos</b> <span class="meta">(optional, z. B. Bad, Küche, Schäden – max. 5 Fotos, 2 Videos à 40 MB)</span>
+      <div class="step"><b><span class="num">2</span>📷 Fotos oder Video</b> <span class="meta">(freiwillig)</span>
         <div class="pick">
-          <label>Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(key)}"></label>
-          <label>Video aufnehmen<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(key)}"></label>
-          <label>Aus Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(key)}"></label>
+          <label>📷 Foto<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(key)}"></label>
+          <label>🎥 Video<input type="file" accept="video/*" capture="environment" data-photo-input="${esc(key)}"></label>
+          <label>🖼️ Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(key)}"></label>
         </div>
         <div class="thumbs" data-previews="${esc(key)}">${previewsHtml(key)}</div></div>
-      <div class="step"><b><span class="num">3</span>Was ist knapp oder fehlt?</b> <span class="meta">(optional)</span>${supplyGrid(t, 'supply')}</div>
-      <div class="step"><b><span class="num">4</span>Was wurde gemacht? Besonderheiten?</b> <span class="meta">(optional)</span>
-        <textarea name="report" rows="3" maxlength="2000" placeholder="z. B. Fenster geputzt, Kaffeemaschine entkalkt, Fleck auf dem Sofa"></textarea></div>
-      <fieldset class="step keys-check" style="border:1px solid var(--line)"><legend style="display:contents"><b><span class="num">5</span>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></b></legend>
-        <label class="choice"><input type="radio" name="keys" value="1" required> Ja, Schlüssel sind in der Box</label>
-        <label class="choice no"><input type="radio" name="keys" value="0"> Nein, Schlüssel fehlen</label>
-        <label class="field" style="margin-top:10px">Bei „Nein“: was ist passiert? (optional)
-          <input name="note" maxlength="500" placeholder="z. B. nur 1 von 2 Schlüsseln, Gast nicht erreichbar"></label>
-        <p class="meta" style="margin-top:6px">Bei „Nein“ wird Apartments Strauss sofort per Push benachrichtigt.</p></fieldset>
-      <div class="actions" style="margin-top:16px"><button class="primary" type="submit">Reinigung abschließen</button><button type="button" data-finish-close>Abbrechen</button></div>
+      <div class="step"><b><span class="num">3</span>🛒 Fehlt etwas?</b> <span class="meta">(freiwillig)</span>${supplyGrid(t, 'supply')}</div>
+      <div class="step"><b><span class="num">4</span>📝 Besonderheiten?</b> <span class="meta">(freiwillig)</span>
+        <textarea name="report" rows="3" maxlength="2000" placeholder="z. B. Fleck auf dem Sofa"></textarea></div>
+      <fieldset class="step keys-check" style="border:1px solid var(--line)"><legend style="display:contents"><b><span class="num">5</span>🔑 Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></b></legend>
+        <label class="choice"><input type="radio" name="keys" value="1" required> 👍 Ja, alle da</label>
+        <label class="choice no"><input type="radio" name="keys" value="0"> ⚠️ Nein, fehlen</label>
+        <label class="field" style="margin-top:10px">Bei „Nein“: kurz erklären (freiwillig)
+          <input name="note" maxlength="500" placeholder="z. B. nur 1 von 2 Schlüsseln"></label></fieldset>
+      <div class="main-action"><button class="primary big" type="submit">🏁 Fertig melden</button></div>
+      <div class="actions"><button type="button" data-finish-close>Abbrechen</button></div>
     </form></div>`;
     translate($('finish'));
   }
@@ -921,19 +951,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (value < min) value = min;
     return `<form class="report-form" data-period-form="${esc(t.id)}">
       <p class="meta">${lang === 'hu'
-        ? `Check-out: ${fmtLong(t.date)}. A takarítás ezután bármelyik napon elvégezhető a kiválasztott dátumig bezárólag –
-          ${fmt(t.date)}-én természetesen továbbra is jó. Emlékeztetők (${esc(data.startBy)}/${esc(data.finishBy)}) csak az utolsó napon.
-          <br><b style="color:var(--bad)">Fontos: a későbbi napon is legkésőbb ${esc(data.finishBy)}-ig el kell készülnie a takarításnak.</b>
-          ${limit.reason ? `<br><b>${esc(tr(limit.reason))}</b> – legkésőbb ${fmtLong(max)} lehetséges (csak szabad napok).` : ''}`
-        : `Check-out ${fmtLong(t.date)}. Die Reinigung darf dann an jedem Tag bis einschließlich dem gewählten Datum stattfinden –
-        am ${fmt(t.date)} ist natürlich weiterhin gut. Erinnerungen (${esc(data.startBy)}/${esc(data.finishBy)} Uhr) erst am letzten Tag.
-        <br><b style="color:var(--bad)">Wichtig: Auch am späteren Tag muss die Reinigung bis spätestens ${esc(data.finishBy)} Uhr erledigt sein.</b>
-        ${limit.reason ? `<br><b>${esc(limit.reason)}</b> – möglich nur bis ${fmtLong(max)} (nur freie Tage).` : ''}`}</p>
+        ? `📅 Legkésőbb mikorra tudod? <b style="color:var(--bad)">Mindig ${esc(data.finishBy)}-ig legyen kész.</b>
+          ${limit.reason ? `<br>Lehetséges eddig: ${fmt(max)} (${esc(tr(limit.reason))}).` : ''}`
+        : `📅 Bis wann schaffst du es spätestens? <b style="color:var(--bad)">Immer bis ${esc(data.finishBy)} Uhr fertig.</b>
+        ${limit.reason ? `<br>Möglich bis ${fmt(max)} (${esc(limit.reason)}).` : ''}`}</p>
       <div class="form-grid">
-        <label class="field">Reinigung spätestens am <input type="date" name="until" value="${esc(value)}" min="${esc(min)}" max="${esc(max)}" required></label>
-        ${owner ? '' : '<label class="field">Kurze Begründung <input name="reason" required minlength="3" maxlength="500" placeholder="z. B. Personalengpass am 1.10."></label>'}
+        <label class="field">Spätestens am <input type="date" name="until" value="${esc(value)}" min="${esc(min)}" max="${esc(max)}" required></label>
+        ${owner ? '' : '<label class="field">Warum? <input name="reason" required minlength="3" maxlength="500" placeholder="z. B. zu wenig Personal"></label>'}
       </div>
-      <div class="actions"><button class="primary" type="submit">${owner ? 'Zeitraum festlegen und Team informieren' : 'Antrag an Apartments Strauss senden'}</button>
+      <div class="actions"><button class="primary" type="submit">${owner ? 'Speichern und Team informieren' : '📨 Anfrage senden'}</button>
         ${owner && t.latestDate ? `<button type="button" class="danger" data-period-clear="${esc(t.id)}">Zeitraum aufheben</button>` : ''}
         <button type="button" data-period-close>Abbrechen</button></div>
     </form>`;
@@ -967,64 +993,69 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function taskCard(t, opts) {
     opts = opts || {};
     const r = role();
+    const id = esc(t.id);
     const active = isActive(t);
     const mineToDo = t.assignedTo === data.user.id;
     const isNew = r === 'staff' ? active && !t.staffConfirmedAt : r === 'lead' ? active && (!t.leadConfirmedAt || !t.assignedTo) : false;
     const urgent = active && (t.overdue || t.lateAlerted || (r === 'owner' && t.status === 'offen' && t.date <= addDays(data.today, 1)));
     const cls = ['task', active ? '' : 'muted', isNew ? 'is-new' : '', opts.next ? 'is-next' : '', urgent ? 'urgent' : ''].filter(Boolean).join(' ');
-    const actions = [];
-    if (r === 'lead' && active && !t.leadConfirmedAt) actions.push(`<button data-lead-confirm="${esc(t.id)}">Erhalt bestätigen</button>`);
-    if (active && mineToDo && !t.staffConfirmedAt) actions.push(`<button class="primary" data-confirm="${esc(t.id)}">Erhalt bestätigen</button>`);
-    // Beginn/Erledigt nur für die zugewiesene Person (auch Leitung, wenn sie selbst reinigt) nach Bestätigung
     const canWork = active && r !== 'owner' && mineToDo && !!t.staffConfirmedAt;
-    if (canWork) {
-      if (!t.startedAt) actions.push(`<button class="go" data-start="${esc(t.id)}">Reinigung beginnen</button>`);
-      actions.push(`<button class="${t.startedAt ? 'primary' : ''}" data-done="${esc(t.id)}">Reinigung abschließen</button>`);
-    }
-    if (t.status !== 'storniert') actions.push(`<button data-toggle-report="${esc(t.id)}">${openForms.has(t.id) ? 'Schließen' : r === 'owner' ? 'Hinweis / Foto hinzufügen' : 'Hinweis / Problem melden'}</button>`);
-    const doneToday = t.status === 'erledigt' && t.doneAt && t.doneAt.slice(0, 10) >= addDays(data.today, -1);
-    if ((active || doneToday) && (r !== 'staff' || mineToDo)) {
-      actions.push(`<button class="small" data-codes="${esc(t.id)}">${shownCodes[t.id] ? 'Codes ausblenden' : '🔑 Zugangscodes'}</button>`);
-    }
-    if ((active || doneToday) && r !== 'owner' && (r === 'lead' || mineToDo)) {
-      actions.push(`<button class="small" data-supply="${esc(t.id)}">${supplyTask === t.id ? 'Schließen' : '🛒 Knapp melden'}</button>`);
-    }
-    if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) actions.push(`<button class="go" data-keys-resolved="${esc(t.id)}">Schlüssel geklärt</button>`);
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
-    // Reinigungsteam: offenen Antrag zurückziehen bzw. genehmigten späteren Tag wieder aufheben („doch früher“)
+    const doneToday = t.status === 'erledigt' && t.doneAt && t.doneAt.slice(0, 10) >= addDays(data.today, -1);
+
+    // 1) EIN großer Knopf für den nächsten Schritt
+    let main = '';
+    if (active && mineToDo && !t.staffConfirmedAt) main = `<button class="primary big" data-confirm="${id}">✅ Annehmen</button>`;
+    else if (canWork && !t.startedAt) main = `<button class="go big" data-start="${id}">▶️ Reinigung starten</button>`;
+    else if (canWork) main = `<button class="primary big" data-done="${id}">🏁 Fertig melden</button>`;
+    else if (r === 'lead' && active && t.assignedTo && !t.leadConfirmedAt) main = `<button class="primary big" data-lead-confirm="${id}">✅ Annehmen</button>`;
+    else if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) main = `<button class="go big" data-keys-resolved="${id}">🔑 Schlüssel sind geklärt</button>`;
+    else if (r === 'owner' && t.releaseBlock) main = `<button class="go big" data-block-released="${id}">🔓 Blockierung ist aufgehoben</button>`;
+
+    // 2) Alles Weitere unter „⋯ Mehr“
+    const more = [];
+    const btn = (attr, label, extra) => `<button type="button" class="more-btn ${extra || ''}" ${attr}>${label}</button>`;
+    if (canWork && !t.startedAt) more.push(btn(`data-done="${id}"`, '🏁 Fertig melden (ohne Start)'));
+    if ((active || doneToday) && (r !== 'staff' || mineToDo)) more.push(btn(`data-codes="${id}"`, shownCodes[t.id] ? '🔑 Codes ausblenden' : '🔑 Codes anzeigen'));
+    if (t.guestPhone && active) more.push(`<a class="more-btn" href="tel:${esc(t.guestPhone.replace(/[^\d+]/g, ''))}">📞 Gast anrufen (${esc(t.guestPhone)})</a>`);
+    if (t.status !== 'storniert') more.push(btn(`data-toggle-report="${id}"`, r === 'owner' ? '📝 Hinweis ans Team' : '📷 Problem melden'));
+    if ((active || doneToday) && r !== 'owner' && (r === 'lead' || mineToDo)) more.push(btn(`data-supply="${id}"`, '🛒 Etwas fehlt'));
     if (active && r !== 'owner' && (r === 'lead' || mineToDo)) {
-      if (reqOpen) actions.push(`<button class="small" data-period-withdraw="${esc(t.id)}">Antrag zurückziehen</button>`);
-      else if (t.latestDate && t.latestDate > t.date) actions.push(`<button class="small" data-period-withdraw="${esc(t.id)}">Doch früher – Zeitraum aufheben</button>`);
+      if (reqOpen) more.push(btn(`data-period-withdraw="${id}"`, '↩️ Antrag zurückziehen'));
+      else if (t.latestDate && t.latestDate > t.date) more.push(btn(`data-period-withdraw="${id}"`, '⏪ Doch früher reinigen'));
+      if (!reqOpen) more.push(btn(`data-period="${id}"`, '📅 Später reinigen?'));
     }
-    if (r === 'owner' && t.releaseBlock) actions.push(`<button class="go small" data-block-released="${esc(t.id)}">Blockierung aufgehoben ✓</button>`);
-    if (active && (r === 'owner' || (!reqOpen && (r === 'lead' || mineToDo)))) {
-      actions.push(`<button class="small" data-period="${esc(t.id)}">${periodTask === t.id ? 'Zeitraum schließen'
-        : r === 'owner' ? (t.latestDate ? 'Zeitraum ändern' : 'Zeitraum festlegen') : 'Späteren Tag beantragen'}</button>`);
+    if (r === 'owner' && active) {
+      if (!t.manual) more.push(btn(`data-move="${id}"`, '📅 Anderer Tag'));
+      more.push(btn(`data-period="${id}"`, t.latestDate ? '📆 Zeitraum ändern' : '📆 Zeitraum erlauben'));
     }
-    if (r === 'owner' && !t.manual && active) actions.push(`<button class="small" data-move="${esc(t.id)}">${moveTask === t.id ? 'Schließen' : '📅 Verschieben'}</button>`);
-    if (r === 'owner') actions.push(`<button class="small" data-apt-note="${esc(t.id)}">${aptNoteTask === t.id ? 'Schließen' : '📌 Hinweis zur Wohnung'}</button>`);
+    if (r === 'owner') more.push(btn(`data-apt-note="${id}"`, '📌 Hinweis zur Wohnung'));
     if (r === 'owner' && t.manual && active) {
-      actions.push(`<button class="small" data-edit-task="${esc(t.id)}">Bearbeiten / verschieben</button>`);
-      actions.push(`<button class="danger small" data-cancel="${esc(t.id)}">Absagen</button>`);
+      more.push(btn(`data-edit-task="${id}"`, '✏️ Bearbeiten'));
+      more.push(btn(`data-cancel="${id}"`, '✖️ Absagen', 'danger'));
     }
-    const origin = `Eingetragen ${fmtTime(t.createdAt)} · ${t.source === 'manuell' ? 'manuell hinzugefügt' : 'automatisch aus Smoobu'}${t.changedAt ? ` · geändert ${fmtTime(t.changedAt)}` : ''}`;
-    return `<article class="${cls}" id="task-${esc(t.id)}">
-      <div class="task-top">
-        <div><div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))}${lastDay(t) > t.date ? ' bis ' + esc(dayWord(lastDay(t))) : ''} · ${t.manual ? 'Reinigung' : 'Check-out'}</div>
-        <h3>${esc(t.apartmentName)}</h3></div>
-        ${t.guestPhone && active ? `<a class="phone" href="tel:${esc(t.guestPhone.replace(/[^\d+]/g, ''))}" aria-label="Gast anrufen: ${esc(t.guestPhone)}">${PHONE_ICON} Gast</a>` : ''}
-      </div>
-      <div class="meta">${fmtLong(t.date)}${lastDay(t) > t.date ? ' – ' + fmtLong(lastDay(t)) : ''}${t.guest ? ' · ' + esc(t.guest) : ''}${t.guestPhone && active ? ' · ' + esc(t.guestPhone) : ''}</div>
-      ${t.location && (t.location.address || t.location.description) ? `<div class="meta">📍 ${esc([t.location.address, t.location.description].filter(Boolean).join(' · '))}</div>` : ''}
-      ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
-      <div class="chips">${chips(t)}</div>
+    const origin = `Eingetragen ${fmtTime(t.createdAt)} · ${t.source === 'manuell' ? 'von Hand' : 'aus Smoobu'}${t.changedAt ? ` · geändert ${fmtTime(t.changedAt)}` : ''}`;
+    const loc = t.location && (t.location.address || t.location.description) ? [t.location.address, t.location.description].filter(Boolean).join(' · ') : '';
+    return `<article class="${cls}" id="task-${id}">
+      <div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))}${lastDay(t) > t.date ? ' bis ' + esc(dayWord(lastDay(t))) : ''} · ${t.manual ? 'Extra-Reinigung' : 'Check-out'}</div>
+      <h3>${esc(t.apartmentName)}</h3>
+      ${loc ? `<div class="loc">📍 ${esc(loc)}</div>` : ''}
+      ${r === 'owner' && t.guest ? `<div class="meta">👤 ${esc(t.guest)}</div>` : ''}
+      <div class="status-row">${statusLine(t)}</div>
+      ${chips(t) ? `<div class="chips">${chips(t)}</div>` : ''}
+      ${t.aptNote ? `<div class="apt-note">📌 ${esc(t.aptNote)}</div>` : ''}
+      ${t.note ? `<div class="note">📝 ${esc(t.note)}</div>` : ''}
       ${nextGuests(t)}
-      <div class="origin">${origin}</div>
-      ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}
       ${requestBox(t)}
       ${t.reports.map((rep) => reportHtml(t, rep)).join('')}
-      ${r === 'lead' && active ? assignControl(t) : ''}
-      ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
+      ${r === 'lead' && active && !t.assignedTo ? assignControl(t) : ''}
+      ${main ? `<div class="main-action">${main}</div>` : ''}
+      <details class="more-actions"><summary>⋯ Mehr</summary>
+        <div class="more-list">${more.join('')}</div>
+        ${r === 'lead' && active && t.assignedTo ? `<div style="margin-top:8px">${assignControl(t)}</div>` : ''}
+        <div class="origin">${origin}</div>
+        ${t.history ? `<details class="meta" style="margin-top:6px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
+      </details>
       ${editTask === t.id ? editForm(t) : ''}
       ${shownCodes[t.id] ? codesBox(shownCodes[t.id]) : ''}
       ${supplyTask === t.id ? supplyForm(t) : ''}
@@ -1032,7 +1063,6 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${moveTask === t.id ? moveForm(t) : ''}
       ${aptNoteTask === t.id ? aptNoteForm(t) : ''}
       ${openForms.has(t.id) ? reportForm(t) : ''}
-      ${t.history ? `<details class="meta" style="margin-top:8px"><summary>Verlauf</summary>${t.history.map((h) => `<div>${fmtTime(h.at)} – ${esc(h.text)}</div>`).join('')}</details>` : ''}
     </article>`;
   }
 
@@ -1145,19 +1175,19 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const today = data.tasks.filter((t) => onDay(t, t0) && t.status !== 'storniert');
     const next = upcoming.find(isActive);
     return `
-      <div class="greeting"><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">${fmtLong(t0)}</p></div>
+      <div class="greeting"><h1>Hallo ${esc(data.user.name)} 👋</h1><p class="meta">${fmtLong(t0)}</p></div>
       <div class="glance three">
-        ${tile('neu', fresh.length, 'neu – bitte bestätigen', fresh.length > 0)}
-        ${tile('plan', today.length ? `${today.filter((t) => t.status === 'erledigt').length}/${today.length}` : '0', today.length ? 'heute erledigt' : 'heute nichts')}
-        ${tile(next ? 'task-' + next.id : 'plan', next ? esc(next.apartmentName) : '–', next ? 'als Nächstes · ' + esc(dayWord(next.date)) : 'nichts geplant', false, true)}
+        ${tile('neu', fresh.length, '🆕 neu', fresh.length > 0)}
+        ${tile('plan', today.length ? `${today.filter((t) => t.status === 'erledigt').length}/${today.length}` : '0', today.length ? '✅ heute fertig' : '☕ heute frei')}
+        ${tile(next ? 'task-' + next.id : 'plan', next ? esc(next.apartmentName) : '–', next ? '➡️ als Nächstes · ' + esc(dayWord(next.date)) : 'nichts geplant', false, true)}
       </div>
       ${pushBanner()}
       ${newsPanel()}
-      ${fresh.length ? section('neu', 'Neu – bitte bestätigen', fresh.length + ' offen', list(fresh, '', next && next.id), 'key') : ''}
-      ${(data.routes || []).some((r) => r.day === t0) ? section('route', 'Meine Route heute', 'empfohlene Reihenfolge', routeBlock(t0, false), 'key') : ''}
-      ${(data.routes || []).some((r) => r.day === addDays(t0, 1)) ? `<details class="more"><summary>Route morgen</summary>${routeBlock(addDays(t0, 1), false)}</details>` : ''}
-      ${planned.length ? section('plan', 'Mein Plan', 'bestätigt & erledigt', byDay(planned, next && next.id), 'key')
-        : !fresh.length ? '<p class="empty-state" id="plan">Keine Reinigungen zugewiesen.</p>' : '<span id="plan"></span>'}
+      ${fresh.length ? section('neu', '🆕 Neue Aufträge – bitte annehmen', '', list(fresh, '', next && next.id), 'key') : ''}
+      ${(data.routes || []).some((r) => r.day === t0) ? section('route', '🗺️ Meine Route heute', '', routeBlock(t0, false), 'key') : ''}
+      ${(data.routes || []).some((r) => r.day === addDays(t0, 1)) ? `<details class="more"><summary>🗺️ Route morgen</summary>${routeBlock(addDays(t0, 1), false)}</details>` : ''}
+      ${planned.length ? section('plan', '📋 Meine Reinigungen', '', byDay(planned, next && next.id), 'key')
+        : !fresh.length ? '<p class="empty-state" id="plan">☕ Gerade keine Reinigungen für dich.</p>' : '<span id="plan"></span>'}
       ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
       ${pushSetup()}`;
   }
@@ -1183,22 +1213,22 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const past = rest.filter((t) => t.date < t0 && !today.includes(t)).reverse();
     const hasRoutes = (data.routes || []).some((r) => r.day === t0 || r.day === t1);
     return navBar() + `
-      <div class="greeting"><h1>Hallo ${esc(data.user.name)}</h1><p class="meta">Reinigungsleitung · ${fmtLong(t0)}</p></div>
+      <div class="greeting"><h1>Hallo ${esc(data.user.name)} 👋</h1><p class="meta">${fmtLong(t0)}</p></div>
       <div class="glance">
-        ${tile('neu', todo.length, 'zu bestätigen / zuweisen', todo.length > 0)}
-        ${tile('heute', waiting.length, 'warten auf Mitarbeiterin', waiting.some((t) => t.date <= t1))}
-        ${tile('heute', data.tasks.filter((t) => onDay(t, t0) && t.status !== 'storniert').length, 'Reinigungen heute')}
-        ${tile('page:team', reports.length, 'offene Meldungen', reports.length > 0)}
+        ${tile('neu', todo.length, '🆕 einteilen', todo.length > 0)}
+        ${tile('heute', waiting.length, '⏳ warten auf Annahme', waiting.some((t) => t.date <= t1))}
+        ${tile('heute', data.tasks.filter((t) => onDay(t, t0) && t.status !== 'storniert').length, '🧹 heute')}
+        ${tile('page:team', reports.length, '📷 Probleme', reports.length > 0)}
       </div>
       ${pushBanner()}
       ${newsPanel()}
-      ${sectionIf(todo.length, 'neu', 'Neu – bestätigen & zuweisen', todo.length + ' offen', list(todo, ''), 'key')}
-      ${today.length ? section('heute', 'Heute', fmt(t0), list(today, ''), 'key') : '<p class="empty-state" id="heute">Heute stehen keine weiteren Reinigungen an.</p>'}
-      ${hasRoutes ? `<details class="more" id="routen"><summary>🗺️ Routen – empfohlene Reihenfolge je Person</summary>
+      ${sectionIf(todo.length, 'neu', '🆕 Neu – bitte einteilen', '', list(todo, ''), 'key')}
+      ${today.length ? section('heute', '📅 Heute', fmt(t0), list(today, ''), 'key') : '<p class="empty-state" id="heute">☕ Heute keine Reinigungen.</p>'}
+      ${hasRoutes ? `<details class="more" id="routen"><summary>🗺️ Routen (beste Reihenfolge)</summary>
         ${(data.routes || []).some((r) => r.day === t0) ? `<div class="subhead">Heute</div>${routeBlock(t0, true)}` : ''}
         ${(data.routes || []).some((r) => r.day === t1) ? `<div class="subhead">Morgen</div>${routeBlock(t1, true)}` : ''}</details>` : ''}
-      ${sectionIf(tomorrow.length, 'morgen', 'Morgen', fmt(t1), list(tomorrow, ''))}
-      ${sectionIf(soon.length, 'bald', 'Nächste 14 Tage', soon.length + ' Reinigungen', list(soon, ''))}
+      ${sectionIf(tomorrow.length, 'morgen', '📅 Morgen', fmt(t1), list(tomorrow, ''))}
+      ${sectionIf(soon.length, 'bald', '🗓️ Nächste 14 Tage', '', list(soon, ''))}
       ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
       ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}`;
   }
@@ -1425,9 +1455,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const reports = (data.openReports || []).length, shop = (data.shopping || []).length;
     const blockedLocks = (data.loginLocks || []).filter((l) => l.blocked).length;
     const tabs = r === 'owner'
-      ? [['main', 'Reinigungen', ''], ['kalender', 'Kalender', ''], ['meldungen', 'Meldungen', reports + shop || ''],
-        ['statistik', 'Statistik', data.stats ? pctText(data.stats.current.pct) : ''], ['team', 'Team', blockedLocks || ''], ['einstellungen', 'Einstellungen', '']]
-      : [['main', 'Reinigungen', ''], ['kalender', 'Kalender', ''], ['team', 'Team & Meldungen', reports || '']];
+      ? [['main', '🧹 Reinigungen', ''], ['kalender', '📅 Kalender', ''], ['meldungen', '📷 Meldungen', reports + shop || ''],
+        ['statistik', '📊 Statistik', data.stats ? pctText(data.stats.current.pct) : ''], ['team', '👥 Team', blockedLocks || ''], ['einstellungen', '⚙️ Einstellungen', '']]
+      : [['main', '🧹 Reinigungen', ''], ['kalender', '📅 Kalender', ''], ['team', '👥 Team & Probleme', reports || '']];
     const current = view === 'calendar' ? 'kalender' : page;
     return `<nav class="pagenav" aria-label="Bereiche">${tabs.map(([id, label, badge]) => `<button type="button" data-page="${id}" class="${id === current ? 'on' : ''}"
       ${id === current ? 'aria-current="page"' : ''}>${esc(label)}${badge !== '' ? ` <span class="badge">${esc(String(badge))}</span>` : ''}</button>`).join('')}</nav>`;
@@ -1506,30 +1536,30 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <div class="actions"><button class="primary" type="submit">Eintragen und Reinigungsleitung benachrichtigen</button></div>
     </form>`;
     return `
-      <div class="greeting"><h1>${fmtLong(t0)}</h1><p class="meta">Stand ${esc(data.time)} Uhr · Smoobu zuletzt ${fmtTime(data.lastSync)}</p></div>
+      <div class="greeting"><h1>${fmtLong(t0)}</h1><p class="meta">🔄 Stand ${esc(data.time)} Uhr</p></div>
       <div class="glance">
-        ${tile('heute', todayCount, 'Reinigungen heute')}
-        ${tile('heute', unconfirmed.length, 'nicht bestätigt', unconfirmed.some((t) => t.date <= t1))}
-        ${tile('heute', alarms.length, 'überfällig', alarms.length > 0)}
-        ${tile('page:meldungen', reports.length, 'offene Meldungen', reports.length > 0)}
+        ${tile('heute', todayCount, '🧹 heute')}
+        ${tile('heute', unconfirmed.length, '⏳ nicht angenommen', unconfirmed.some((t) => t.date <= t1))}
+        ${tile('heute', alarms.length, '⏰ überfällig', alarms.length > 0)}
+        ${tile('page:meldungen', reports.length, '📷 Probleme', reports.length > 0)}
       </div>
       ${!pushDone() ? `<div class="notice"><span>🔔 Push-Nachrichten auf diesem Konto noch nicht eingerichtet.</span><button class="small" data-jump="push">Einrichten</button></div>` : ''}
       ${urgent.length ? (() => {
         const item = ([id, text]) => `<li><button type="button" data-jump="${esc(id)}">${esc(text)}</button></li>`;
-        return `<div class="todo"><b>Handlungsbedarf (${urgent.length})</b><ul>${urgent.slice(0, 5).map(item).join('')}</ul>
+        return `<div class="todo"><b>👉 Bitte erledigen (${urgent.length})</b><ul>${urgent.slice(0, 5).map(item).join('')}</ul>
           ${urgent.length > 5 ? `<details><summary>… und ${urgent.length - 5} weitere</summary><ul>${urgent.slice(5).map(item).join('')}</ul></details>` : ''}</div>`;
       })() : ''}
-      ${sectionIf(requests.length, 'antraege', 'Anträge auf späteren Reinigungstag', requests.length + ' offen',
+      ${sectionIf(requests.length, 'antraege', '📨 Anfragen: später reinigen', '',
         list(requests.map((q) => tasks.find((t) => t.id === q.taskId)).filter(Boolean), ''), 'key')}
-      ${today.length ? section('heute', 'Heute', fmt(t0), list(today, ''), 'key') : `<p class="empty-state" id="heute">Heute stehen keine Reinigungen an.</p>`}
-      ${hasRoutes ? `<details class="more" id="routen"><summary>🗺️ Routen – empfohlene Reihenfolge je Person</summary>
+      ${today.length ? section('heute', '📅 Heute', fmt(t0), list(today, ''), 'key') : `<p class="empty-state" id="heute">☕ Heute keine Reinigungen.</p>`}
+      ${hasRoutes ? `<details class="more" id="routen"><summary>🗺️ Routen (beste Reihenfolge)</summary>
         ${(data.routes || []).some((r) => r.day === t0) ? `<div class="subhead">Heute</div>${routeBlock(t0, true)}` : ''}
         ${(data.routes || []).some((r) => r.day === t1) ? `<div class="subhead">Morgen</div>${routeBlock(t1, true)}` : ''}</details>` : ''}
-      ${sectionIf(tomorrow.length, 'morgen', 'Morgen', fmt(t1), list(tomorrow, ''))}
-      ${sectionIf(soon.length, 'bald', 'Nächste 14 Tage', soon.length + ' Reinigungen', list(soon, ''))}
+      ${sectionIf(tomorrow.length, 'morgen', '📅 Morgen', fmt(t1), list(tomorrow, ''))}
+      ${sectionIf(soon.length, 'bald', '🗓️ Nächste 14 Tage', '', list(soon, ''))}
       ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
       ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
-      <details class="more" id="manuell"><summary>＋ Manuelle Reinigung hinzufügen</summary>${manualForm}</details>`;
+      <details class="more" id="manuell"><summary>➕ Extra-Reinigung eintragen</summary>${manualForm}</details>`;
   }
 
   function ownerReportsPage(reports) {
@@ -2035,16 +2065,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         history.replaceState(null, '', '/');
         showLogin();
       } else if (d.leadConfirm) {
-        b.disabled = true; await taskAction(d.leadConfirm, 'lead-confirm', null, 'Erhalt bestätigt');
+        b.disabled = true; await taskAction(d.leadConfirm, 'lead-confirm', null, '✅ Angenommen');
       } else if (d.assign) {
         const sel = document.querySelector(`[data-assign-select="${CSS.escape(d.assign)}"]`);
         if (!sel || !sel.value) return toast('Bitte zuerst eine Mitarbeiterin auswählen');
         b.disabled = true;
         await taskAction(d.assign, 'assign', { to: sel.value }, `Zugewiesen an ${nameOf(sel.value)} – sie wurde benachrichtigt`);
       } else if (d.confirm) {
-        b.disabled = true; await taskAction(d.confirm, 'confirm', null, 'Bestätigt – danke!');
+        b.disabled = true; await taskAction(d.confirm, 'confirm', null, '✅ Angenommen – danke!');
       } else if (d.start) {
-        b.disabled = true; await taskAction(d.start, 'start', null, 'Beginn erfasst');
+        b.disabled = true; await taskAction(d.start, 'start', null, '▶️ Gestartet – gutes Gelingen!');
       } else if (d.done) {
         openFinish(d.done);
       } else if (d.finishClose !== undefined) {

@@ -17,6 +17,10 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 
 ## Funktionen
 
+**Bedienung**: Jede Reinigung zeigt Wohnung, Lage, **einen klaren Status mit Icon** und **einen großen Knopf** für den
+nächsten Schritt (✅ Annehmen → ▶️ Reinigung starten → 🏁 Fertig melden). Alles Weitere (🔑 Codes, 📞 Gast anrufen,
+📷 Problem melden, 🛒 Etwas fehlt, 📅 Später reinigen, Admin: Anderer Tag, Hinweis zur Wohnung …) liegt unter „⋯ Mehr“.
+
 **Aufbau (Admin)**: Seiten **Reinigungen** (Hauptseite: Handlungsbedarf, Anträge, Heute, Routen, Morgen, 14 Tage, Später,
 manuelle Reinigung) · **Kalender** · **Meldungen** (offene Meldungen, Einkaufsliste) · **Statistik** · **Team** (Reinigungsteam
 mit Anmeldecodes, gesperrte Anmeldungen) · **Einstellungen** (Zugangscodes, Admin-Code, Push, verschickte Nachrichten,
