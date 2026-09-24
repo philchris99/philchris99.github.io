@@ -10,6 +10,7 @@ import {
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
   loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts,
+  codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, diagnose } from './smoobu.js';
 import { deliver, sendPush } from './notify.js';
@@ -24,7 +25,8 @@ const clean = (v) => (v || '').trim().replace(/^["'„“]+|["'“”]+$/g, '').
 const smoobuCreds = (env) => ({ key: clean(env.SMOOBU_API_KEY), secret: clean(env.SMOOBU_API_SECRET) });
 
 // Anmeldung: nach 3 falschen Codes 1 Minute gesperrt; Admin-Passwort 5 Versuche / 15 Min.
-const CODE_LOCK = { max: 3, windowMs: 60 * 1000 };
+const BLOCKED_TEXT = 'Anmeldung von diesem Gerät gesperrt – bitte Apartments Strauss anrufen, damit der Zugang wieder freigeschaltet wird';
+const waitText = (sec) => (sec >= 90 ? `${Math.ceil(sec / 60)} Minuten` : `${sec} Sekunden`);
 // Zusätzlich systemweit (gegen Durchprobieren von vielen Adressen aus): 30 Fehlversuche/Std. → 1 Std. Sperre + Push an Admin.
 // Der Admin kommt über /admin mit Passwort trotzdem hinein.
 const GLOBAL_LOCK = { max: 30, windowMs: 60 * 60 * 1000 };
@@ -237,6 +239,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     log: (state.log || []).slice(0, 50).map((n) => ({ ...n, toName: n.to === cfg.owner.id ? 'Admin' : (findUser(cfg, n.to) || {}).name || n.to })),
     lastSync: state.lastSync || null, lastSyncCount: state.lastSyncCount ?? null, lastRun: state.lastRun || null, syncError: state.syncError || null,
     pushReport: state.pushReport || null,
+    loginLocks: await listCodeLocks(env.DB, now),
     rules: { startBy: cfg.startBy, finishBy: cfg.finishBy, repeatMinutes: cfg.repeatMinutes, quietFrom: cfg.quietFrom },
     apartments: apartmentList(state),
     webhookUrl: `${cfg.appUrl}/api/smoobu-webhook/${await webhookToken(env)}`,
@@ -259,15 +262,20 @@ async function handleApi(request, env, url, ctx) {
   };
 
   // ---- Anmeldung mit 6-stelligem Code (Admin, Leitung, Mitarbeiterin) ----
+  // Stand der Sperre für dieses Gerät/diese Adresse – die Anmeldeseite zeigt ohne Versuche gar kein Eingabefeld
+  if (path === '/api/login-status' && request.method === 'GET') {
+    return json(await codeLockState(env.DB, ip, now));
+  }
+
   if (path === '/api/login' && request.method === 'POST') {
-    const key = 'code:' + ip;
     const globalWait = await lockedFor(env.DB, 'code:alle', now, GLOBAL_LOCK);
     if (globalWait) {
       return fail('Anmeldung wegen vieler Fehlversuche vorübergehend gesperrt – bitte später erneut versuchen oder Apartments Strauss anrufen', 429,
         { retryAfter: globalWait });
     }
-    const wait = await lockedFor(env.DB, key, now, CODE_LOCK);
-    if (wait) return fail(`Zu viele falsche Versuche – bitte ${wait} Sekunden warten`, 429, { retryAfter: wait });
+    const lock = await codeLockState(env.DB, ip, now);
+    if (lock.blocked) return fail(BLOCKED_TEXT, 403, { blocked: true });
+    if (lock.wait) return fail(`Zu viele falsche Versuche – gesperrt, noch ${waitText(lock.wait)}`, 429, { retryAfter: lock.wait });
     const code = String((await readJson()).code || '').replace(/\D/g, '');
     const match = code.length === 6 ? await findByCode(codeHolders(settings), code) : null;
     if (!match || !env.APP_SECRET) {
@@ -276,11 +284,18 @@ async function handleApi(request, env, url, ctx) {
         ctx.waitUntil(deliver(env, cfg, [{ to: cfg.owner.id, kind: 'security', title: 'Viele falsche Anmeldeversuche',
           body: `${total} falsche Codes innerhalb einer Stunde – Anmeldung per Code für 1 Stunde gesperrt. Admin-Zugang: /admin mit Passwort.` }]));
       }
-      const count = await recordFailure(env.DB, key, now, CODE_LOCK);
-      if (count >= CODE_LOCK.max) return fail('3 × falscher Code – Anmeldung für 1 Minute gesperrt', 429, { retryAfter: 60 });
-      return fail(`Code nicht bekannt – noch ${CODE_LOCK.max - count} Versuch${CODE_LOCK.max - count === 1 ? '' : 'e'}`, 401);
+      const after = await codeFailure(env.DB, ip, now);
+      if (after.blocked) {
+        if (after.justBlocked) {
+          ctx.waitUntil(deliver(env, cfg, [{ to: cfg.owner.id, kind: 'security', title: 'Anmeldung dauerhaft gesperrt',
+            body: `Adresse ${ip}: zu viele falsche Codes – dauerhaft gesperrt. Freischalten im Admin-Bereich unter „Gesperrte Anmeldungen“.` }]));
+        }
+        return fail(BLOCKED_TEXT, 403, { blocked: true });
+      }
+      if (after.wait) return fail(`Falscher Code – Anmeldung gesperrt für ${waitText(after.wait)}`, 429, { retryAfter: after.wait });
+      return fail(`Code nicht bekannt – noch ${after.left} Versuch${after.left === 1 ? '' : 'e'}`, 401, { left: after.left });
     }
-    await clearAttempts(env.DB, key);
+    await codeSuccess(env.DB, ip);
     const user = match.id === OWNER_CODE_ID ? allUsers(cfg).find((u) => u.role === 'owner') : findUser(cfg, match.id);
     return json({ session: await sessionFor(env, user) });
   }
@@ -565,6 +580,14 @@ async function handleApi(request, env, url, ctx) {
 
   // ======================= ab hier nur Admin =======================
   if (role !== 'owner') return fail('Nicht gefunden', 404);
+
+  // Gesperrte Anmeldungen: freischalten → wieder 3 Versuche
+  if (path === '/api/login-locks/release' && request.method === 'POST') {
+    const target = String((await readJson()).ip || '');
+    if (!target) return fail('Adresse fehlt');
+    await releaseCodeLock(env.DB, target);
+    return view((await loadState(env.DB)).state);
+  }
 
   // Zugangscodes verwalten (verschlüsselt in der Datenbank, nie im Programmcode)
   if (path === '/api/access-codes' && request.method === 'GET') {

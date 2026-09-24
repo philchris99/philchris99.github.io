@@ -73,8 +73,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   Die Lage (Adresse, Stockwerk/Seite) steht direkt auf jeder Reinigungskarte, die Codes nur per Knopf.
   Abruf per Knopf „🔑 Zugangscodes“ bei der Reinigung: Admin, Leitung und die zugewiesene Mitarbeiterin (nur solange die
   Reinigung ansteht bzw. am Tag der Erledigung); jeder Abruf steht im Verlauf, Anzeige verschwindet nach 3 Minuten
-- **Schutz der Anmeldung**: je Gerät 3 Fehlversuche → 1 Min. Sperre; zusätzlich systemweit 30 Fehlversuche pro Stunde →
-  Code-Anmeldung 1 Std. gesperrt + dringende Push an Admin (Admin kommt über /admin mit Passwort weiter hinein)
+- **Schutz der Anmeldung** (je IP-Adresse, auf dem Server gespeichert – Neuladen hilft nicht): 3 Fehlversuche → 1 Min.
+  gesperrt, danach je 1 Versuch → 5 Min. → 30 Min. → 60 Min., dann **dauerhaft gesperrt** (Push an Admin). Während einer
+  Sperre zeigt die Startseite kein Eingabefeld, nur den Countdown. Admin → „Gesperrte Anmeldungen“ → „Freischalten“ gibt
+  sofort wieder 3 Versuche; nach 24 Std. ohne Fehlversuch beginnt die Zählung neu (außer bei dauerhafter Sperre).
+  Zusätzlich systemweit: 30 Fehlversuche pro Stunde → Code-Anmeldung 1 Std. gesperrt (Admin kommt über /admin hinein)
 - **Gästezahl** aus Smoobu (Erwachsene/Kinder): im Kalender an jeder Buchung (z. B. „2+1 P.“) und bei jeder offenen Reinigung
   als „Nächste Anreise: Fr, 25.09. ab 16:00 Uhr · 2 Erwachsene, 1 Kind“ zur Vorbereitung (Smoobu-Felder `adults`,
   `children`, `check-in`; „Diagnose“ zeigt, bei wie vielen Buchungen die Gästezahl hinterlegt ist)

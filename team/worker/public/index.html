@@ -396,7 +396,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     }
     online = true;
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(json.error || 'Fehler ' + res.status + ' – bitte erneut versuchen'), { status: res.status, retryAfter: json.retryAfter });
+    if (!res.ok) throw Object.assign(new Error(json.error || 'Fehler ' + res.status + ' – bitte erneut versuchen'), { status: res.status, retryAfter: json.retryAfter, blocked: json.blocked });
     return json;
   }
 
@@ -503,24 +503,71 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   // ---- Anmeldung --------------------------------------------------------------
   function showLogin() {
     $('who').innerHTML = '';
-    $('app').innerHTML = ADMIN ? `
+    clearInterval(lockTimer);
+    if (ADMIN) {
+      $('app').innerHTML = `
       <form class="panel login" id="admin-login">
         <img class="logo" src="/logo.png" alt="Apartments Strauss">
         <h1 style="margin-bottom:12px">Admin-Notzugang</h1>
         <label class="field" style="text-align:left">Passwort <input id="admin-pw" type="password" autocomplete="current-password" required></label>
         <div class="actions"><button class="primary" type="submit">Anmelden</button></div>
         <p class="meta hint"><a href="/">Zur Anmeldung mit Code</a></p>
-      </form>` : `
+      </form>`;
+      $('admin-pw').focus();
+      return;
+    }
+    $('app').innerHTML = `<div class="panel login"><img class="logo" src="/logo.png" alt="Apartments Strauss"><p class="meta">${esc(tr('Wird geladen …'))}</p></div>`;
+    // Erst beim Server nachfragen, ob von hier überhaupt eine Eingabe erlaubt ist (Sperre gilt je Adresse, auch nach Neuladen)
+    api('/api/login-status', 'GET', null, true)
+      .then((st) => (st.blocked ? showBlocked() : st.wait ? showLocked(st.wait) : showCodeInput(st.left)))
+      .catch(() => showCodeInput(3));
+  }
+
+  const langButton = () => `<p style="margin-top:14px"><button type="button" class="lang" data-lang="${lang === 'hu' ? 'de' : 'hu'}">${lang === 'hu' ? '🇩🇪 Deutsch' : '🇭🇺 Magyar'}</button></p>`;
+
+  function showCodeInput(left, message) {
+    $('app').innerHTML = `
       <form class="panel login" id="code-login">
         <img class="logo" src="/logo.png" alt="Apartments Strauss">
         <p class="meta" style="margin-bottom:10px">Bitte persönlichen 6-stelligen Code eingeben</p>
         <input id="code" class="pin" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Persönlicher Code" required>
-        <p class="meta hint" id="login-status" role="status"></p>
-        <p style="margin-top:14px"><button type="button" class="lang" data-lang="${lang === 'hu' ? 'de' : 'hu'}">${lang === 'hu' ? '🇩🇪 Deutsch' : '🇭🇺 Magyar'}</button></p>
+        <p class="meta hint" id="login-status" role="status">${esc(message || (left != null && left < 3 ? (left === 1 ? 'Noch 1 Versuch' : `Noch ${left} Versuche`) : ''))}</p>
+        ${langButton()}
       </form>`;
     translate($('app'));
-    const first = document.querySelector('#app input');
-    if (first) first.focus();
+    $('code').focus();
+  }
+
+  /** Gesperrt: kein Eingabefeld, nur Countdown; danach neu beim Server nachfragen */
+  function showLocked(seconds) {
+    clearInterval(lockTimer);
+    let left = seconds;
+    const draw = () => {
+      const m = Math.floor(left / 60), sec = left % 60;
+      $('app').innerHTML = `<div class="panel login">
+        <img class="logo" src="/logo.png" alt="Apartments Strauss">
+        <h1 style="margin:8px 0">🔒 ${esc(tr('Anmeldung gesperrt'))}</h1>
+        <p class="meta">${esc(tr('Zu viele falsche Codes. Bitte warten:'))}</p>
+        <div class="code" style="margin:10px 0">${m}:${two(sec)}</div>
+        <p class="meta">${esc(tr('Danach ist 1 weiterer Versuch möglich. Code vergessen? Bitte Apartments Strauss anrufen.'))}</p>
+        ${langButton()}</div>`;
+    };
+    draw();
+    lockTimer = setInterval(() => {
+      left--;
+      if (left <= 0) { clearInterval(lockTimer); return showLogin(); }
+      if (document.querySelector('#app .login .code')) document.querySelector('#app .login .code').textContent = `${Math.floor(left / 60)}:${two(left % 60)}`;
+      else draw();
+    }, 1000);
+  }
+
+  function showBlocked() {
+    clearInterval(lockTimer);
+    $('app').innerHTML = `<div class="panel login">
+      <img class="logo" src="/logo.png" alt="Apartments Strauss">
+      <h1 style="margin:8px 0">⛔ ${esc(tr('Anmeldung gesperrt'))}</h1>
+      <p>${esc(tr('Von diesem Gerät wurden zu oft falsche Codes eingegeben. Bitte Apartments Strauss anrufen – der Zugang kann dort wieder freigeschaltet werden.'))}</p>
+      ${langButton()}</div>`;
   }
 
   async function tryCode() {
@@ -535,31 +582,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       if (lang === 'hu') await api('/api/lang', 'POST', { lang }).catch(() => {}); // auf dem Anmeldebildschirm gewählt
       await refresh(true);
     } catch (err) {
+      if (err.status === 403 && err.blocked) return showBlocked();
+      if (err.status === 429) return showLocked(err.retryAfter || 60);
       input.value = '';
       $('login-status').textContent = tr(err.message);
-      if (err.status === 429) return lockLogin(err.retryAfter || 60);
       input.disabled = false;
       input.focus();
     }
-  }
-  function lockLogin(seconds) {
-    const input = $('code');
-    clearInterval(lockTimer);
-    let left = seconds;
-    const tick = () => {
-      if (!$('code')) return clearInterval(lockTimer);
-      if (left <= 0) {
-        clearInterval(lockTimer);
-        input.disabled = false;
-        $('login-status').textContent = tr('Bitte erneut versuchen.');
-        input.focus();
-        return;
-      }
-      $('login-status').textContent = tr(`Zu viele falsche Versuche – gesperrt, noch ${left} Sekunden`);
-      left--;
-    };
-    tick();
-    lockTimer = setInterval(tick, 1000);
   }
 
   // ---- Bausteine ------------------------------------------------------------
@@ -1039,6 +1068,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${pushSetup()}`;
   }
 
+  /** Geräte/Adressen mit falschen Codes – freischalten gibt wieder 3 Versuche */
+  function locksBlock(locks) {
+    const stage = (l) => l.blocked ? '<span class="chip alert">dauerhaft gesperrt</span>'
+      : l.lockedUntil ? `<span class="chip wait">gesperrt bis ${esc(clock(l.lockedUntil))}</span>` : `<span class="chip wait">Stufe ${l.stage} – 1 Versuch übrig</span>`;
+    return (locks.length ? locks.map((l) => `<div class="panel"><div class="person"><b>Adresse ${esc(l.ip)}</b>
+        <span class="meta">letzter Fehlversuch ${esc(fmtTime(l.lastAt))}</span></div>
+      <div class="chips">${stage(l)}</div>
+      <div class="actions"><button class="go" data-unlock="${esc(l.ip)}">Freischalten (3 neue Versuche)</button></div></div>`).join('')
+      : '<p class="empty">Keine gesperrten Anmeldungen.</p>')
+      + '<p class="meta">Regel: 3 Versuche → 1 Min. Sperre, danach je 1 Versuch → 5 / 30 / 60 Min., dann dauerhaft gesperrt.</p>';
+  }
+
   function shoppingBlock() {
     const list = data.shopping || [];
     if (!list.length) return '<p class="empty">Nichts gemeldet – alles aufgefüllt.</p>';
@@ -1064,6 +1105,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     // Reinigungen mit offenem Antrag stehen oben im eigenen Abschnitt (nicht doppelt)
     const requests = data.openRequests || [];
     const keys = data.missingKeys || [];
+    const locks = data.loginLocks || [];
     const reqIds = new Set(requests.map((q) => q.taskId));
     const shown = tasks.filter((t) => !reqIds.has(t.id));
     const today = shown.filter((t) => onDay(t, t0));
@@ -1076,6 +1118,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const reports = data.openReports || [];
     const apartments = data.apartments || [];
     const urgent = [
+      ...locks.filter((l) => l.blocked).map((l) => ['sperren', `Anmeldung dauerhaft gesperrt: Adresse ${l.ip} – freischalten?`]),
       ...keys.map((k) => [`task-${k.taskId}`, `Schlüssel fehlen: ${k.apartmentName} (gemeldet ${clock(k.doneAt)} von ${nameOf(k.doneBy)})${k.note ? ' – ' + k.note : ''}`]),
       ...requests.map((q) => [`task-${q.taskId}`, `Antrag: ${q.apartmentName} – Reinigung bis ${fmt(q.until)} (${nameOf(q.by)})`]),
       ...alarms.map((t) => [`task-${t.id}`, `${t.apartmentName} – ${dayWord(t.date)}: ${
@@ -1127,6 +1170,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${past.length ? `<details class="more"><summary>Letzte 7 Tage (${past.length})</summary>${list(past, '')}</details>` : ''}
       ${section('manuell', 'Manuelle Reinigung hinzufügen', '', manualForm)}
       ${section('codes', 'Zugangscodes der Wohnungen', 'verschlüsselt gespeichert', codeEditorHtml())}
+      ${section('sperren', 'Gesperrte Anmeldungen', locks.length ? locks.length + ' Adresse(n)' : '', locksBlock(locks))}
       ${section('team', 'Team', '', ownerCode + codeBox()
         + teamList('lead', data.leads || [], 'Reinigungsleitung') + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
       ${pushSetup()}
@@ -1571,6 +1615,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         const ta = document.getElementById('text-' + d.toggleReport);
         if (ta) ta.focus();
+      } else if (d.unlock) {
+        b.disabled = true;
+        update(await api('/api/login-locks/release', 'POST', { ip: d.unlock }));
+        toast('Freigeschaltet – wieder 3 Versuche möglich');
       } else if (d.supply) {
         supplyTask = supplyTask === d.supply ? null : d.supply; render();
       } else if (d.supplyClose !== undefined) {

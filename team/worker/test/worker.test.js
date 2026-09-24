@@ -20,6 +20,7 @@ class SqliteD1 {
       bind(...a) { args = a.map(conv); return stmt; },
       async first() { const row = db.prepare(sql).get(...args); return row ? { ...row } : null; },
       async run() { const r = db.prepare(sql).run(...args); return { meta: { changes: Number(r.changes) } }; },
+      async all() { return { results: db.prepare(sql).all(...args).map((r) => ({ ...r })) }; },
     };
     return stmt;
   }
@@ -134,18 +135,58 @@ test('Admin-Code: festlegen und damit auf der Startseite anmelden', async () => 
   assert.equal((await me(login.body.session)).user.role, 'owner');
 });
 
-test('3 falsche Codes → 1 Minute gesperrt', async () => {
-  const headers = () => ({ 'CF-Connecting-IP': '203.0.113.9' });
-  let r = await call('POST', '/api/login', { body: { code: '999990' }, headers: headers() });
-  assert.equal(r.status, 401);
-  assert.match(r.body.error, /noch 2 Versuche/);
-  await call('POST', '/api/login', { body: { code: '999991' }, headers: headers() });
-  r = await call('POST', '/api/login', { body: { code: '999992' }, headers: headers() });
-  assert.equal(r.status, 429);
-  assert.match(r.body.error, /1 Minute gesperrt/);
-  r = await call('POST', '/api/login', { body: { code: '482913' }, headers: headers() });
-  assert.equal(r.status, 429, 'auch richtiger Code während der Sperre abgelehnt');
-  assert.ok(r.body.retryAfter > 0 && r.body.retryAfter <= 60);
+test('Stufenweise Sperre je IP: 3 Versuche → 1 Min., dann je 1 Versuch → 5/30/60 Min., dann dauerhaft; Admin schaltet frei', async () => {
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  const ip = { 'CF-Connecting-IP': '203.0.113.9' };
+  const wrong = () => call('POST', '/api/login', { body: { code: '999990' }, headers: ip });
+  const status = async () => (await call('GET', '/api/login-status', { headers: ip })).body;
+  try {
+    env.DB.db.prepare("DELETE FROM login_attempts WHERE key = 'code:alle'").run();
+    assert.deepEqual(await status(), { blocked: false, wait: 0, left: 3 });
+    let r = await wrong();
+    assert.equal(r.status, 401);
+    assert.match(r.body.error, /noch 2 Versuche/);
+    await wrong();
+    r = await wrong();
+    assert.equal(r.status, 429);
+    assert.equal(r.body.retryAfter, 60);
+    // Seite neu laden: Server kennt die Sperre, auch der richtige Code wird nicht angenommen
+    assert.equal((await status()).wait, 60);
+    assert.equal((await call('POST', '/api/login', { body: { code: '482913' }, headers: ip })).status, 429);
+    // Stufen: jeweils 1 Versuch
+    for (const [minutes] of [[5], [30], [60]]) {
+      clock += 61 * 60 * 1000; // Sperre sicher vorbei
+      assert.equal((await status()).left, 1);
+      r = await wrong();
+      assert.equal(r.status, 429, `${minutes} Min.`);
+      assert.equal(r.body.retryAfter, minutes * 60);
+      assert.match(r.body.error, new RegExp(`${minutes} Minuten`));
+    }
+    clock += 61 * 60 * 1000;
+    pushes = [];
+    r = await wrong();
+    assert.equal(r.status, 403);
+    assert.equal(r.body.blocked, true);
+    assert.ok(pushes.some((p) => p.title === 'Anmeldung dauerhaft gesperrt'));
+    clock += 48 * 3600 * 1000;
+    assert.equal((await status()).blocked, true, 'bleibt gesperrt');
+    assert.equal((await call('POST', '/api/login', { body: { code: '482913' }, headers: ip })).status, 403);
+    // Admin sieht und schaltet frei → wieder 3 Versuche
+    const locks = (await me(admin)).loginLocks;
+    assert.deepEqual(locks.map((l) => [l.ip, l.blocked]), [['203.0.113.9', true]]);
+    assert.equal((await call('POST', '/api/login-locks/release', { session: lea, body: { ip: '203.0.113.9' } })).status, 404);
+    assert.equal((await call('POST', '/api/login-locks/release', { session: admin, body: { ip: '203.0.113.9' } })).body.loginLocks.length, 0);
+    assert.deepEqual(await status(), { blocked: false, wait: 0, left: 3 });
+    assert.equal((await call('POST', '/api/login', { body: { code: '482913' }, headers: ip })).status, 200);
+    // andere Adresse ist nicht betroffen
+    assert.equal((await call('GET', '/api/login-status', { headers: { 'CF-Connecting-IP': '203.0.113.10' } })).body.left, 3);
+  } finally {
+    Date.now = realNow;
+    env.DB.db.prepare("DELETE FROM login_attempts WHERE key = 'code:alle'").run();
+    pushes = [];
+  }
 });
 
 test('Ablauf: neue Buchung → Leitung → Zuweisung → Mitarbeiterin sieht und bestätigt', async () => {

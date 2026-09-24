@@ -80,6 +80,78 @@ export async function recordFailure(db, key, now, { max, windowMs }) {
   return count;
 }
 
+// ---- Code-Anmeldung: stufenweise Sperre je IP-Adresse -------------------------
+// 3 Versuche → 1 Min.; danach je 1 Versuch → 5 Min. → 30 Min. → 60 Min.; dann dauerhaft gesperrt (Admin schaltet frei).
+export const CODE_STAGES = [
+  { tries: 3, lockMs: 60 * 1000 },
+  { tries: 1, lockMs: 5 * 60 * 1000 },
+  { tries: 1, lockMs: 30 * 60 * 1000 },
+  { tries: 1, lockMs: 60 * 60 * 1000 },
+  { tries: 1, lockMs: null }, // danach: dauerhaft gesperrt
+];
+const RESET_AFTER = 24 * 3600 * 1000; // 24 Std. ohne Fehlversuch → wieder von vorn (außer dauerhaft gesperrt)
+
+async function ensureLocks(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS login_locks (ip TEXT PRIMARY KEY, stage INTEGER NOT NULL, fails INTEGER NOT NULL, locked_until INTEGER NOT NULL, blocked INTEGER NOT NULL, last_at INTEGER NOT NULL)').run();
+}
+
+async function lockRow(db, ip, now) {
+  await ensureLocks(db);
+  const row = await db.prepare('SELECT stage, fails, locked_until, blocked, last_at FROM login_locks WHERE ip = ?').bind(ip).first();
+  if (!row) return null;
+  if (!row.blocked && now - row.last_at > RESET_AFTER) {
+    await db.prepare('DELETE FROM login_locks WHERE ip = ?').bind(ip).run();
+    return null;
+  }
+  return row;
+}
+
+/** Zustand für eine IP: { blocked, wait (Sekunden), left (Versuche) } */
+export async function codeLockState(db, ip, now) {
+  const row = await lockRow(db, ip, now);
+  if (!row) return { blocked: false, wait: 0, left: CODE_STAGES[0].tries };
+  if (row.blocked) return { blocked: true, wait: 0, left: 0 };
+  if (row.locked_until > now) return { blocked: false, wait: Math.ceil((row.locked_until - now) / 1000), left: 0 };
+  return { blocked: false, wait: 0, left: CODE_STAGES[row.stage].tries - row.fails };
+}
+
+/** Fehlversuch zählen; liefert den neuen Zustand (+ justBlocked beim Übergang zur dauerhaften Sperre) */
+export async function codeFailure(db, ip, now) {
+  const row = (await lockRow(db, ip, now)) || { stage: 0, fails: 0, locked_until: 0, blocked: 0 };
+  let { stage, fails } = row;
+  let lockedUntil = row.locked_until;
+  let blocked = row.blocked;
+  fails += 1;
+  let justBlocked = false;
+  if (fails >= CODE_STAGES[stage].tries) {
+    if (CODE_STAGES[stage].lockMs == null) { blocked = 1; justBlocked = true; } else { lockedUntil = now + CODE_STAGES[stage].lockMs; stage += 1; }
+    fails = 0;
+  }
+  await db.prepare('INSERT OR REPLACE INTO login_locks (ip, stage, fails, locked_until, blocked, last_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(ip, stage, fails, lockedUntil, blocked, now).run();
+  return { ...(await codeLockState(db, ip, now)), justBlocked };
+}
+
+export async function codeSuccess(db, ip) {
+  await ensureLocks(db);
+  await db.prepare('DELETE FROM login_locks WHERE ip = ?').bind(ip).run();
+}
+
+/** Für den Admin: gesperrte / eingeschränkte IP-Adressen */
+export async function listCodeLocks(db, now) {
+  await ensureLocks(db);
+  const { results } = await db.prepare('SELECT ip, stage, fails, locked_until, blocked, last_at FROM login_locks ORDER BY last_at DESC LIMIT 50').all();
+  return (results || []).filter((r) => r.blocked || r.stage > 0 || r.fails > 0).map((r) => ({
+    ip: r.ip, blocked: !!r.blocked, stage: r.stage, lockedUntil: r.locked_until > now ? new Date(r.locked_until).toISOString() : null,
+    lastAt: new Date(r.last_at).toISOString(),
+  }));
+}
+
+/** Admin schaltet frei → wieder 3 Versuche */
+export async function releaseCodeLock(db, ip) {
+  await codeSuccess(db, ip);
+}
+
 export async function clearAttempts(db, key) {
   await ensureAttempts(db);
   await db.prepare('DELETE FROM login_attempts WHERE key = ?').bind(key).run();

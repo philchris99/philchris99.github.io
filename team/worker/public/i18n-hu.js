@@ -15,6 +15,16 @@
     '🇩🇪 DE': '🇩🇪 DE', '🇩🇪 Deutsch': '🇩🇪 Deutsch', 'Deutsch': 'Deutsch',
     '3 × falscher Code – Anmeldung für 1 Minute gesperrt': '3 × hibás kód – a bejelentkezés 1 percre zárolva',
     'Keine Internetverbindung': 'Nincs internetkapcsolat',
+    'Anmeldung gesperrt': 'Bejelentkezés zárolva',
+    'Zu viele falsche Codes. Bitte warten:': 'Túl sok hibás kód. Kérjük, várj:',
+    'Danach ist 1 weiterer Versuch möglich. Code vergessen? Bitte Apartments Strauss anrufen.': 'Utána még 1 próbálkozás lehetséges. Elfelejtetted a kódot? Hívd az Apartments Strausst.',
+    'Von diesem Gerät wurden zu oft falsche Codes eingegeben. Bitte Apartments Strauss anrufen – der Zugang kann dort wieder freigeschaltet werden.':
+      'Erről az eszközről túl sokszor adtak meg hibás kódot. Kérjük, hívd az Apartments Strausst – ott újra engedélyezhetik a hozzáférést.',
+    'Anmeldung von diesem Gerät gesperrt – bitte Apartments Strauss anrufen, damit der Zugang wieder freigeschaltet wird':
+      'A bejelentkezés erről az eszközről zárolva – kérjük, hívd az Apartments Strausst a hozzáférés feloldásához',
+    'Noch 1 Versuch': 'Még 1 próbálkozás',
+    'Anmeldung wegen vieler Fehlversuche vorübergehend gesperrt – bitte später erneut versuchen oder Apartments Strauss anrufen':
+      'A bejelentkezés a sok hibás próbálkozás miatt átmenetileg zárolva – próbáld később, vagy hívd az Apartments Strausst',
     'Network connection lost.': 'A hálózati kapcsolat megszakadt.',
     // Startseite Mitarbeiterin / Leitung
     'neu – bitte bestätigen': 'új – kérjük, igazold vissza',
@@ -263,6 +273,10 @@
     [/^(.+) ✓ bestätigt$/, '$1 ✓ visszaigazolva'],
     [/^(.+) – noch nicht bestätigt$/, '$1 – még nincs visszaigazolva'],
     [/^Code nicht bekannt – noch (\d) Versuche?$/, 'Ismeretlen kód – még $1 próbálkozás'],
+    [/^Noch (\d) Versuche$/, 'Még $1 próbálkozás'],
+    [/^Falscher Code – Anmeldung gesperrt für (\d+) Minuten$/, 'Hibás kód – bejelentkezés zárolva $1 percre'],
+    [/^Falscher Code – Anmeldung gesperrt für (\d+) Sekunden$/, 'Hibás kód – bejelentkezés zárolva $1 másodpercre'],
+    [/^Zu viele falsche Versuche – gesperrt, noch (\d+) Minuten$/, 'Túl sok hibás próbálkozás – zárolva, még $1 perc'],
     [/^Zu viele falsche Versuche – gesperrt, noch (\d+) Sekunden$/, 'Túl sok hibás próbálkozás – zárolva, még $1 másodperc'],
     [/^Zu viele falsche Versuche – bitte (\d+) Sekunden warten$/, 'Túl sok hibás próbálkozás – várj $1 másodpercet'],
     [/Buchung oder Reinigung antippen für Details/, 'Koppints egy foglalásra vagy takarításra a részletekért'],
