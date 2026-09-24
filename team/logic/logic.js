@@ -30,7 +30,7 @@
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
     repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
     quietFrom: '22:00',
-    checkoutTime: '11:00',       // Check-out-Uhrzeit, falls Smoobu keine liefert (Hinweis „zu früh“ beim Starten)
+    checkoutTime: '10:00',       // Check-out-Uhrzeit, falls Smoobu keine liefert (Hinweis „zu früh“ beim Starten)
     maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out
     // Feste Punkte, die vor dem Beenden abgehakt sein müssen – derzeit keine (auf Wunsch abgeschaltet).
     // Format: [{ id: 'bett', de: 'Bettwäsche gewechselt', hu: 'Ágynemű cserélve' }, …]

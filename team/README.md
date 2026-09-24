@@ -102,7 +102,7 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
   und im Abschluss-Ablauf
 - **Checkliste** vor dem Beenden: derzeit abgeschaltet; bei Bedarf Punkte in `logic/logic.js` (`checklist`) eintragen
-- **Zu früh gestartet?** Wer vor dem Reinigungstag oder vor der Check-out-Uhrzeit (aus Smoobu, sonst `checkoutTime` 11:00)
+- **Zu früh gestartet?** Wer vor dem Reinigungstag oder vor der Check-out-Uhrzeit (aus Smoobu, sonst `checkoutTime` 10:00)
   auf „Reinigung starten“ tippt, bekommt die Sicherheitsfrage „Trotzdem jetzt starten?“
 - **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Küchenrolle, Handseife, Spülmittel, Schwämme, Müllbeutel, Kaffee,
   Bettwäsche, Handtücher, Batterien, Glühbirnen; `supplies` in `logic/logic.js`), auch beim
