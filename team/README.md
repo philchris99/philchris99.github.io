@@ -54,6 +54,15 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)
 - Beginn und Ende der Reinigung mit Dauer
+- **Checkliste (Pflicht)** vor dem Beenden: feste Punkte (Bettwäsche, Bad, Küche, Böden, Staub, Müll, Verbrauchsmaterial,
+  Fenster/Heizung, Licht/abschließen) – anpassbar in `logic/logic.js` (`checklist`, deutsch + ungarisch)
+- **„🛒 Knapp melden“**: Artikel antippen (Toilettenpapier, Kaffee, Spülmittel …; `supplies` in `logic/logic.js`), auch beim
+  Beenden. Admin bekommt eine Push-Nachricht und die **Einkaufsliste** (je Artikel die Wohnungen; „aufgefüllt“ antippen)
+- **Ungarisch**: Knopf „🇭🇺 HU“ oben (bzw. auf der Anmeldeseite) – je Person gespeichert. Übersetzungen in
+  `worker/public/i18n-hu.js`; Push-Überschriften für diese Personen ebenfalls ungarisch (Text der Nachricht bleibt deutsch)
+- **Offline**: App-Seite wird im Gerät gespeichert (`sw.js`), letzter Stand bleibt sichtbar. Bestätigen, Beginn, Beenden
+  (inkl. Checkliste/Schlüssel) und „knapp“ werden ohne Netz gemerkt und automatisch gesendet, sobald wieder Netz da ist –
+  mit der Uhrzeit vom Gerät. Fotos, Anträge und Zugangscodes brauchen Netz
 - **Checkpunkt Schlüssel (Pflicht)**: Beim Beenden muss angegeben werden, ob die Gästeschlüssel in der Box sind (Ja/Nein,
   optional mit Hinweis). Bei „Nein“ sofort dringende Push an den Admin; oben unter „Handlungsbedarf“, bis der Admin
   „Schlüssel geklärt“ tippt

@@ -30,7 +30,36 @@
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
     repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
     quietFrom: '22:00',
-    maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out          // ab dann keine Erinnerungen mehr (Nachtruhe)
+    maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out
+    // Feste Punkte, die vor dem Beenden abgehakt sein müssen (de = Deutsch, hu = Ungarisch)
+    checklist: [
+      { id: 'bett', de: 'Bettwäsche gewechselt, Betten gemacht', hu: 'Ágynemű cserélve, ágyak bevetve' },
+      { id: 'bad', de: 'Bad & WC gereinigt, Handtücher ausgetauscht', hu: 'Fürdőszoba és WC kitakarítva, törölközők kicserélve' },
+      { id: 'kueche', de: 'Küche gereinigt, Geschirr sauber & eingeräumt, Kühlschrank geleert', hu: 'Konyha kitakarítva, edények tiszták és elpakolva, hűtő kiürítve' },
+      { id: 'boden', de: 'Böden gesaugt & gewischt', hu: 'Padló porszívózva és felmosva' },
+      { id: 'staub', de: 'Staub gewischt (Flächen, Regale, Fensterbänke)', hu: 'Portörlés (felületek, polcok, ablakpárkányok)' },
+      { id: 'muell', de: 'Müll entsorgt, neue Beutel eingelegt', hu: 'Szemét kivive, új zsák behelyezve' },
+      { id: 'auffuellen', de: 'Verbrauchsmaterial aufgefüllt (Toilettenpapier, Seife, Kaffee …)', hu: 'Fogyóeszközök feltöltve (WC-papír, szappan, kávé …)' },
+      { id: 'fenster', de: 'Fenster geschlossen, Heizung/Klima heruntergeregelt', hu: 'Ablakok bezárva, fűtés/klíma lejjebb véve' },
+      { id: 'licht', de: 'Licht & Geräte aus, Wohnung abgeschlossen', hu: 'Világítás és készülékek kikapcsolva, lakás bezárva' },
+    ],
+    // „Knapp“-Knöpfe → Einkaufsliste für den Admin
+    supplies: [
+      { id: 'klopapier', de: 'Toilettenpapier', hu: 'WC-papír' },
+      { id: 'kuechenrolle', de: 'Küchenrolle', hu: 'Papírtörlő' },
+      { id: 'seife', de: 'Handseife', hu: 'Kézszappan' },
+      { id: 'duschgel', de: 'Duschgel / Shampoo', hu: 'Tusfürdő / sampon' },
+      { id: 'spuelmittel', de: 'Spülmittel', hu: 'Mosogatószer' },
+      { id: 'tabs', de: 'Spülmaschinentabs', hu: 'Mosogatógép-tabletta' },
+      { id: 'schwamm', de: 'Schwämme / Lappen', hu: 'Szivacs / törlőkendő' },
+      { id: 'muellbeutel', de: 'Müllbeutel', hu: 'Szemeteszsák' },
+      { id: 'kaffee', de: 'Kaffee', hu: 'Kávé' },
+      { id: 'tee', de: 'Tee', hu: 'Tea' },
+      { id: 'zucker', de: 'Zucker / Salz / Pfeffer', hu: 'Cukor / só / bors' },
+      { id: 'reiniger', de: 'Reinigungsmittel', hu: 'Tisztítószer' },
+      { id: 'waesche', de: 'Bettwäsche / Handtücher', hu: 'Ágynemű / törölköző' },
+      { id: 'batterien', de: 'Batterien / Glühbirnen', hu: 'Elem / izzó' },
+    ],          // ab dann keine Erinnerungen mehr (Nachtruhe)
     owner: { id: 'owner', name: 'Apartments Strauss' },
     leads: [],                   // [{ id, name }]
     staff: [],                   // [{ id, name }]
@@ -553,6 +582,9 @@
   function completeCleaning(state, taskId, userId, now, config, input) {
     config = withConfig(config);
     input = input || {};
+    const checked = new Set(Array.isArray(input.checklist) ? input.checklist : []);
+    const missing = config.checklist.filter((c) => !checked.has(c.id));
+    if (missing.length) throw new Error(`Bitte zuerst alle Punkte der Checkliste abhaken (es fehlt: ${missing.map((c) => c.de).join('; ')})`);
     if (typeof input.keysInBox !== 'boolean') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind (Ja/Nein)');
     state = clone(state);
     const task = getTask(state, taskId);
@@ -566,12 +598,15 @@
     task.keysInBox = input.keysInBox;
     task.keysNote = keysNote;
     task.keysResolvedAt = null;
+    task.checklistDone = config.checklist.map((c) => c.id);
+    const newSupplies = markSupplies(state, task, userId, input.supplies, nowIso, config);
     const minutes = task.startedAt ? Math.round((Date.parse(nowIso) - Date.parse(task.startedAt)) / 60000) : null;
     const duration = minutes != null ? ` (Dauer ${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')} Std.)` : '';
     log(task, nowIso, `Erledigt von ${personName(config, userId)}${duration} · Gästeschlüssel ${input.keysInBox ? 'in der Box ✓' : 'NICHT in der Box'}${keysNote ? ': ' + keysNote : ''}`);
     const to = [config.owner.id, ...leadIds(config)].filter((id) => id !== userId);
     const notifications = notify(to, 'done', task, 'Reinigung erledigt',
       `${task.apartmentName} ist sauber – ${personName(config, userId)}${duration}. Schlüssel ${input.keysInBox ? 'in der Box ✓' : 'fehlen!'}`);
+    if (newSupplies.length) notifications.push(...suppliesNote(config, task, userId, newSupplies));
     if (!input.keysInBox) {
       notifications.push(...notify([config.owner.id], 'keys', task, `Schlüssel fehlen: ${task.apartmentName}`,
         `${personName(config, userId)} meldet: Gästeschlüssel sind NICHT in der Box (${formatDate(task.date)}).${keysNote ? ' ' + keysNote : ''} Bitte umgehend klären.`));
@@ -602,6 +637,72 @@
     const name = user.role === 'owner' ? config.owner.name : personName(config, user.id);
     log(task, toIso(now), `Zugangscodes abgerufen von ${name}`);
     return { state, notifications: [] };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Verbrauchsmaterial: „knapp“ melden → Einkaufsliste (je Wohnung, bis der Admin „aufgefüllt“ tippt)
+  // ---------------------------------------------------------------------------
+
+  /** Trägt die Artikel ein; liefert die neu gemeldeten Artikel-IDs */
+  function markSupplies(state, task, userId, items, nowIso, config) {
+    const known = new Set(config.supplies.map((s) => s.id));
+    state.supplies = state.supplies || {};
+    const list = state.supplies[task.apartmentId] = state.supplies[task.apartmentId] || {};
+    const added = [];
+    for (const id of Array.isArray(items) ? items : []) {
+      if (!known.has(id) || list[id]) continue;
+      list[id] = { at: nowIso, by: userId, taskId: task.id };
+      added.push(id);
+    }
+    if (added.length) log(task, nowIso, `Knapp gemeldet: ${added.map((id) => supplyName(config, id)).join(', ')}`);
+    return added;
+  }
+
+  const supplyName = (config, id) => (config.supplies.find((s) => s.id === id) || { de: id }).de;
+
+  function suppliesNote(config, task, userId, ids) {
+    return notify([config.owner.id], 'supplies', task, `Knapp: ${task.apartmentName}`,
+      `${personName(config, userId)} meldet: ${ids.map((id) => supplyName(config, id)).join(', ')}.`);
+  }
+
+  /** Reinigungsteam meldet, was knapp ist (eine Nachricht je Meldung, nicht je Artikel) */
+  function reportSupplies(state, taskId, user, items, now, config) {
+    config = withConfig(config);
+    state = clone(state);
+    const task = getTask(state, taskId);
+    if (!canAccess(config, task, user) || task.status === STATUS.CANCELLED) throw new Error('Keine Berechtigung für diese Reinigung');
+    const added = markSupplies(state, task, user.id, items, toIso(now), config);
+    if (!added.length) throw new Error('Bitte mindestens einen Artikel auswählen, der noch nicht gemeldet ist');
+    return { state, notifications: user.role === 'owner' ? [] : suppliesNote(config, task, user.id, added) };
+  }
+
+  /** Admin: aufgefüllt – ein Artikel in einer Wohnung, alle einer Wohnung oder ein Artikel überall */
+  function resolveSupplies(state, apartmentId, itemId) {
+    state = clone(state);
+    state.supplies = state.supplies || {};
+    for (const apt of Object.keys(state.supplies)) {
+      if (apartmentId && apt !== String(apartmentId)) continue;
+      for (const id of Object.keys(state.supplies[apt])) if (!itemId || id === itemId) delete state.supplies[apt][id];
+      if (!Object.keys(state.supplies[apt]).length) delete state.supplies[apt];
+    }
+    return { state, notifications: [] };
+  }
+
+  /** Einkaufsliste: je Artikel die Wohnungen, in denen er knapp ist */
+  function shoppingList(state, config) {
+    config = withConfig(config);
+    const names = {};
+    for (const t of Object.values(state.tasks)) names[t.apartmentId] = t.apartmentName;
+    for (const a of state.apartments || []) names[a.id] = a.name;
+    const out = [];
+    for (const s of config.supplies) {
+      const apartments = [];
+      for (const [apt, list] of Object.entries(state.supplies || {})) {
+        if (list[s.id]) apartments.push({ id: apt, name: names[apt] || apt, at: list[s.id].at, by: list[s.id].by });
+      }
+      if (apartments.length) out.push({ id: s.id, de: s.de, hu: s.hu, apartments: apartments.sort((a, b) => a.name.localeCompare(b.name, 'de', { numeric: true })) });
+    }
+    return out;
   }
 
   /** Admin: fehlende Schlüssel geklärt */
@@ -995,6 +1096,7 @@
         sameDayArrival: reservations.some((r) => r.apartmentId === t.apartmentId && r.arrival === t.date && r.id !== t.id),
         nextArrival: nextArrival(state, t),
         nextBooking: nextBooking(state, t),
+        supplies: Object.keys((state.supplies || {})[t.apartmentId] || {}),
         periodLimit: isActive(t) ? periodLimit(state, t, config) : null,
       }))
       .sort((a, b) => (a.date + a.apartmentName).localeCompare(b.date + b.apartmentName, 'de', { numeric: true }));
@@ -1044,7 +1146,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

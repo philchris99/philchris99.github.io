@@ -3,11 +3,49 @@
 import { allUsers, findUser, topicFor, loginLink } from './auth.js';
 
 // 5 = höchste Stufe (Alarm, durchdringend), 4 = hoch, 3 = normal, 2 = leise
-const PRIORITY = { security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 4, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
-const TAGS = { security: ['warning'], keys: ['key', 'rotating_light'], late: ['rotating_light'], reminder2: ['rotating_light'], reminder: ['alarm_clock'], overdue: ['rotating_light'], new: ['broom'], assigned: ['broom'],
+const PRIORITY = { supplies: 3, security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 4, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
+const TAGS = { supplies: ['shopping_cart'], security: ['warning'], keys: ['key', 'rotating_light'], late: ['rotating_light'], reminder2: ['rotating_light'], reminder: ['alarm_clock'], overdue: ['rotating_light'], new: ['broom'], assigned: ['broom'],
   rescheduled: ['calendar'], request: ['calendar'], period: ['calendar'], cancelled: ['x'], report: ['memo'], note: ['memo'], confirmed: ['white_check_mark'], done: ['sparkles'] };
 const GROUP_TITLES = { new: 'neue Reinigungen', late: 'Reinigungen nicht bestätigt', reminder: 'Reinigungen noch nicht gestartet',
   reminder2: 'Reinigungen noch nicht beendet', overdue: 'Reinigungen nicht erledigt', rescheduled: 'Reinigungen verschoben', cancelled: 'Reinigungen entfallen', assigned: 'neue Reinigungen für dich' };
+
+// Ungarische Überschriften für Personen, die die App auf Ungarisch nutzen (Text bleibt Deutsch)
+const HU_TITLES = {
+  'Neue Reinigung für dich': 'Új takarítás neked',
+  'Neue Reinigung': 'Új takarítás',
+  'Reinigung verschoben': 'Takarítás áthelyezve',
+  'Reinigung entfällt': 'Takarítás elmarad',
+  'Reinigung neu vergeben': 'Takarítás másnak kiosztva',
+  'Reinigung muss heute noch gestartet werden': 'A takarítást ma még el kell kezdeni',
+  'Reinigung bitte beenden': 'Kérjük, fejezd be a takarítást',
+  'Reinigung immer noch nicht begonnen': 'A takarítás még mindig nem kezdődött el',
+  'Reinigung nicht erledigt': 'A takarítás nincs elvégezve',
+  'Reinigung nicht bestätigt': 'A takarítás nincs visszaigazolva',
+  'Reinigung bestätigt': 'Takarítás visszaigazolva',
+  'Reinigung erledigt': 'Takarítás elvégezve',
+  'Zeitraum genehmigt': 'Időszak jóváhagyva',
+  'Zeitraum abgelehnt': 'Időszak elutasítva',
+  'Reinigung im Zeitraum': 'Takarítás időszakban',
+  'Zeitraum aufgehoben': 'Időszak visszavonva',
+  'Zeitraum verkürzt – neue Buchung': 'Időszak lerövidítve – új foglalás',
+  'Antrag nicht mehr möglich': 'A kérelem már nem lehetséges',
+  'Hinweis geändert': 'Megjegyzés módosítva',
+  'Test-Nachricht': 'Tesztüzenet',
+};
+const HU_PREFIX = [['Hinweis von Apartments Strauss: ', 'Megjegyzés – Apartments Strauss: '], ['Meldung: ', 'Bejelentés: '],
+  ['Knapp: ', 'Kevés: '], ['Antrag: ', 'Kérelem: ']];
+const HU_GROUP = { 'neue Reinigungen für dich': 'új takarítás neked', 'Reinigungen noch nicht gestartet': 'takarítás még nem kezdődött el',
+  'Reinigungen noch nicht beendet': 'takarítás még nincs befejezve', 'Reinigungen nicht erledigt': 'takarítás nincs elvégezve',
+  'Reinigungen verschoben': 'takarítás áthelyezve', 'Reinigungen entfallen': 'takarítás elmarad', 'Hinweise zu Reinigungen': 'értesítés takarításokról' };
+
+export function localizeTitle(title, lang) {
+  if (lang !== 'hu' || !title) return title;
+  if (HU_TITLES[title]) return HU_TITLES[title];
+  for (const [de, hu] of HU_PREFIX) if (title.startsWith(de)) return hu + title.slice(de.length);
+  const m = /^(\d+) (.+)$/.exec(title);
+  if (m && HU_GROUP[m[2]]) return `${m[1]} ${HU_GROUP[m[2]]}`;
+  return title;
+}
 
 /** 'owner' steht in der Logik für „alle Admins“. */
 function expand(cfg, to) {
@@ -95,7 +133,8 @@ export function limit(messages, budget) {
 export async function deliver(env, cfg, notifications, budget = 25) {
   const messages = [];
   for (const n of notifications) for (const user of expand(cfg, n.to)) messages.push({ ...n, user });
-  const toSend = limit(group(messages), budget);
+  const toSend = limit(group(messages), budget)
+    .map((m) => ({ ...m, title: localizeTitle(m.title, (cfg.langs || {})[m.user.id]) }));
   const retries = toSend.length <= 8 ? 2 : 0;
   const results = await Promise.allSettled(toSend.map((m) => sendPush(env, m.user, m, retries)));
   const errors = [];

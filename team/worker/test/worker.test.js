@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { createHmac, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import worker, { runSync } from '../src/index.js';
+import L from '../../logic/logic.js';
+const ALL = L.DEFAULT_CONFIG.checklist.map((c) => c.id);
 
 /** Minimaler D1-Ersatz: prepare(sql).bind(...).first()/run() */
 class SqliteD1 {
@@ -184,7 +186,7 @@ test('Beginn und Ende erfassen; Admin kann nicht abhaken', async () => {
   assert.ok(s.body.tasks[0].startedAt);
   pushes = [];
   assert.equal((await call('POST', '/api/tasks/2/done', { session: mia })).status, 409, 'Schlüssel-Frage ist Pflicht');
-  const d = await call('POST', '/api/tasks/2/done', { session: mia, body: { keysInBox: false, keysNote: 'fehlt' } });
+  const d = await call('POST', '/api/tasks/2/done', { session: mia, body: { checklist: ALL, keysInBox: false, keysNote: 'fehlt' } });
   assert.equal(d.body.tasks[0].status, 'erledigt');
   assert.deepEqual(who().sort(), ['Reinigung erledigt', 'Reinigung erledigt', 'Schlüssel fehlen: FeWo Elbblick']);
   assert.equal(pushes.find((p) => p.title.startsWith('Schlüssel')).priority, 5);
@@ -460,6 +462,36 @@ test('Zuordnung der fest hinterlegten Codes ist tolerant gegenüber Schreibweise
   is('Berliner Platz 1c WE 078', '#VIER');
   is('Berliner Platz 1c', null);
   is('Wohnung 9', null);
+});
+
+test('Checkliste Pflicht, „knapp“ melden → Einkaufsliste; Sprache Ungarisch inkl. Push-Überschrift', async () => {
+  smoobuBookings = [booking(99, '2099-11-09')];
+  await runSync(env);
+  await call('POST', '/api/tasks/99/assign', { session: lea, body: { to: miaId } });
+  await call('POST', '/api/tasks/99/confirm', { session: mia });
+  const m = await me(mia);
+  assert.equal(m.checklist.length, ALL.length);
+  assert.ok(m.supplyItems.some((s) => s.hu === 'Kávé'));
+  assert.equal(m.lang, 'de');
+  assert.equal((await call('POST', '/api/lang', { session: mia, body: { lang: 'hu' } })).body.lang, 'hu');
+  pushes = [];
+  const s = await call('POST', '/api/tasks/99/supplies', { session: mia, body: { items: ['kaffee', 'klopapier'] } });
+  assert.deepEqual(s.body.tasks.find((t) => t.id === '99').supplies.sort(), ['kaffee', 'klopapier']);
+  assert.deepEqual(pushes.map((p) => p.title), ['Knapp: FeWo Elbblick'], 'Admin auf Deutsch');
+  assert.deepEqual((await me(admin)).shopping.map((x) => x.id), ['klopapier', 'kaffee']);
+  assert.equal((await call('POST', '/api/tasks/99/done', { session: mia, body: { keysInBox: true, checklist: ALL.slice(2) } })).status, 409);
+  pushes = [];
+  const at = Date.now() - 30 * 60000; // offline erfasst vor 30 Min.
+  const d = await call('POST', '/api/tasks/99/done', { session: mia, body: { keysInBox: true, checklist: ALL, supplies: ['tee'], at } });
+  assert.equal(Date.parse(d.body.tasks.find((t) => t.id === '99').doneAt), at, 'Uhrzeit vom Gerät übernommen');
+  assert.equal((await call('POST', '/api/supplies/resolve', { session: mia, body: {} })).status, 404);
+  assert.equal((await call('POST', '/api/supplies/resolve', { session: admin, body: { itemId: 'kaffee' } })).body.shopping.some((x) => x.id === 'kaffee'), false);
+  // Push an Mia auf Ungarisch
+  const { localizeTitle } = await import('../src/notify.js');
+  assert.equal(localizeTitle('Reinigung muss heute noch gestartet werden', 'hu'), 'A takarítást ma még el kell kezdeni');
+  assert.equal(localizeTitle('3 neue Reinigungen für dich', 'hu'), '3 új takarítás neked');
+  assert.equal(localizeTitle('Reinigung bitte beenden', 'de'), 'Reinigung bitte beenden');
+  await call('POST', '/api/lang', { session: mia, body: { lang: 'de' } });
 });
 
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {

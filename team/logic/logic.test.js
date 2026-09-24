@@ -20,6 +20,7 @@ const booking = (overrides) => Object.assign({
   action: 'new', id: '100', apartmentId: '3', apartmentName: 'Loft am Markt', guest: 'Familie Müller', guestPhone: '+49 170 1234567',
   arrival: '2026-09-28', departure: '2026-10-02',
 }, overrides);
+const ALL = L.DEFAULT_CONFIG.checklist.map((c) => c.id); // Checkliste komplett abgehakt
 const who = (notes) => notes.map((n) => `${n.to}:${n.kind}`).sort();
 
 /** Neue Reinigung, von Lea an Mia zugewiesen und von Mia bestätigt */
@@ -172,8 +173,10 @@ test('erledigt → keine Erinnerungen; Dauer wird aus Start/Ende berechnet', () 
   const day = '2026-10-02';
   let { state } = L.startCleaning(confirmedTask(), '100', 'mia', at(day, '10:00'), CFG);
   assert.throws(() => L.startCleaning(state, '100', 'ida', at(day, '10:00'), CFG), /nicht zugewiesen/);
-  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG), /Gästeschlüssel/);
-  const done = L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true });
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true }), /Checkliste.*es fehlt: Bettwäsche/);
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { keysInBox: true, checklist: ALL.slice(1) }), /es fehlt: Bettwäsche gewechselt/);
+  assert.throws(() => L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { checklist: ALL }), /Gästeschlüssel/);
+  const done = L.completeCleaning(state, '100', 'mia', at(day, '11:45'), CFG, { checklist: ALL, keysInBox: true });
   assert.equal(done.state.tasks['100'].status, 'erledigt');
   assert.equal(done.state.tasks['100'].keysInBox, true);
   assert.deepEqual(who(done.notifications), ['lea:done', 'owner:done']);
@@ -327,7 +330,7 @@ test('Zeitraum: Mitarbeiterin beantragt mit Begründung → Admin + Leitung; gen
   assert.equal(L.checkDeadlines(res.state, at('2026-10-02', '16:00'), CFG).notifications.length, 0);
   assert.equal(L.overdueReason(res.state.tasks['100'], at('2026-10-03', '12:00'), CFG), 'start');
   // erledigt am ersten Tag ist natürlich auch gut
-  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: true });
+  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: true });
   assert.equal(done.state.tasks['100'].status, 'erledigt');
 });
 
@@ -370,7 +373,7 @@ test('Meldung zu einer alten Reinigung ohne Meldungs-/Verlaufsliste (ältere Ver
 });
 
 test('Schlüssel nicht in der Box → sofort dringende Nachricht an Admin; Admin klärt', () => {
-  const res = L.completeCleaning(confirmedTask(), '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: false, keysNote: 'Gast hat sie mitgenommen' });
+  const res = L.completeCleaning(confirmedTask(), '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: false, keysNote: 'Gast hat sie mitgenommen' });
   assert.deepEqual(who(res.notifications), ['lea:done', 'owner:done', 'owner:keys']);
   const keys = res.notifications.find((n) => n.kind === 'keys');
   assert.match(keys.title, /Schlüssel fehlen/);
@@ -450,10 +453,33 @@ test('Zugangscodes: nur Admin, Leitung und zugewiesene Mitarbeiterin; nach Erled
   assert.equal(L.mayViewCodes(CFG, t, MIA, NOW), true);
   assert.equal(L.mayViewCodes(CFG, t, IDA, NOW), false);
   assert.equal(L.mayViewCodes(CFG, t, LEAD, NOW), true);
-  const done = L.completeCleaning(state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { keysInBox: true }).state.tasks['100'];
+  const done = L.completeCleaning(state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: true }).state.tasks['100'];
   assert.equal(L.mayViewCodes(CFG, done, MIA, at('2026-10-02', '18:00')), true);
   assert.equal(L.mayViewCodes(CFG, done, MIA, at('2026-10-03', '09:00')), false);
   assert.equal(L.mayViewCodes(CFG, done, OWNER, at('2026-10-03', '09:00')), true);
   assert.throws(() => L.logCodeAccess(state, '100', IDA, NOW, CFG), /nicht verfügbar/);
   assert.match(L.logCodeAccess(state, '100', MIA, NOW, CFG).state.tasks['100'].history.at(-1).text, /Zugangscodes abgerufen von Mia/);
+});
+
+test('Verbrauchsmaterial: „knapp“ melden → eine Nachricht an Admin, Einkaufsliste, aufgefüllt', () => {
+  let state = confirmedTask();
+  assert.throws(() => L.reportSupplies(state, '100', MIA, [], NOW, CFG), /mindestens einen/);
+  let res = L.reportSupplies(state, '100', MIA, ['kaffee', 'klopapier', 'unbekannt'], NOW, CFG);
+  assert.deepEqual(who(res.notifications), ['owner:supplies']);
+  assert.match(res.notifications[0].body, /Mia meldet: Toilettenpapier, Kaffee|Mia meldet: Kaffee, Toilettenpapier/);
+  assert.throws(() => L.reportSupplies(res.state, '100', MIA, ['kaffee'], NOW, CFG), /noch nicht gemeldet/);
+  assert.throws(() => L.reportSupplies(res.state, '100', IDA, ['tee'], NOW, CFG), /Keine Berechtigung/);
+  let list = L.shoppingList(res.state, CFG);
+  assert.deepEqual(list.map((x) => x.id), ['klopapier', 'kaffee']);
+  assert.equal(list[0].apartments[0].name, 'Loft am Markt');
+  assert.deepEqual(L.listCleanings(res.state, {}, CFG).find((t) => t.id === '100').supplies.sort(), ['kaffee', 'klopapier']);
+  // beim Beenden mitmelden
+  const done = L.completeCleaning(res.state, '100', 'mia', at('2026-10-02', '11:00'), CFG, { checklist: ALL, keysInBox: true, supplies: ['tee', 'kaffee'] });
+  assert.deepEqual(who(done.notifications.filter((n) => n.kind === 'supplies')), ['owner:supplies']);
+  assert.match(done.notifications.find((n) => n.kind === 'supplies').body, /Tee\./);
+  assert.deepEqual(done.state.tasks['100'].checklistDone, ALL);
+  res = L.resolveSupplies(done.state, '3', 'kaffee');
+  assert.deepEqual(L.shoppingList(res.state, CFG).map((x) => x.id), ['klopapier', 'tee']);
+  res = L.resolveSupplies(res.state, '3', null);
+  assert.equal(L.shoppingList(res.state, CFG).length, 0);
 });

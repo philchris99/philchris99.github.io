@@ -52,7 +52,7 @@ async function loadConfig(env) {
   delete settings.cleaners;
   settings.leads = settings.leads || [];
   settings.staff = settings.staff || [];
-  return { cfg: { ...config, leads: settings.leads, staff: settings.staff }, settings };
+  return { cfg: { ...L.DEFAULT_CONFIG, ...config, leads: settings.leads, staff: settings.staff, langs: settings.lang || {} }, settings };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +209,10 @@ async function viewFor(env, cfg, settings, state, user, now) {
     hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
     openReports: user.role === 'staff' ? [] : L.openReports(state),
     openRequests: user.role === 'owner' ? L.openPeriodRequests(state) : [],
+    lang: (settings.lang || {})[user.id] || 'de',
+    checklist: cfg.checklist,
+    supplyItems: cfg.supplies,
+    shopping: user.role === 'staff' ? [] : L.shoppingList(state, cfg),
     missingKeys: user.role === 'owner' ? L.missingKeys(state) : [],
     maxPeriodDays: cfg.maxPeriodDays,
   };
@@ -248,6 +252,11 @@ async function handleApi(request, env, url, ctx) {
   const { cfg, settings } = await loadConfig(env);
   const ip = request.headers.get('CF-Connecting-IP') || 'lokal';
   const readJson = () => request.json().catch(() => ({}));
+  // Offline erfasste Aktionen bringen ihre Uhrzeit mit (höchstens 12 Std. zurück, nie in der Zukunft)
+  const clientTime = (at) => {
+    const t = typeof at === 'number' ? at : Date.parse(at || '');
+    return Number.isFinite(t) && t <= now && t >= now - 12 * 3600000 ? t : now;
+  };
 
   // ---- Anmeldung mit 6-stelligem Code (Admin, Leitung, Mitarbeiterin) ----
   if (path === '/api/login' && request.method === 'POST') {
@@ -320,6 +329,14 @@ async function handleApi(request, env, url, ctx) {
 
   if (path === '/api/me' && request.method === 'GET') return view((await loadState(env.DB)).state);
 
+  // Sprache der App je Person (Deutsch / Ungarisch) – gilt auch für die Push-Überschriften
+  if (path === '/api/lang' && request.method === 'POST') {
+    const lang = (await readJson()).lang === 'hu' ? 'hu' : 'de';
+    settings.lang = { ...(settings.lang || {}), [user.id]: lang };
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
+  }
+
   // Push-Nachrichten eingerichtet (Test-Nachricht angekommen) – je Benutzerkonto
   if (path === '/api/push-ok' && request.method === 'POST') {
     settings.pushOk = { ...(settings.pushOk || {}), [user.id]: new Date(now).toISOString() };
@@ -333,7 +350,7 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // ---- Reinigung: Leitung bestätigt / weist zu; Mitarbeiterin bestätigt; Beginn; Erledigt ----
-  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period|keys-resolved)$/);
+  const act = path.match(/^\/api\/tasks\/([^/]+)\/(lead-confirm|assign|confirm|start|done|edit|cancel|report|period-request|period-decide|period|keys-resolved|supplies)$/);
   if (act && request.method === 'POST') {
     const id = decodeURIComponent(act[1]);
     switch (act[2]) {
@@ -348,13 +365,21 @@ async function handleApi(request, env, url, ctx) {
       case 'confirm':
         if (role === 'owner') break;
         return change((st) => L.staffConfirm(st, id, user.id, now, cfg), 409);
-      case 'start':
+      case 'start': {
         if (role === 'owner') break;
-        return change((st) => L.startCleaning(st, id, user.id, now, cfg), 409);
+        const when = clientTime((await readJson()).at);
+        return change((st) => L.startCleaning(st, id, user.id, when, cfg), 409);
+      }
       case 'done': {
         if (role === 'owner') break;
         const body = await readJson();
-        return change((st) => L.completeCleaning(st, id, user.id, now, cfg, { keysInBox: body.keysInBox, keysNote: body.keysNote }), 409);
+        const when = clientTime(body.at);
+        return change((st) => L.completeCleaning(st, id, user.id, when, cfg,
+          { keysInBox: body.keysInBox, keysNote: body.keysNote, checklist: body.checklist, supplies: body.supplies }), 409);
+      }
+      case 'supplies': {
+        const body = await readJson();
+        return change((st) => L.reportSupplies(st, id, user, body.items, now, cfg));
       }
       case 'keys-resolved': {
         if (role !== 'owner') break;
@@ -473,7 +498,10 @@ async function handleApi(request, env, url, ctx) {
 
   if (path === '/api/test-push' && request.method === 'POST') {
     try {
-      await sendPush(env, user, { title: 'Test-Nachricht', body: `Hallo ${user.name}, die Push-Nachrichten funktionieren.`, kind: 'reminder' });
+      const hu = (settings.lang || {})[user.id] === 'hu';
+      await sendPush(env, user, hu
+        ? { title: 'Tesztüzenet', body: `Szia ${user.name}, a push-értesítések működnek.`, kind: 'reminder' }
+        : { title: 'Test-Nachricht', body: `Hallo ${user.name}, die Push-Nachrichten funktionieren.`, kind: 'reminder' });
       return json({ ok: true });
     } catch (e) {
       return fail(e.message, 502);
@@ -566,6 +594,12 @@ async function handleApi(request, env, url, ctx) {
     settings.accessCodes = await encryptCode(env, JSON.stringify(saved));
     await saveSettings(env.DB, settings);
     return json({ apartments, codes: await loadAccessCodes(env, settings, apartments) });
+  }
+
+  // Einkaufsliste: aufgefüllt (ein Artikel in einer Wohnung / alles einer Wohnung / ein Artikel überall)
+  if (path === '/api/supplies/resolve' && request.method === 'POST') {
+    const body = await readJson();
+    return change((st) => L.resolveSupplies(st, body.apartmentId || null, body.itemId || null));
   }
 
   const resolve = path.match(/^\/api\/tasks\/([^/]+)\/reports\/([^/]+)\/resolve$/);

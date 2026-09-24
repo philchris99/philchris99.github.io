@@ -129,6 +129,17 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .codes .big { font-size: 30px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 .code-table input { width: 100%; min-width: 70px; }
 .code-table td { padding: 4px; vertical-align: top; }
+.checklist label { display: flex; gap: 10px; align-items: flex-start; padding: 10px 4px; border-bottom: 1px solid var(--line); font-size: 16px; cursor: pointer; }
+.checklist label:last-child { border-bottom: 0; }
+.checklist input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--accent); }
+.checklist label:has(input:checked) { color: var(--muted); }
+.supply-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.supply-grid label { display: inline-flex; align-items: center; gap: 6px; min-height: 42px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 99px; font-size: 15px; cursor: pointer; background: var(--card); }
+.supply-grid input { width: 18px; height: 18px; margin: 0; accent-color: var(--open); }
+.supply-grid label:has(input:checked) { border-color: var(--open); background: var(--open-bg); font-weight: 650; }
+.supply-grid label.reported { opacity: .6; cursor: default; }
+.offline { position: sticky; top: 0; z-index: 12; margin: 8px 0; padding: 8px 12px; border-radius: 10px; background: var(--open-bg); color: var(--open); font-weight: 650; font-size: 14px; }
+.lang { min-height: 30px; padding: 2px 10px; font-size: 13px; margin-left: 6px; }
 .chip.period { color: var(--accent); background: var(--accent-soft); border: 1px dashed var(--accent); }
 .request { margin-top: 10px; padding: 10px 12px; border: 1px dashed var(--open); background: var(--open-bg); border-radius: 10px; }
 .cal-period { position: absolute; top: 49px; height: 6px; border-top: 3px dashed var(--accent); pointer-events: none; }
@@ -274,21 +285,66 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 <div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="sheet" id="modal-body"></div></div>
 <div class="toast" id="toast" role="status" hidden></div>
 
+<script src="/i18n-hu.js"></script>
 <script>
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const WD = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-  const WDL = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  // Sprache der Oberfläche: 'de' oder 'hu' (je Person auf dem Server gespeichert, zusätzlich im Gerät)
+  let lang = (() => { try { return localStorage.getItem('team-lang') === 'hu' ? 'hu' : 'de'; } catch (e) { return 'de'; } })();
+  const setLang = (l) => { lang = l === 'hu' ? 'hu' : 'de'; try { localStorage.setItem('team-lang', lang); } catch (e) { /* egal */ } document.documentElement.lang = lang; };
+  document.documentElement.lang = lang;
+  const WD_DE = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+  const WDL_DE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+  const WD_HU = ['V', 'H', 'K', 'Sze', 'Cs', 'P', 'Szo'];
+  const WDL_HU = ['vasárnap', 'hétfő', 'kedd', 'szerda', 'csütörtök', 'péntek', 'szombat'];
+  const WD = new Proxy([], { get: (_, k) => (lang === 'hu' ? WD_HU : WD_DE)[k] });
+  const WDL = new Proxy([], { get: (_, k) => (lang === 'hu' ? WDL_HU : WDL_DE)[k] });
+  // ---- Ungarisch: Übersetzung der fertigen Oberfläche (Texte, Platzhalter, Beschriftungen) ----
+  // Wörterbuch und Muster stehen in i18n-hu.js
+  const HU = (window.STRAUSS_HU && window.STRAUSS_HU.dict) || {};
+  const HU_PATTERNS = (window.STRAUSS_HU && window.STRAUSS_HU.patterns) || [];
+  const HU_KNOWN = new Set(Object.values(HU)); // schon Ungarisch (z. B. Checkliste vom Server)
+  const untranslated = new Set();
+  function tr(text) {
+    if (lang !== 'hu' || !text) return text;
+    const trimmed = text.trim();
+    if (!trimmed || !/[A-Za-zÄÖÜäöüß]/.test(trimmed)) return text;
+    const key = trimmed.replace(/\s+/g, ' ');
+    let out = HU[key];
+    if (out == null) {
+      // Teile wie „Heute · Check-out“ einzeln nachschlagen, danach Muster (Datum, Uhrzeit, Namen)
+      out = key.split(' · ').map((seg) => (HU[seg] != null ? HU[seg] : seg)).join(' · ');
+      for (const [re, rep] of HU_PATTERNS) out = out.replace(re, rep);
+      if (out === key && !HU_KNOWN.has(key)) untranslated.add(key);
+    }
+    const lead = text.match(/^\s*/)[0], tail = text.match(/\s*$/)[0];
+    return lead + out + tail;
+  }
+  function translate(root) {
+    if (lang !== 'hu' || !root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const n of nodes) {
+      if (n.parentElement && n.parentElement.closest('[data-no-tr], code, .code, .big')) continue;
+      const next = tr(n.nodeValue);
+      if (next !== n.nodeValue) n.nodeValue = next;
+    }
+    for (const el of root.querySelectorAll('[placeholder], [aria-label], [title]')) {
+      for (const a of ['placeholder', 'aria-label', 'title']) if (el.hasAttribute(a)) el.setAttribute(a, tr(el.getAttribute(a)));
+    }
+  }
+  window.__untranslated = untranslated; // für die Prüfung der Übersetzung
   const utc = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
   const addDays = (iso, n) => { const d = utc(iso); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   const two = (n) => String(n).padStart(2, '0');
   const fmt = (iso) => { const d = utc(iso); return `${WD[d.getUTCDay()]}, ${two(d.getUTCDate())}.${two(d.getUTCMonth() + 1)}.`; };
   const fmtLong = (iso) => { const d = utc(iso); return `${WDL[d.getUTCDay()]}, ${two(d.getUTCDate())}.${two(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`; };
-  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' Uhr' : '–';
+  const fmtTime = (iso) => iso ? new Date(iso).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + (lang === 'hu' ? '' : ' Uhr') : '–';
   const clock = (iso) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-  const duration = (a, b) => { const m = Math.round((Date.parse(b) - Date.parse(a)) / 60000); return `${Math.floor(m / 60)}:${two(m % 60)} Std.`; };
+  const duration = (a, b) => { const m = Math.round((Date.parse(b) - Date.parse(a)) / 60000); return `${Math.floor(m / 60)}:${two(m % 60)} ${lang === 'hu' ? 'óra' : 'Std.'}`; };
   const ADMIN = location.pathname.replace(/\/+$/, '') === '/admin';
   const PHONE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>';
 
@@ -310,16 +366,17 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let newCode = null;            // gerade erzeugter Code (nur einmal anzeigen)
   let editPerson = null;         // Person, deren Name bearbeitet wird
   let editTask = null;           // manuelle Reinigung in Bearbeitung
-  let periodTask = null;
-  let doneTask = null;
+  let periodTask = null;         // Reinigung mit offenem Zeitraum-Formular
+  let doneTask = null;           // Reinigung mit offenem „Beenden“-Formular (Checkliste, Schlüssel)
   const shownCodes = {};         // abgerufene Zugangscodes je Reinigung (nur im Speicher, verschwinden automatisch)
-  let codeEditor = null;         // Admin: Zugangscodes bearbeiten           // Reinigung mit offenem „Beenden“-Checkpunkt (Schlüssel)         // Reinigung mit offenem Zeitraum-Formular
+  let codeEditor = null;         // Admin: Zugangscodes bearbeiten
+  let supplyTask = null;         // Reinigung mit offenem „Knapp melden“-Formular
   let lockTimer = null;
   const openForms = new Set();   // Reinigungen mit offenem Hinweis-Formular
   const pending = {};            // ausgewählte, noch nicht gesendete Fotos je Reinigung
   let toastTimer;
   function toast(text) {
-    $('toast').textContent = text;
+    $('toast').textContent = tr(text);
     $('toast').hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4000);
@@ -330,7 +387,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (!noAuth && auth) headers.Authorization = 'Bearer ' + auth;
     let payload = body;
     if (body && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
-    const res = await fetch(path, { method: method || 'GET', headers, body: payload });
+    let res;
+    try {
+      res = await fetch(path, { method: method || 'GET', headers, body: payload });
+    } catch (e) { // kein Netz
+      online = false;
+      throw Object.assign(new Error(lang === 'hu' ? 'Nincs internetkapcsolat' : 'Keine Internetverbindung'), { offline: true });
+    }
+    online = true;
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(json.error || 'Fehler ' + res.status + ' – bitte erneut versuchen'), { status: res.status, retryAfter: json.retryAfter });
     return json;
@@ -340,11 +404,83 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   const busyEditing = () => openForms.size > 0 || !!editPerson || !!editTask || !!codeEditor || !!document.querySelector('#app [data-dirty]')
     || !$('gallery').hidden || !$('modal').hidden || (document.activeElement && document.activeElement.tagName === 'SELECT');
 
+  // ---- Offline: letzte Übersicht im Gerät merken, Aktionen zwischenspeichern und später senden ----
+  let online = navigator.onLine !== false;
+  const local = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* voll/gesperrt */ } },
+  };
+  let queue = local.get('team-outbox', []);
+  const QUEUEABLE = new Set(['confirm', 'lead-confirm', 'start', 'done', 'supplies']);
+  const saveCache = () => { if (data && auth) local.set('team-cache', { auth, data: { ...data, log: undefined } }); };
+
+  function applyLocal(id, action, body) {
+    const t = (data.tasks || []).find((x) => x.id === id);
+    if (!t) return;
+    const iso = new Date(body.at || Date.now()).toISOString();
+    if (action === 'confirm') t.staffConfirmedAt = iso;
+    if (action === 'lead-confirm') t.leadConfirmedAt = iso;
+    if (action === 'start') t.startedAt = iso;
+    if (action === 'done') Object.assign(t, { status: 'erledigt', doneAt: iso, keysInBox: body.keysInBox, overdue: null });
+    const items = action === 'supplies' ? body.items : action === 'done' ? body.supplies : null;
+    if (items) t.supplies = [...new Set([...(t.supplies || []), ...items])];
+    saveCache();
+  }
+
+  /** Aktion zu einer Reinigung senden – ohne Netz im Gerät merken und später automatisch senden */
+  async function sendAction(id, action, body, message) {
+    body = body || {};
+    if (action === 'start' || action === 'done') body.at = body.at || Date.now();
+    try {
+      update(await api(`/api/tasks/${encodeURIComponent(id)}/${action}`, 'POST', body));
+      if (message) toast(message);
+    } catch (e) {
+      if (!e.offline || !QUEUEABLE.has(action)) throw e;
+      queue.push({ id, action, body });
+      local.set('team-outbox', queue);
+      applyLocal(id, action, body);
+      render();
+      toast(lang === 'hu' ? 'Offline mentve – automatikusan elküldjük, amint lesz internet' : 'Offline gespeichert – wird automatisch gesendet, sobald wieder Netz da ist');
+    }
+  }
+
+  let flushing = false;
+  async function flush() {
+    if (flushing || !queue.length || !auth) return;
+    flushing = true;
+    let sent = 0;
+    try {
+      while (queue.length) {
+        const q = queue[0];
+        try {
+          data = Object.assign({}, data, await api(`/api/tasks/${encodeURIComponent(q.id)}/${q.action}`, 'POST', q.body));
+          sent++;
+        } catch (e) {
+          if (e.offline) break;
+          toast((lang === 'hu' ? 'Nem sikerült elküldeni: ' : 'Nicht übertragen: ') + e.message);
+        }
+        queue.shift();
+        local.set('team-outbox', queue);
+      }
+    } finally {
+      flushing = false;
+    }
+    if (sent) { saveCache(); if (!busyEditing()) render(); toast(lang === 'hu' ? 'Offline rögzített adatok elküldve ✓' : 'Offline Erfasstes wurde gesendet ✓'); }
+  }
+  window.addEventListener('online', () => { online = true; flush().then(() => refresh()); });
+  window.addEventListener('offline', () => { online = false; if (data) render(); });
+  const offlineBanner = () => (!online || queue.length ? `<div class="offline" role="status">${!online
+    ? (lang === 'hu' ? '📴 Offline – az utoljára betöltött állapot látható.' : '📴 Offline – letzter geladener Stand.') : ''}
+    ${queue.length ? (lang === 'hu' ? ` ${queue.length} művelet vár küldésre.` : ` ${queue.length} Aktion(en) warten auf Versand.`) : ''}</div>` : '');
+
   async function refresh(force) {
     if (!auth) return showLogin();
     if (!force && busyEditing()) return;
+    await flush();
     try {
       data = Object.assign({}, data, await api('/api/me'));
+      if (data.lang && data.lang !== lang) setLang(data.lang);
+      saveCache();
       if (ADMIN && data.user.role !== 'owner') return showLogin();
       if (view === 'calendar') { // Kalender bleibt offen, nur Kopfzeile aktualisieren
         renderWho();
@@ -353,11 +489,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       }
       render();
     } catch (e) {
-      if (e.status === 401) { store.set(null); auth = null; return showLogin(); }
+      if (e.status === 401) { store.set(null); auth = null; local.set('team-cache', null); return showLogin(); }
+      if (e.offline) {
+        const cached = local.get('team-cache', null);
+        if (!data && cached && cached.auth === auth) data = cached.data;
+        if (data) return render();
+      }
       toast(e.message);
     }
   }
-  function update(next) { data = Object.assign({}, data, next); render(); }
+  function update(next) { data = Object.assign({}, data, next); saveCache(); render(); }
 
   // ---- Anmeldung --------------------------------------------------------------
   function showLogin() {
@@ -375,7 +516,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <p class="meta" style="margin-bottom:10px">Bitte persönlichen 6-stelligen Code eingeben</p>
         <input id="code" class="pin" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="Persönlicher Code" required>
         <p class="meta hint" id="login-status" role="status"></p>
+        <p style="margin-top:14px"><button type="button" class="lang" data-lang="${lang === 'hu' ? 'de' : 'hu'}">${lang === 'hu' ? '🇩🇪 Deutsch' : '🇭🇺 Magyar'}</button></p>
       </form>`;
+    translate($('app'));
     const first = document.querySelector('#app input');
     if (first) first.focus();
   }
@@ -385,14 +528,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const code = input.value.replace(/\D/g, '');
     if (code.length !== 6 || input.disabled) return;
     input.disabled = true;
-    $('login-status').textContent = 'Anmeldung …';
+    $('login-status').textContent = tr('Anmeldung …');
     try {
       const res = await api('/api/login', 'POST', { code }, true);
       auth = res.session; store.set(auth);
+      if (lang === 'hu') await api('/api/lang', 'POST', { lang }).catch(() => {}); // auf dem Anmeldebildschirm gewählt
       await refresh(true);
     } catch (err) {
       input.value = '';
-      $('login-status').textContent = err.message;
+      $('login-status').textContent = tr(err.message);
       if (err.status === 429) return lockLogin(err.retryAfter || 60);
       input.disabled = false;
       input.focus();
@@ -407,11 +551,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       if (left <= 0) {
         clearInterval(lockTimer);
         input.disabled = false;
-        $('login-status').textContent = 'Bitte erneut versuchen.';
+        $('login-status').textContent = tr('Bitte erneut versuchen.');
         input.focus();
         return;
       }
-      $('login-status').textContent = `Zu viele falsche Versuche – gesperrt, noch ${left} Sekunden`;
+      $('login-status').textContent = tr(`Zu viele falsche Versuche – gesperrt, noch ${left} Sekunden`);
       left--;
     };
     tick();
@@ -463,6 +607,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (req && req.status === 'abgelehnt' && isActive(t) && role() !== 'owner') out.push('<span class="chip alert">Zeitraum abgelehnt</span>');
     if (t.sameDayArrival && isActive(t)) out.push('<span class="chip alert">Wechseltag – Anreise am selben Tag</span>');
     if (t.manual) out.push('<span class="chip manual">manuelle Reinigung</span>');
+    if ((t.supplies || []).length && (isActive(t) || role() === 'owner')) out.push(`<span class="chip wait">🛒 knapp: ${t.supplies.length}</span>`);
     return out.join('');
   }
 
@@ -580,10 +725,31 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       + (missing.length ? `<br><b style="color:var(--bad)">Nicht zugeordnet:</b> ${missing.map(esc).join(', ')} – bitte unten von Hand eintragen.` : '');
   }
 
+  const itemLabel = (item) => (lang === 'hu' && item.hu) || item.de;
+
+  /** „Was ist knapp?“ – Artikel zum Antippen; bereits gemeldete sind markiert */
+  function supplyGrid(t, name) {
+    const reported = new Set(t.supplies || []);
+    return `<div class="supply-grid">${(data.supplyItems || []).map((s) => reported.has(s.id)
+      ? `<label class="reported"><input type="checkbox" checked disabled> ${esc(itemLabel(s))} · gemeldet</label>`
+      : `<label><input type="checkbox" name="${name}" value="${esc(s.id)}"> ${esc(itemLabel(s))}</label>`).join('')}</div>`;
+  }
+  function supplyForm(t) {
+    return `<form class="report-form" data-supply-form="${esc(t.id)}">
+      <b>Was ist knapp oder fehlt?</b> <span class="meta">Antippen und „Melden“ – Apartments Strauss bekommt eine Einkaufsliste.</span>
+      ${supplyGrid(t, 'item')}
+      <div class="actions"><button class="primary" type="submit">Melden</button><button type="button" data-supply-close>Abbrechen</button></div>
+    </form>`;
+  }
+
   /** Pflicht-Checkpunkt vor dem Beenden: Gästeschlüssel in der Box? */
   function doneForm(t) {
     return `<form class="keys-check" data-done-form="${esc(t.id)}">
-      <fieldset><legend>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></legend>
+      <fieldset class="checklist"><legend>Checkliste – bitte alles abhaken <span style="color:var(--bad)">*</span></legend>
+        ${(data.checklist || []).map((c) => `<label><input type="checkbox" name="check" value="${esc(c.id)}" required> ${esc(itemLabel(c))}</label>`).join('')}
+      </fieldset>
+      <details style="margin-top:10px"><summary><b>Was ist knapp?</b> (optional)</summary>${supplyGrid(t, 'supply')}</details>
+      <fieldset style="margin-top:12px"><legend>Sind die Gästeschlüssel in der Box? <span style="color:var(--bad)">*</span></legend>
         <label class="choice"><input type="radio" name="keys" value="1" required> Ja, Schlüssel sind in der Box</label>
         <label class="choice no"><input type="radio" name="keys" value="0"> Nein, Schlüssel fehlen</label>
       </fieldset>
@@ -601,8 +767,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (!limit.last) {
       return `<div class="report-form request" style="border-color:var(--bad);background:var(--bad-bg)">
         <b style="color:var(--bad)">${owner ? 'Kein späterer Tag möglich' : 'Antrag nicht möglich'}</b>
-        <p style="margin:6px 0 0">${esc(limit.reason)} – die Wohnung ist nach dem Check-out nicht frei. Die Reinigung muss am
-          <b>${fmtLong(t.date)} bis ${esc(data.finishBy)} Uhr</b> erledigt sein.</p>
+        <p style="margin:6px 0 0">${lang === 'hu'
+          ? `${esc(tr(limit.reason))} – a lakás a check-out után nem szabad. A takarításnak <b>${fmtLong(t.date)}, ${esc(data.finishBy)}-ig</b> el kell készülnie.`
+          : `${esc(limit.reason)} – die Wohnung ist nach dem Check-out nicht frei. Die Reinigung muss am
+          <b>${fmtLong(t.date)} bis ${esc(data.finishBy)} Uhr</b> erledigt sein.`}</p>
         <div class="actions"><button type="button" data-period-close>Schließen</button></div></div>`;
     }
     const max = limit.last;
@@ -610,10 +778,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     let value = t.latestDate || (addDays(t.date, 1) <= max ? addDays(t.date, 1) : max);
     if (value < min) value = min;
     return `<form class="report-form" data-period-form="${esc(t.id)}">
-      <p class="meta">Check-out ${fmtLong(t.date)}. Die Reinigung darf dann an jedem Tag bis einschließlich dem gewählten Datum stattfinden –
+      <p class="meta">${lang === 'hu'
+        ? `Check-out: ${fmtLong(t.date)}. A takarítás ezután bármelyik napon elvégezhető a kiválasztott dátumig bezárólag –
+          ${fmt(t.date)}-én természetesen továbbra is jó. Emlékeztetők (${esc(data.startBy)}/${esc(data.finishBy)}) csak az utolsó napon.
+          <br><b style="color:var(--bad)">Fontos: a későbbi napon is legkésőbb ${esc(data.finishBy)}-ig el kell készülnie a takarításnak.</b>
+          ${limit.reason ? `<br><b>${esc(tr(limit.reason))}</b> – legkésőbb ${fmtLong(max)} lehetséges (csak szabad napok).` : ''}`
+        : `Check-out ${fmtLong(t.date)}. Die Reinigung darf dann an jedem Tag bis einschließlich dem gewählten Datum stattfinden –
         am ${fmt(t.date)} ist natürlich weiterhin gut. Erinnerungen (${esc(data.startBy)}/${esc(data.finishBy)} Uhr) erst am letzten Tag.
         <br><b style="color:var(--bad)">Wichtig: Auch am späteren Tag muss die Reinigung bis spätestens ${esc(data.finishBy)} Uhr erledigt sein.</b>
-        ${limit.reason ? `<br><b>${esc(limit.reason)}</b> – möglich nur bis ${fmtLong(max)} (nur freie Tage).` : ''}</p>
+        ${limit.reason ? `<br><b>${esc(limit.reason)}</b> – möglich nur bis ${fmtLong(max)} (nur freie Tage).` : ''}`}</p>
       <div class="form-grid">
         <label class="field">Reinigung spätestens am <input type="date" name="until" value="${esc(value)}" min="${esc(min)}" max="${esc(max)}" required></label>
         ${owner ? '' : '<label class="field">Kurze Begründung <input name="reason" required minlength="3" maxlength="500" placeholder="z. B. Personalengpass am 1.10."></label>'}
@@ -671,6 +844,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if ((active || doneToday) && (r !== 'staff' || mineToDo)) {
       actions.push(`<button class="small" data-codes="${esc(t.id)}">${shownCodes[t.id] ? 'Codes ausblenden' : '🔑 Zugangscodes'}</button>`);
     }
+    if ((active || doneToday) && r !== 'owner' && (r === 'lead' || mineToDo)) {
+      actions.push(`<button class="small" data-supply="${esc(t.id)}">${supplyTask === t.id ? 'Schließen' : '🛒 Knapp melden'}</button>`);
+    }
     if (r === 'owner' && t.keysInBox === false && !t.keysResolvedAt) actions.push(`<button class="go" data-keys-resolved="${esc(t.id)}">Schlüssel geklärt</button>`);
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
     if (active && (r === 'owner' || (!reqOpen && (r === 'lead' || mineToDo)))) {
@@ -700,6 +876,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${actions.length ? `<div class="actions">${actions.join('')}</div>` : ''}
       ${editTask === t.id ? editForm(t) : ''}
       ${shownCodes[t.id] ? codesBox(shownCodes[t.id]) : ''}
+      ${supplyTask === t.id ? supplyForm(t) : ''}
       ${periodTask === t.id ? periodForm(t) : ''}
       ${doneTask === t.id && canWork ? doneForm(t) : ''}
       ${openForms.has(t.id) ? reportForm(t) : ''}
@@ -862,6 +1039,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${pushSetup()}`;
   }
 
+  function shoppingBlock() {
+    const list = data.shopping || [];
+    if (!list.length) return '<p class="empty">Nichts gemeldet – alles aufgefüllt.</p>';
+    return list.map((x) => `<article class="task"><div class="task-top"><h3>🛒 ${esc(x.de)}</h3>
+        <button class="small go" data-supply-done data-item="${esc(x.id)}">Überall aufgefüllt</button></div>
+      <div class="chips">${x.apartments.map((a) => `<button class="small" data-supply-done data-item="${esc(x.id)}" data-apt="${esc(a.id)}"
+        title="gemeldet ${esc(fmtTime(a.at))} von ${esc(nameOf(a.by))}">✓ ${esc(a.name)}</button>`).join('')}</div></article>`).join('')
+      + '<p class="meta">Wohnung antippen = dort aufgefüllt.</p>';
+  }
+
   function reportsBlock(reports) {
     return reports.length ? reports.map((r) => `<article class="task"><div class="eyebrow">${esc(dayWord(r.date))} · ${fmtLong(r.date)}</div>
       <h3>${esc(r.apartmentName)}</h3>${reportHtml({ id: r.taskId }, r)}</article>`).join('') : '<p class="empty">Keine offenen Meldungen.</p>';
@@ -933,6 +1120,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         list(requests.map((q) => tasks.find((t) => t.id === q.taskId)).filter(Boolean), ''), 'key') : ''}
       ${section('heute', 'Heute', fmt(t0), list(today, 'Heute stehen keine Reinigungen an.'), 'key')}
       ${section('meldungen', 'Offene Meldungen', reports.length ? reports.length + ' offen' : '', reportsBlock(reports))}
+      ${section('einkauf', 'Einkaufsliste', (data.shopping || []).length ? (data.shopping || []).length + ' Artikel' : '', shoppingBlock())}
       ${section('morgen', 'Morgen', fmt(t1), list(tomorrow, 'Morgen stehen keine Reinigungen an.'))}
       ${section('bald', 'Nächste 14 Tage', '', list(soon, 'Keine Reinigungen.'))}
       ${later.length ? `<details class="more"><summary>Später (${later.length})</summary>${list(later, '')}</details>` : ''}
@@ -1002,6 +1190,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function openModal(html) {
     $('modal-body').innerHTML = html + '<div class="actions" style="margin-top:16px"><button type="button" data-close-modal>Schließen</button></div>';
     $('modal').hidden = false;
+    translate($('modal-body'));
     const btn = $('modal-body').querySelector('button, a');
     if (btn) btn.focus();
   }
@@ -1113,12 +1302,14 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function render() {
     if (view === 'calendar' && cal) return renderCalendar();
     renderWho();
-    $('app').innerHTML = role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff();
+    $('app').innerHTML = offlineBanner() + (role() === 'owner' ? renderOwner() : role() === 'lead' ? renderLead() : renderStaff());
+    translate($('app')); translate($('who'));
   }
 
   function renderWho() {
     const label = { owner: 'Admin', lead: 'Reinigungsleitung', staff: 'Mitarbeiterin' }[role()];
-    $('who').innerHTML = `<b>${esc(data.user.name)}</b>${label} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`;
+    $('who').innerHTML = `<b>${esc(data.user.name)}</b>${label} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`
+      + `<button type="button" class="lang" data-lang="${lang === 'hu' ? 'de' : 'hu'}" aria-label="${lang === 'hu' ? 'Deutsch' : 'Magyar'}">${lang === 'hu' ? '🇩🇪 DE' : '🇭🇺 HU'}</button>`;
   }
 
   // ---- Galerie ----------------------------------------------------------------
@@ -1239,10 +1430,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const choice = form.elements.keys.value;
         if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
         const keysInBox = choice === '1';
-        update(await api(`/api/tasks/${encodeURIComponent(form.dataset.doneForm)}/done`, 'POST', { keysInBox, keysNote: form.elements.note.value }));
+        const checked = [...form.querySelectorAll('input[name=check]:checked')].map((i) => i.value);
+        if (checked.length < (data.checklist || []).length) throw new Error('Bitte zuerst alle Punkte der Checkliste abhaken');
+        const supplies = [...form.querySelectorAll('input[name=supply]:checked')].map((i) => i.value);
         doneTask = null;
+        await sendAction(form.dataset.doneForm, 'done', { keysInBox, keysNote: form.elements.note.value, checklist: checked, supplies });
         render();
         toast(keysInBox ? 'Als erledigt gemeldet – danke!' : 'Erledigt gemeldet – Apartments Strauss wurde sofort wegen der Schlüssel benachrichtigt');
+      } else if (form.dataset.supplyForm) {
+        const items = [...form.querySelectorAll('input[name=item]:checked')].map((i) => i.value);
+        if (!items.length) throw new Error('Bitte mindestens einen Artikel antippen');
+        supplyTask = null;
+        await sendAction(form.dataset.supplyForm, 'supplies', { items }, 'Gemeldet – danke!');
       } else if (form.dataset.periodForm) {
         const id = form.dataset.periodForm;
         const until = form.elements.until.value;
@@ -1295,10 +1494,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = original; } }, 4000);
     return false;
   }
-  const taskAction = async (id, action, body, message) => {
-    update(await api(`/api/tasks/${encodeURIComponent(id)}/${action}`, 'POST', body));
-    if (message) toast(message);
-  };
+  const taskAction = (id, action, body, message) => sendAction(id, action, body, message);
 
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
@@ -1375,6 +1571,17 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         const ta = document.getElementById('text-' + d.toggleReport);
         if (ta) ta.focus();
+      } else if (d.supply) {
+        supplyTask = supplyTask === d.supply ? null : d.supply; render();
+      } else if (d.supplyClose !== undefined) {
+        supplyTask = null; render();
+      } else if (d.supplyDone !== undefined) {
+        b.disabled = true;
+        update(await api('/api/supplies/resolve', 'POST', { itemId: d.item, apartmentId: d.apt || null }));
+        toast('Als aufgefüllt markiert');
+      } else if (d.lang) {
+        setLang(d.lang);
+        if (data && auth) { try { update(await api('/api/lang', 'POST', { lang })); } catch (err) { render(); } } else showLogin();
       } else if (d.codes) {
         if (shownCodes[d.codes]) { delete shownCodes[d.codes]; return render(); }
         b.disabled = true;
@@ -1467,6 +1674,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     }
   });
 
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* ohne Offline-Speicher */ });
   refresh(true);
   setInterval(() => { if (!document.hidden) refresh(); }, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
