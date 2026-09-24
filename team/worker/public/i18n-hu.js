@@ -5,6 +5,7 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '🔄 Neue Version – tippen zum Aktualisieren': '🔄 Új verzió – koppints a frissítéshez',
     'Bitte persönlichen 6-stelligen Code eingeben': 'Add meg a személyes 6 jegyű kódodat',
     'Persönlicher Code': 'Személyes kód',
     'Anmeldung …': 'Bejelentkezés …',

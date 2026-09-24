@@ -2248,9 +2248,35 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   });
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => { /* ohne Offline-Speicher */ });
+
+  // Neue App-Version erkennen (z. B. als Home-Bildschirm-App lange geöffnet): Seite neu laden.
+  let appVersion = null, lastCheck = 0;
+  const busy = () => !$('#finish')?.hidden || !!document.querySelector('textarea:focus, input:focus');
+  const checkVersion = async (fromVisible) => {
+    if (Date.now() - lastCheck < 60000 && !fromVisible) return;
+    lastCheck = Date.now();
+    try {
+      const r = await fetch('/', { method: 'HEAD', cache: 'no-store' });
+      const v = r.headers.get('etag') || r.headers.get('last-modified');
+      if (!v) return;
+      if (appVersion === null) { appVersion = v; return; }
+      if (v === appVersion) return;
+      if (fromVisible && !busy()) return location.reload();
+      if (!$('#update-bar')) {
+        const b = document.createElement('button');
+        b.id = 'update-bar';
+        b.textContent = '🔄 Neue Version – tippen zum Aktualisieren';
+        b.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;padding:14px;border:0;border-radius:12px;background:#1f6f43;color:#fff;font-size:16px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.25)';
+        b.onclick = () => location.reload();
+        document.body.appendChild(b);
+        translate(b);
+      }
+    } catch { /* offline */ }
+  };
+  checkVersion();
   refresh(true);
-  setInterval(() => { if (!document.hidden) refresh(); }, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  setInterval(() => { if (!document.hidden) { refresh(); checkVersion(); } }, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); checkVersion(true); } });
 })();
 </script>
 </body>

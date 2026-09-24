@@ -1,6 +1,6 @@
 // Offline-Unterstützung: App-Seite und Logos im Gerät zwischenspeichern.
 // Daten (/api/…) werden nicht hier gespeichert – das macht die App selbst (letzter Stand + Warteschlange).
-const CACHE = 'strauss-v1';
+const CACHE = 'strauss-v2';
 const SHELL = ['/', '/i18n-hu.js', '/logo.png', '/logo-house.png', '/logo-wordmark.png', '/manifest.webmanifest', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
