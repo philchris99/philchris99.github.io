@@ -647,6 +647,9 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
   assert.ok(d5.bookedPct > 0 && d5.blockedPct === 0);
   assert.equal(d25.pct, 0);
   assert.equal(h.find((x) => x.date === today).source, 'live', 'heutiger echter Wert bleibt');
+  assert.ok(h.find((x) => x.date === today).actual, 'tatsächliche Belegung heute');
+  assert.ok(d5.actual && d5.actual.pct >= 0, 'tatsächliche Belegung rückwirkend');
+  assert.equal(typeof bf.body.stats.apartments, 'number');
 });
 
 test('Auswertung nach Wohnungsgröße: Größe aus Smoobu, eigene Kategorie möglich, gebucht vs. inkl. Blockierungen', async () => {

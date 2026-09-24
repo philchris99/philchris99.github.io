@@ -272,8 +272,13 @@ async function statsView(env, cfg, state, now) {
     return { id, name: names[id] || id, ...v, bookedPct: STAT_DAYS ? Math.round((v.booked / STAT_DAYS) * 1000) / 10 : 0,
       category: sizeCategory(settings, id, names[id] || ''), ownCategory: ((settings.aptCategory || {})[id] || ''), bedrooms: i.bedrooms ?? null, maxOccupancy: i.maxOccupancy ?? null };
   }).sort((a, b) => L.compareApartments(a.name, b.name));
+  // Tatsächliche Belegung: Durchschnitt der letzten 30 Nächte (soweit bekannt)
+  const today = L.localParts(now, cfg.timezone).date;
+  const last30 = history.filter((h) => h.actual && h.date < today && h.date >= L.addDays(today, -30));
+  const avg = (k) => (last30.length ? Math.round((last30.reduce((s, h) => s + h.actual[k], 0) / last30.length) * 10) / 10 : null);
   return { days: STAT_DAYS, current: { ...current, perApartment }, groups: sizeGroups(settings, perApartment, STAT_DAYS),
-    history, backfill: stats.backfill || null };
+    actual30: last30.length ? { pct: avg('pct'), bookedPct: avg('bookedPct'), blockedPct: avg('blockedPct'), nights: last30.length } : null,
+    apartments: perApartment.length, history, backfill: stats.backfill || null };
 }
 
 const STAT_DAYS = 30;
@@ -287,10 +292,13 @@ async function trackOccupancy(env, cfg, state, now) {
   if (!state.initialized || !apartmentList(state).length) return;
   const today = L.localParts(now, cfg.timezone).date;
   const o = currentOccupancy(state, cfg, now);
+  const ids = apartmentList(state).map((a) => a.id);
+  const night = L.nightOccupancy(L.nightIndex(L.reservationEntries(state)), ids, today);
   const stats = await loadStats(env.DB);
   const prev = stats.days[today];
-  const row = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: o.capacity / STAT_DAYS, source: 'live' };
-  if (prev && prev.source === 'live' && prev.pct === row.pct && prev.bookedPct === row.bookedPct) return;
+  const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct };
+  const row = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'live', actual };
+  if (prev && prev.source === 'live' && prev.pct === row.pct && prev.bookedPct === row.bookedPct && prev.actual && prev.actual.pct === actual.pct) return;
   stats.days[today] = row;
   await saveStats(env.DB, stats);
 }
@@ -826,13 +834,16 @@ async function handleApi(request, env, url, ctx) {
     let added = 0;
     for (let i = back; i >= 1; i--) {
       const d = L.addDays(today, -i);
-      if (stats.days[d] && stats.days[d].source === 'live') continue; // echte Tageswerte haben Vorrang
+      // tatsächliche Belegung der Nacht: immer aus dem heutigen (endgültigen) Stand
+      const night = L.nightOccupancy(index, ids, d);
+      const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct };
+      if (stats.days[d] && stats.days[d].source === 'live') { stats.days[d].actual = actual; continue; } // Vorausblick: echte Tageswerte haben Vorrang
       const o = L.occupancy(index, ids, d, STAT_DAYS, d);
-      stats.days[d] = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'rückwirkend' };
+      stats.days[d] = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'rückwirkend', actual };
       added++;
     }
-    const withCreated = raw.filter((r) => r && r['created-at']).length;
-    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated };
+    const withCreated = raw.filter((r) => r && (r['created-at'] || r.createdAt || r.created_at)).length;
+    stats.backfill = { at: new Date(now).toISOString(), days: back, bookings: raw.length, withCreated, apartments: ids.length };
     await saveStats(env.DB, stats);
     return view((await loadState(env.DB)).state, { backfilled: added });
   }

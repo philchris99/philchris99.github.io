@@ -1226,6 +1226,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   // ---- Statistik (Admin): Auslastung der nächsten 30 Nächte inkl. Sperrzeiten ----
   const pctText = (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} %`;
+  const charts = {}; // Diagramm-ID → Punkte (für das Fadenkreuz)
   function statsBlock() {
     const st = data.stats;
     if (!st) return '';
@@ -1235,21 +1236,42 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const delta = (h, label) => h ? `<span class="delta">${c.pct - h.pct >= 0 ? '▲' : '▼'} ${pctText(Math.abs(c.pct - h.pct))} ggü. ${label}</span>` : '';
     const rows = c.perApartment.map((a) => `<tr><td>${esc(a.name)}</td><td style="width:45%"><div class="bar" style="width:${Math.max(a.pct, 0.5)}%"></div></td>
       <td style="text-align:right;font-variant-numeric:tabular-nums">${pctText(a.pct)}</td><td class="meta">${a.booked} gebucht${a.blocked ? ` · ${a.blocked} blockiert` : ''}</td></tr>`).join('');
-    return `<div class="panel">
-      <div class="eyebrow">Auslastung nächste ${st.days} Tage · inkl. Blockierungen</div>
+    // 1) Tatsächliche Belegung je Nacht (rückblickend)
+    const act = hist.filter((h) => h.actual && h.date <= data.today);
+    charts['act-chart'] = act.map((h) => ({ date: h.date, v: h.actual.pct, dashed: false,
+      sub: `gebucht ${pctText(h.actual.bookedPct)} · blockiert ${pctText(h.actual.blockedPct)}` }));
+    const a30 = st.actual30;
+    const actualPanel = `<div class="panel">
+      <div class="eyebrow">Tatsächliche Belegung · rückblickend je Nacht</div>
+      ${a30 ? `<div class="kpi"><span class="big">${pctText(a30.pct)}</span><span class="delta">Ø letzte ${a30.nights} Nächte · inkl. Blockierungen</span></div>
+        <p class="meta" style="margin-top:4px">davon gebucht ${pctText(a30.bookedPct)} · blockiert ${pctText(a30.blockedPct)}</p>`
+        : '<p class="meta" style="margin-top:6px">Noch keine Werte – bitte einmal „Rückwirkend berechnen“ tippen.</p>'}
+      ${act.length > 1 ? `<div class="chart" id="act-chart" role="img" aria-label="Tatsächliche Belegung je Nacht">${chartSvg(charts['act-chart'])}<div class="tip" hidden></div></div>
+        <p class="meta">Jeder Punkt = Anteil der Wohnungen, die in dieser Nacht belegt waren (gebucht oder blockiert).</p>` : ''}
+    </div>`;
+    // 2) Vorausblick: Auslastung der nächsten 30 Nächte, wie sie an jedem Tag bekannt war
+    charts['occ-chart'] = hist.map((h) => ({ date: h.date, v: h.pct, dashed: h.source === 'rückwirkend',
+      sub: `gebucht ${pctText(h.bookedPct)} · blockiert ${pctText(h.blockedPct)}${h.source === 'rückwirkend' ? ' · rückwirkend' : ''}` }));
+    const forwardPanel = `<div class="panel" style="margin-top:14px">
+      <div class="eyebrow">Vorausblick · Auslastung nächste ${st.days} Tage inkl. Blockierungen</div>
       <div class="kpi"><span class="big">${pctText(c.pct)}</span>${delta(ago(7), 'vor 7 Tagen')}${delta(ago(30), 'vor 30 Tagen')}</div>
       <p class="meta" style="margin-top:4px">${c.bookedNights + c.blockedNights} von ${c.capacity} Nächten belegt · gebucht ${pctText(c.bookedPct)} · blockiert ${pctText(c.blockedPct)}</p>
-      ${hist.length > 1 ? `<div class="chart" id="occ-chart" role="img" aria-label="Verlauf der Auslastung (nächste ${st.days} Tage) je Tag">${chartSvg(hist)}<div class="tip" hidden></div></div>
-        <p class="meta">Jeder Punkt = an diesem Tag gemessene Auslastung der folgenden ${st.days} Nächte.${hist.some((h) => h.source === 'rückwirkend') ? ' Gestrichelt = rückwirkend aus dem Buchungsdatum berechnet.' : ''}</p>`
+      ${hist.length > 1 ? `<div class="chart" id="occ-chart" role="img" aria-label="Verlauf des Vorausblicks">${chartSvg(charts['occ-chart'])}<div class="tip" hidden></div></div>
+        <p class="meta">Jeder Punkt = an diesem Tag schon bekannte Belegung der folgenden ${st.days} Nächte.${hist.some((h) => h.source === 'rückwirkend') ? ' Gestrichelt = rückwirkend aus dem Buchungsdatum berechnet.' : ''}</p>`
         : '<p class="meta" style="margin-top:8px">Der Verlauf füllt sich ab heute täglich automatisch.</p>'}
-      <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
-      ${st.backfill ? `<p class="meta">Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen (${st.backfill.withCreated} mit Eintragungsdatum).</p>` : ''}
-    </div>
+    </div>`;
+    return `${actualPanel}${forwardPanel}
+      <div class="panel" style="margin-top:14px">
+        <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> aus Smoobu.${st.backfill ? ` Zuletzt rückwirkend berechnet ${fmtTime(st.backfill.at)} aus ${st.backfill.bookings} Smoobu-Einträgen (${st.backfill.withCreated} mit Eintragungsdatum).` : ''}</p>
+        <div class="actions"><button class="small" data-backfill>${st.backfill ? 'Rückwirkend neu berechnen (90 Tage)' : 'Rückwirkend berechnen (letzte 90 Tage)'}</button></div>
+      </div>
     ${sizeBlock(st)}
     <details class="more"><summary>Je Wohnung (nächste ${st.days} Nächte)</summary><div class="panel scroll"><table class="bars">${rows}</table></div></details>
     ${categoryEditor(st)}
     <details class="more"><summary>Werte als Tabelle</summary><div class="panel scroll"><table>
-      ${hist.slice().reverse().map((h) => `<tr><td>${fmt(h.date)}</td><td style="text-align:right">${pctText(h.pct)}</td><td class="meta">gebucht ${pctText(h.bookedPct)} · blockiert ${pctText(h.blockedPct)}${h.source === 'rückwirkend' ? ' · rückwirkend' : ''}</td></tr>`).join('')}</table></div></details>`;
+      <tr><th>Tag</th><th>tatsächlich</th><th>Vorausblick 30 T.</th></tr>
+      ${hist.slice().reverse().map((h) => `<tr><td>${fmt(h.date)}</td><td style="text-align:right">${h.actual ? pctText(h.actual.pct) : '–'}</td>
+        <td style="text-align:right">${pctText(h.pct)}${h.source === 'rückwirkend' ? ' <span class="meta">(rückw.)</span>' : ''}</td></tr>`).join('')}</table></div></details>`;
   }
 
   /** Auslastung nach Wohnungsgröße: gebucht (= Nachfrage) als Balken, inkl. Blockierungen daneben */
@@ -1290,27 +1312,26 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   /** Liniendiagramm (eine Reihe, 0–100 %), rückwirkende Werte gestrichelt */
   const CH = { w: 600, h: 190, l: 34, r: 44, t: 10, b: 24 };
-  function chartSvg(hist) {
+  function chartSvg(points) {
     // Maßstab 1:1 zur Bildschirmbreite, damit Schrift auf dem Handy lesbar bleibt
     CH.w = Math.round(Math.min(640, Math.max(300, (window.innerWidth || 600) - 70)));
     CH.h = CH.w < 420 ? 170 : 190;
-    const n = hist.length;
+    const n = points.length;
     const x = (i) => CH.l + (n === 1 ? 0 : (i / (n - 1)) * (CH.w - CH.l - CH.r));
     const y = (v) => CH.t + (1 - v / 100) * (CH.h - CH.t - CH.b);
     const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${CH.l}" x2="${CH.w - CH.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)" stroke-width="1"/>
       <text x="${CH.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`).join('');
-    // Segmente je Quelle, damit rückwirkend gestrichelt und live durchgezogen ist
     let paths = '';
     for (let i = 1; i < n; i++) {
-      const dashed = hist[i].source === 'rückwirkend' || hist[i - 1].source === 'rückwirkend';
-      paths += `<line x1="${x(i - 1)}" y1="${y(hist[i - 1].pct)}" x2="${x(i)}" y2="${y(hist[i].pct)}" stroke="var(--chart)" stroke-width="2" stroke-linecap="round"${dashed ? ' stroke-dasharray="4 4"' : ''}/>`;
+      const dashed = points[i].dashed || points[i - 1].dashed;
+      paths += `<line x1="${x(i - 1)}" y1="${y(points[i - 1].v)}" x2="${x(i)}" y2="${y(points[i].v)}" stroke="var(--chart)" stroke-width="2" stroke-linecap="round"${dashed ? ' stroke-dasharray="4 4"' : ''}/>`;
     }
-    const last = hist[n - 1];
+    const last = points[n - 1];
     const labels = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i)
-      .map((i) => `<text x="${x(i)}" y="${CH.h - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" font-size="11" fill="var(--muted)">${fmt(hist[i].date)}</text>`).join('');
+      .map((i) => `<text x="${x(i)}" y="${CH.h - 6}" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}" font-size="11" fill="var(--muted)">${fmt(points[i].date)}</text>`).join('');
     return `<svg viewBox="0 0 ${CH.w} ${CH.h}" aria-hidden="true">${grid}${paths}
-      <circle cx="${x(n - 1)}" cy="${y(last.pct)}" r="5" fill="var(--chart)" stroke="var(--card)" stroke-width="2"/>
-      <text x="${x(n - 1) + 8}" y="${y(last.pct) + 4}" font-size="12" font-weight="700" fill="var(--text)">${pctText(last.pct)}</text>
+      <circle cx="${x(n - 1)}" cy="${y(last.v)}" r="5" fill="var(--chart)" stroke="var(--card)" stroke-width="2"/>
+      <text x="${x(n - 1) + 8}" y="${y(last.v) + 4}" font-size="12" font-weight="700" fill="var(--text)">${pctText(last.v)}</text>
       ${labels}
       <line class="cross" x1="0" x2="0" y1="${CH.t}" y2="${CH.h - CH.b}" stroke="var(--muted)" stroke-width="1" visibility="hidden"/>
       <circle class="dot" r="5" fill="var(--chart)" stroke="var(--card)" stroke-width="2" visibility="hidden"/>
@@ -1318,34 +1339,35 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
   /** Fadenkreuz + Tooltip: springt zum nächsten Tag */
   function bindChart() {
-    const box = document.getElementById('occ-chart');
-    if (!box || !data.stats) return;
-    const hist = data.stats.history, n = hist.length;
-    const svg = box.querySelector('svg'), tip = box.querySelector('.tip');
-    const cross = svg.querySelector('.cross'), dot = svg.querySelector('.dot');
-    const move = (e) => {
-      const r = svg.getBoundingClientRect();
-      const sx = ((e.clientX - r.left) / r.width) * CH.w;
-      const i = Math.max(0, Math.min(n - 1, Math.round(((sx - CH.l) / (CH.w - CH.l - CH.r)) * (n - 1))));
-      const px = CH.l + (n === 1 ? 0 : (i / (n - 1)) * (CH.w - CH.l - CH.r));
-      const py = CH.t + (1 - hist[i].pct / 100) * (CH.h - CH.t - CH.b);
-      cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
-      dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.setAttribute('visibility', 'visible');
-      tip.hidden = false;
-      tip.style.top = `${Math.max((py / CH.h) * r.height, 60)}px`;
-      tip.textContent = '';
-      const b = document.createElement('b'); b.textContent = pctText(hist[i].pct);
-      const small = document.createElement('span'); small.className = 'meta';
-      small.textContent = `${fmt(hist[i].date)} · gebucht ${pctText(hist[i].bookedPct)} · blockiert ${pctText(hist[i].blockedPct)}${hist[i].source === 'rückwirkend' ? ' · rückwirkend' : ''}`;
-      tip.append(b, small);
-      // innerhalb des Diagramms halten
-      const left = (px / CH.w) * r.width - tip.offsetWidth / 2;
-      tip.style.left = `${Math.max(0, Math.min(r.width - tip.offsetWidth, left))}px`;
-    };
-    const leave = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
-    svg.addEventListener('pointermove', move);
-    svg.addEventListener('pointerdown', move);
-    svg.addEventListener('pointerleave', leave);
+    for (const [id, points] of Object.entries(charts)) {
+      const box = document.getElementById(id);
+      if (!box || !points.length) continue;
+      const n = points.length;
+      const svg = box.querySelector('svg'), tip = box.querySelector('.tip');
+      const cross = svg.querySelector('.cross'), dot = svg.querySelector('.dot');
+      const move = (e) => {
+        const r = svg.getBoundingClientRect();
+        const sx = ((e.clientX - r.left) / r.width) * CH.w;
+        const i = Math.max(0, Math.min(n - 1, Math.round(((sx - CH.l) / (CH.w - CH.l - CH.r)) * (n - 1))));
+        const px = CH.l + (n === 1 ? 0 : (i / (n - 1)) * (CH.w - CH.l - CH.r));
+        const py = CH.t + (1 - points[i].v / 100) * (CH.h - CH.t - CH.b);
+        cross.setAttribute('x1', px); cross.setAttribute('x2', px); cross.setAttribute('visibility', 'visible');
+        dot.setAttribute('cx', px); dot.setAttribute('cy', py); dot.setAttribute('visibility', 'visible');
+        tip.hidden = false;
+        tip.style.top = `${Math.max((py / CH.h) * r.height, 60)}px`;
+        tip.textContent = '';
+        const b = document.createElement('b'); b.textContent = pctText(points[i].v);
+        const small = document.createElement('span'); small.className = 'meta';
+        small.textContent = `${fmt(points[i].date)} · ${points[i].sub}`;
+        tip.append(b, small);
+        const left = (px / CH.w) * r.width - tip.offsetWidth / 2;
+        tip.style.left = `${Math.max(0, Math.min(r.width - tip.offsetWidth, left))}px`;
+      };
+      const leave = () => { tip.hidden = true; cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); };
+      svg.addEventListener('pointermove', move);
+      svg.addEventListener('pointerdown', move);
+      svg.addEventListener('pointerleave', leave);
+    }
   }
 
   function shoppingBlock() {

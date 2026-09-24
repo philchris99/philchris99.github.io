@@ -1224,7 +1224,7 @@
         for (const e of list) {
           if (!asOf && e.cancelled) continue; // aktueller Stand: Stornos zählen nicht
           if (asOf && ((e.created && e.created > asOf) || (e.cancelled && e.cancelled <= asOf))) continue;
-          if (asOf && !e.created) continue; // Eintragungsdatum unbekannt → rückwirkend nicht zählen
+          // Eintragungsdatum unbekannt (z. B. manche Sperrzeiten) → als schon vorhanden zählen
           if (e.blocked) isBlocked = true; else isBooked = true;
         }
         if (isBooked) b++; else if (isBlocked) k++;
@@ -1238,6 +1238,18 @@
       pct: pct(booked + blocked), bookedPct: pct(booked), blockedPct: pct(blocked), perApartment };
   }
 
+  /** Tatsächliche Belegung einer Nacht (nach heutigem Stand, Stornos zählen nicht) */
+  function nightOccupancy(index, apartmentIds, day) {
+    let booked = 0, blocked = 0;
+    for (const apt of apartmentIds) {
+      const list = (index.get(`${apt}|${day}`) || []).filter((e) => !e.cancelled);
+      if (list.some((e) => !e.blocked)) booked++; else if (list.length) blocked++;
+    }
+    const n = apartmentIds.length;
+    const pct = (x) => (n ? Math.round((x / n) * 1000) / 10 : 0);
+    return { day, booked, blocked, apartments: n, pct: pct(booked + blocked), bookedPct: pct(booked), blockedPct: pct(blocked) };
+  }
+
   /** Einträge aus dem aktuellen Stand (state.reservations) */
   function reservationEntries(state) {
     return Object.values(state.reservations || {}).map((r) => ({ apartmentId: r.apartmentId, arrival: r.arrival, departure: r.departure,
@@ -1249,8 +1261,8 @@
     const day = (x) => (x ? String(x).slice(0, 10) : null);
     return (raw || []).filter(Boolean).map((r) => ({
       apartmentId: String(r.apartment && r.apartment.id), arrival: r.arrival, departure: r.departure,
-      blocked: !!r['is-blocked-booking'], created: day(r['created-at']),
-      cancelled: r.type === 'cancellation' ? day(r.modifiedAt || r['modified-at']) || day(r['created-at']) : null,
+      blocked: !!r['is-blocked-booking'], created: day(r['created-at'] || r.createdAt || r.created_at),
+      cancelled: r.type === 'cancellation' ? day(r.modifiedAt || r['modified-at'] || r['created-at']) || '0000-00-00' : null, // Storno ohne Datum → nie mitzählen
     }));
   }
 
@@ -1410,7 +1422,7 @@
     checkDeadlines,
     canAccess, addReport, removePhoto, resolveReport, openReports,
     listCleanings, fullyConfirmed, calendar, overdueReason,
-    resolveKeys, missingKeys, nightIndex, occupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
+    resolveKeys, missingKeys, nightIndex, occupancy, nightOccupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
   };
 

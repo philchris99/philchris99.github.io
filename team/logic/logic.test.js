@@ -591,3 +591,17 @@ test('Auslastung: Buchungen + Sperrzeiten, keine Doppelzählung; rückwirkend na
   // am 16.09. ist 4 storniert
   assert.equal(L.occupancy(index, ['1', '2'], '2026-10-01', 30, '2026-09-16').bookedNights, 10);
 });
+
+test('Tatsächliche Belegung je Nacht; Einträge ohne Eintragungsdatum zählen rückwirkend mit', () => {
+  const entries = L.smoobuEntries([
+    { id: 1, apartment: { id: 1 }, arrival: '2026-10-01', departure: '2026-10-03', 'created-at': '2026-09-30' },
+    { id: 2, apartment: { id: 2 }, arrival: '2026-10-01', departure: '2026-10-05', 'is-blocked-booking': true }, // ohne Datum
+    { id: 3, apartment: { id: 3 }, arrival: '2026-10-01', departure: '2026-10-04', type: 'cancellation' },       // Storno ohne Datum
+  ]);
+  const index = L.nightIndex(entries);
+  const n = L.nightOccupancy(index, ['1', '2', '3', '4'], '2026-10-02');
+  assert.deepEqual([n.booked, n.blocked, n.pct, n.bookedPct], [1, 1, 50, 25]);
+  // Vorausblick am 20.09.: Buchung 1 noch nicht da, Sperre ohne Datum zählt, Storno ohne Datum nie
+  const f = L.occupancy(index, ['1', '2', '3', '4'], '2026-10-01', 30, '2026-09-20');
+  assert.deepEqual([f.bookedNights, f.blockedNights], [0, 4]);
+});
