@@ -95,18 +95,21 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .news ul { list-style: none; margin-top: 8px; display: grid; gap: 6px; }
 .news li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 14px; }
 .news li.unread { border-left: 4px solid var(--new); }
-.news li b { display: block; font-size: 15px; }
+.news li { padding: 6px 10px; line-height: 1.35; }
+.news li b { font-size: 14px; }
+.news-link { all: unset; display: block; width: 100%; cursor: pointer; }
+.news-more > summary { cursor: pointer; margin-top: 6px; font-size: 14px; color: var(--muted); }
 
 /* Reinigungskarten */
-.task { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; scroll-margin-top: 80px; }
+.task { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; scroll-margin-top: 80px; }
 .task.urgent { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad) inset; }
 .task.is-new { border-left: 6px solid var(--new); }
 .task.is-next { box-shadow: 0 0 0 2px var(--accent) inset; }
 .task.muted { background: var(--done-bg); box-shadow: none; }
 .task.muted h3, .task.muted .meta { color: var(--muted); }
 .task-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-.task h3 { font: 600 19px/1.3 var(--sans); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.task h3 { font: 600 17px/1.25 var(--sans); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip { display: inline-block; font-size: 12px; font-weight: 650; border-radius: 99px; padding: 3px 10px; white-space: nowrap; background: var(--done-bg); color: var(--done); }
 .chip.new { background: var(--new); color: #fff; letter-spacing: .05em; }
 .chip.next { background: var(--accent); color: #fff; }
@@ -192,19 +195,24 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .actions.range { align-items: center; margin: 4px 0 12px; }
 .actions.range .meta { flex: 1 1 100%; }
 .task h3 { font-size: 20px; margin: 2px 0 2px; }
-.task .loc { font-size: 14px; color: var(--muted); }
-.status-row { margin-top: 10px; }
-.status { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 700; padding: 6px 12px; border-radius: 10px; background: var(--done-bg); color: var(--text); }
+.task .loc { font-size: 13px; color: var(--muted); }
+.status-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.task .next-guests { margin-top: 6px; padding: 5px 10px; font-size: 14px; }
+.next-guests.same { background: var(--bad-bg); color: var(--bad); }
+.task.compact { padding: 8px 12px; }
+.task.compact h3 { font-size: 15px; }
+.task.compact .status { font-size: 14px; padding: 3px 10px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; padding: 4px 10px; border-radius: 10px; background: var(--done-bg); color: var(--text); }
 .status.ok { background: var(--ok-bg); color: var(--ok); }
 .status.bad { background: var(--bad-bg); color: var(--bad); }
 .status.wait { background: var(--open-bg); color: var(--open); }
 .status.new { background: var(--new); color: #fff; }
 .status.run { background: var(--accent); color: #fff; }
 .status.gone { text-decoration: line-through; }
-.main-action { margin-top: 12px; }
-.main-action button.big { width: 100%; min-height: 56px; font-size: 18px; font-weight: 700; border-radius: 14px; }
-.more-actions { margin-top: 10px; }
-.more-actions > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; min-height: 40px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 99px; font-weight: 600; font-size: 15px; background: var(--card); }
+.main-action { margin-top: 8px; }
+.main-action button.big { width: 100%; min-height: 50px; font-size: 18px; font-weight: 700; border-radius: 14px; }
+.more-actions { margin-top: 6px; }
+.more-actions > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; min-height: 36px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 99px; font-weight: 600; font-size: 14px; background: var(--card); }
 .more-actions > summary::-webkit-details-marker { display: none; }
 .more-actions[open] > summary { background: var(--done-bg); }
 .more-list { display: grid; gap: 6px; margin-top: 8px; }
@@ -712,7 +720,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     }
     if (isActive(t)) {
       if (t.prevDate && !t.staffConfirmedAt) out.push(`<span class="chip alert">⚠️ Neuer Termin (vorher ${esc(fmt(t.prevDate))})</span>`);
-      if (t.sameDayArrival) out.push('<span class="chip alert">🔁 Neue Gäste kommen am selben Tag</span>');
+      if (t.sameDayArrival && !t.nextBooking) out.push('<span class="chip alert">🔁 Neue Gäste kommen am selben Tag</span>');
       if (lastDay(t) > t.date) out.push(`<span class="chip period">📅 Darf bis ${esc(fmt(lastDay(t)))}</span>`);
       const req = t.periodRequest;
       if (req && req.status === 'offen') out.push(`<span class="chip wait">📨 Späterer Tag beantragt (bis ${esc(fmt(req.until))})</span>`);
@@ -779,12 +787,23 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   const shortGuests = (b) => (!b.adults && !b.children ? '' : `${b.adults || 0}${b.children ? '+' + b.children : ''} P.`);
   /** Nächste Anreise in der Wohnung mit erwarteter Gästezahl (zur Vorbereitung) */
+  /** Lage kurz: „Berliner Platz 1c · 9. OG rechts rechts · WE 061 grau“ */
+  function shortLoc(l) {
+    if (!l) return '';
+    let a = (l.address || '').trim(), d = (l.description || '').trim();
+    const we = d.match(/\(\s*WE\s*([^)]*?)\s*\)/i);
+    if (we) d = d.replace(we[0], '').trim();
+    d = d.replace(/(\d+)\.\s*OG/g, '$1. OG').replace(/\s{2,}/g, ' ');
+    const weText = we ? 'WE ' + we[1].replace(/\s*-\s*/, ' ') : '';
+    if (weText) a = a.replace(/\s*\(\d+\)\s*$/, '');
+    return [a, d, weText].filter(Boolean).join(' · ');
+  }
   function nextGuests(t) {
     if (!isActive(t)) return '';
     const n = t.nextBooking;
     if (!n) return '';
     const when = ['Heute', 'Morgen'].includes(dayWord(n.arrival)) ? `<b>${dayWord(n.arrival)}</b>` : `<b>${fmt(n.arrival)}</b>`;
-    return `<div class="next-guests">🧳 Nächste Gäste: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''}${n.guests ? ` · <b>${esc(n.guests)}</b>` : ''}</div>`;
+    return `<div class="next-guests${t.sameDayArrival ? ' same' : ''}">${t.sameDayArrival ? '🔁' : '🧳'} Nächste Gäste: ${when}${n.checkIn ? ` ab ${esc(n.checkIn)} Uhr` : ''}${n.guests ? ` · <b>${esc(n.guests)}</b>` : ''}</div>`;
   }
 
   function codesBox(c) {
@@ -998,7 +1017,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const mineToDo = t.assignedTo === data.user.id;
     const isNew = r === 'staff' ? active && !t.staffConfirmedAt : r === 'lead' ? active && (!t.leadConfirmedAt || !t.assignedTo) : false;
     const urgent = active && (t.overdue || t.lateAlerted || (r === 'owner' && t.status === 'offen' && t.date <= addDays(data.today, 1)));
-    const cls = ['task', active ? '' : 'muted', isNew ? 'is-new' : '', opts.next ? 'is-next' : '', urgent ? 'urgent' : ''].filter(Boolean).join(' ');
+    const compact = !active && !opts.full;
+    const cls = ['task', active ? '' : 'muted', compact ? 'compact' : '', isNew ? 'is-new' : '', opts.next ? 'is-next' : '', urgent ? 'urgent' : ''].filter(Boolean).join(' ');
     const canWork = active && r !== 'owner' && mineToDo && !!t.staffConfirmedAt;
     const reqOpen = t.periodRequest && t.periodRequest.status === 'offen';
     const doneToday = t.status === 'erledigt' && t.doneAt && t.doneAt.slice(0, 10) >= addDays(data.today, -1);
@@ -1035,14 +1055,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       more.push(btn(`data-cancel="${id}"`, '✖️ Absagen', 'danger'));
     }
     const origin = `Eingetragen ${fmtTime(t.createdAt)} · ${t.source === 'manuell' ? 'von Hand' : 'aus Smoobu'}${t.changedAt ? ` · geändert ${fmtTime(t.changedAt)}` : ''}`;
-    const loc = t.location && (t.location.address || t.location.description) ? [t.location.address, t.location.description].filter(Boolean).join(' · ') : '';
+    const loc = active ? shortLoc(t.location) : '';
     return `<article class="${cls}" id="task-${id}">
-      <div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))}${lastDay(t) > t.date ? ' bis ' + esc(dayWord(lastDay(t))) : ''} · ${t.manual ? 'Extra-Reinigung' : 'Check-out'}</div>
+      ${compact ? `<div class="task-top" style="align-items:center"><h3>${esc(t.apartmentName)}</h3>${statusLine(t)}</div>${chips(t) ? `<div class="chips">${chips(t)}</div>` : ''}` : `<div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))}${lastDay(t) > t.date ? ' bis ' + esc(dayWord(lastDay(t))) : ''} · ${t.manual ? 'Extra-Reinigung' : 'Check-out'}</div>
       <h3>${esc(t.apartmentName)}</h3>
       ${loc ? `<div class="loc">📍 ${esc(loc)}</div>` : ''}
       ${r === 'owner' && t.guest ? `<div class="meta">👤 ${esc(t.guest)}</div>` : ''}
-      <div class="status-row">${statusLine(t)}</div>
-      ${chips(t) ? `<div class="chips">${chips(t)}</div>` : ''}
+      <div class="status-row">${statusLine(t)}${chips(t)}</div>`}
       ${t.aptNote ? `<div class="apt-note">📌 ${esc(t.aptNote)}</div>` : ''}
       ${t.note ? `<div class="note">📝 ${esc(t.note)}</div>` : ''}
       ${nextGuests(t)}
@@ -1080,6 +1099,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return Object.keys(days).sort().map((d) => `<div class="day">${esc(dayWord(d))}${['Heute', 'Morgen', 'Gestern'].includes(dayWord(d)) ? ' · ' + fmt(d) : ''}</div>${list(days[d], '', nextId)}`).join('');
   }
 
+  const newsItem = (c) => {
+    const inner = `<span class="meta">${esc(new Date(c.at).toDateString() === new Date().toDateString() ? clock(c.at) : fmtTime(c.at))}</span> <b>${esc(c.title)}</b> · ${esc(c.body)}`;
+    return `<li class="${!data.seenAt || c.at > data.seenAt ? 'unread' : ''}">${c.taskId ? `<button type="button" class="news-link" data-jump="task-${esc(c.taskId)}">${inner} ›</button>` : inner}</li>`;
+  };
   function newsPanel() {
     const items = data.changes || [];
     if (!items.length) return '';
@@ -1088,9 +1111,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return `<div class="news" id="news">
       <div class="news-head"><b>${unread.length ? `Neuigkeiten (${unread.length})` : 'Letzte Änderungen'}</b>
         ${unread.length ? '<button class="small" data-seen>Alles gelesen</button>' : ''}</div>
-      <ul>${shown.slice(0, 10).map((c) => `<li class="${!data.seenAt || c.at > data.seenAt ? 'unread' : ''}">
-        <span class="meta">${fmtTime(c.at)}</span><b>${esc(c.title)}</b>${esc(c.body)}
-        ${c.taskId ? ` <button class="small" data-jump="task-${esc(c.taskId)}" style="margin-top:6px">Zur Reinigung</button>` : ''}</li>`).join('')}</ul>
+      <ul>${shown.slice(0, 3).map(newsItem).join('')}</ul>
+      ${shown.length > 3 ? `<details class="news-more"><summary>… ${shown.length - 3} weitere</summary><ul>${shown.slice(3, 15).map(newsItem).join('')}</ul></details>` : ''}
     </div>`;
   }
 

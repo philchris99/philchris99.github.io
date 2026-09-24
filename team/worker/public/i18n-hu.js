@@ -40,7 +40,7 @@
     '🔁 Neue Gäste kommen am selben Tag': '🔁 Aznap új vendégek érkeznek', '🔑 Codes anzeigen': '🔑 Kódok mutatása', '🔑 Codes ausblenden': '🔑 Kódok elrejtése',
     '🖼️ Galerie': '🖼️ Galéria', '🗺️ Meine Route heute': '🗺️ Mai útvonalam', '🗺️ Route morgen': '🗺️ Holnapi útvonal',
     '🗺️ Routen (beste Reihenfolge)': '🗺️ Útvonalak (legjobb sorrend)', '🛒 Etwas fehlt': '🛒 Valami hiányzik', '🛒 Fehlt etwas?': '🛒 Hiányzik valami?',
-    '🛒 Was fehlt?': '🛒 Mi hiányzik?', '🧳 Nächste Gäste:': '🧳 Következő vendégek:', '🧹 Reinigungen': '🧹 Takarítások', '🧹 heute': '🧹 ma',
+    '🛒 Was fehlt?': '🛒 Mi hiányzik?', '🧳 Nächste Gäste:': '🧳 Következő vendégek:', '🔁 Nächste Gäste:': '🔁 Következő vendégek:', '🧹 Reinigungen': '🧹 Takarítások', '🧹 heute': '🧹 ma',
     '🏁 Fertig melden – ': '🏁 Kész – ', '✅ Annehmen': '✅ Elfogadom', '▶️ Reinigung starten': '▶️ Takarítás indítása',
     '✅ Angenommen – danke!': '✅ Elfogadva – köszönjük!', '▶️ Gestartet – gutes Gelingen!': '▶️ Elindítva – jó munkát!', '✅ Angenommen': '✅ Elfogadva',
     '↩️ Antrag zurückziehen': '↩️ Kérelem visszavonása', '⏪ Doch früher reinigen': '⏪ Mégis korábban takarítok', '☕ Gerade keine Reinigungen für dich.': '☕ Most nincs takarításod.',
