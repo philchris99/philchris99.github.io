@@ -537,7 +537,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <div class="actions"><button class="primary" data-code-editor>Codes anzeigen / bearbeiten</button></div>`;
     }
     const rows = codeEditor.apartments.map((a) => { const c = codeEditor.codes[a.id] || {};
-      return `<tr><td><b>${esc(a.name)}</b>${c.updatedAt ? `<div class="meta">geändert ${fmtTime(c.updatedAt)}</div>` : ''}</td>
+      return `<tr><td><b>${esc(a.name)}</b>${c.builtin ? '<div class="meta">fest hinterlegt</div>' : c.updatedAt ? `<div class="meta">geändert ${fmtTime(c.updatedAt)}</div>` : ''}</td>
         <td><input id="cg-${esc(a.id)}" value="${esc(c.guest || '')}" inputmode="numeric" aria-label="Gäste-Code ${esc(a.name)}"></td>
         <td><input id="cs-${esc(a.id)}" value="${esc(c.service || '')}" inputmode="numeric" aria-label="Service-Code ${esc(a.name)}"></td>
         <td><input id="cd-${esc(a.id)}" value="${esc(c.description || '')}" aria-label="Beschreibung ${esc(a.name)}"></td></tr>`; }).join('');

@@ -423,6 +423,26 @@ test('Systemweite Sperre: 30 falsche Codes pro Stunde (verschiedene Adressen) �
   env.DB.db.prepare("DELETE FROM login_attempts WHERE key = 'code:alle'").run();
 });
 
+test('Fest hinterlegte Zugangscodes: Zuordnung über das Kürzel, App-Änderung hat Vorrang, Rückkehr zum Standard', async (t) => {
+  const BUILTIN = (await import('../src/access-codes.js')).default;
+  const key = Object.keys(BUILTIN).find((k) => k === '#DREI');
+  if (!key) return t.skip('keine fest hinterlegten Codes in dieser Kopie');
+  smoobuBookings = [booking(97, '2099-11-07', { apartment: { id: 333, name: '#DREI | Teststraße' } }),
+    booking(98, '2099-11-08', { apartment: { id: 444, name: '#DREIZEHN | Andere' } })];
+  await runSync(env);
+  const c = await call('POST', '/api/tasks/97/codes', { session: admin });
+  assert.deepEqual([c.body.guest, c.body.service, c.body.description], [BUILTIN['#DREI'].guest, BUILTIN['#DREI'].service, BUILTIN['#DREI'].description]);
+  assert.equal((await call('POST', '/api/tasks/98/codes', { session: admin })).body.guest, BUILTIN['#DREIZEHN'].guest, '#DREI ≠ #DREIZEHN');
+  let list = (await call('GET', '/api/access-codes', { session: admin })).body;
+  assert.equal(list.codes['333'].builtin, true);
+  list = (await call('POST', '/api/access-codes', { session: admin, body: { entries: [{ apartmentId: '333', guest: '0000', service: '1', description: 'x' }] } })).body;
+  assert.equal(list.codes['333'].builtin, false);
+  assert.equal((await call('POST', '/api/tasks/97/codes', { session: admin })).body.guest, '0000');
+  const b = BUILTIN['#DREI'];
+  list = (await call('POST', '/api/access-codes', { session: admin, body: { entries: [{ apartmentId: '333', guest: b.guest, service: b.service, description: b.description }] } })).body;
+  assert.equal(list.codes['333'].builtin, true);
+});
+
 test('Viele Nachrichten auf einmal → höchstens eine Sammelnachricht je Person', async () => {
   const { limit } = await import('../src/notify.js');
   const user = { id: 'u1', name: 'A' };

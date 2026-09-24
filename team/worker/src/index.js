@@ -13,6 +13,7 @@ import {
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, diagnose } from './smoobu.js';
 import { deliver, sendPush } from './notify.js';
+import BUILTIN_CODES from './access-codes.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -113,14 +114,40 @@ export async function runSync(env, now = Date.now(), cfg) {
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
-/** Zugangscodes je Wohnung (AES-GCM verschlüsselt in settings.accessCodes) */
-async function loadAccessCodes(env, settings) {
+/** In der App gespeicherte Zugangscodes je Wohnungs-ID (AES-GCM verschlüsselt in settings.accessCodes) */
+async function loadSavedCodes(env, settings) {
   if (!settings.accessCodes) return {};
   try {
     return JSON.parse(await decryptCode(env, settings.accessCodes)) || {};
   } catch (e) {
     return {};
   }
+}
+
+const normName = (x) => String(x || '').toLowerCase().replace(/[^a-z0-9äöüß]/g, '');
+/** Fest hinterlegter Code zu einem Smoobu-Wohnungsnamen: über das Kürzel („#EINS | …“), sonst über die Adresse */
+function builtinFor(name) {
+  const token = normName(String(name || '').split('|')[0]);
+  for (const [key, entry] of Object.entries(BUILTIN_CODES)) {
+    if (token && normName(key) === token) return entry;
+  }
+  const full = normName(name);
+  for (const entry of Object.values(BUILTIN_CODES)) {
+    if (entry.address && full.includes(normName(entry.address))) return entry;
+  }
+  return null;
+}
+
+/** Zugangscodes je Wohnungs-ID: in der App gespeicherte haben Vorrang, sonst die fest hinterlegten */
+async function loadAccessCodes(env, settings, apartments) {
+  const saved = await loadSavedCodes(env, settings);
+  const out = {};
+  for (const a of apartments) {
+    const b = builtinFor(a.name);
+    if (saved[a.id]) out[a.id] = { ...saved[a.id], builtin: false };
+    else if (b) out[a.id] = { guest: b.guest, service: b.service, description: b.description, builtin: true };
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -401,7 +428,7 @@ async function handleApi(request, env, url, ctx) {
     const id = decodeURIComponent(codesOf[1]);
     const task = (await loadState(env.DB)).state.tasks[id];
     if (!task || !L.mayViewCodes(cfg, task, user, now)) return fail('Codes für diese Reinigung nicht verfügbar', 403);
-    const entry = (await loadAccessCodes(env, settings))[task.apartmentId];
+    const entry = (await loadAccessCodes(env, settings, [{ id: task.apartmentId, name: task.apartmentName }]))[task.apartmentId];
     if (!entry || !(entry.guest || entry.service)) return fail('Für diese Wohnung sind noch keine Codes hinterlegt – bitte Apartments Strauss fragen', 404);
     try {
       await mutate(env.DB, (st) => L.logCodeAccess(st, id, user, now, cfg), now);
@@ -490,26 +517,31 @@ async function handleApi(request, env, url, ctx) {
   // Zugangscodes verwalten (verschlüsselt in der Datenbank, nie im Programmcode)
   if (path === '/api/access-codes' && request.method === 'GET') {
     const { state } = await loadState(env.DB);
-    return json({ apartments: apartmentList(state), codes: await loadAccessCodes(env, settings) });
+    const apartments = apartmentList(state);
+    return json({ apartments, codes: await loadAccessCodes(env, settings, apartments) });
   }
   if (path === '/api/access-codes' && request.method === 'POST') {
     const body = await readJson();
     const { state } = await loadState(env.DB);
-    const known = new Set(apartmentList(state).map((a) => a.id));
-    const current = await loadAccessCodes(env, settings);
+    const apartments = apartmentList(state);
+    const byId = new Map(apartments.map((a) => [a.id, a]));
+    const saved = await loadSavedCodes(env, settings);
+    const effective = await loadAccessCodes(env, settings, apartments);
     const clean = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const same = (a, b) => !!a && !!b && a.guest === b.guest && a.service === b.service && a.description === b.description;
     for (const e of Array.isArray(body.entries) ? body.entries : []) {
       const id = String(e.apartmentId || '');
-      if (!known.has(id)) continue;
+      if (!byId.has(id)) continue;
       const next = { guest: clean(e.guest, 40), service: clean(e.service, 40), description: clean(e.description, 200) };
-      const prev = current[id] || { guest: '', service: '', description: '' };
-      if (prev.guest === next.guest && prev.service === next.service && prev.description === next.description) continue;
-      if (!next.guest && !next.service && !next.description) { delete current[id]; continue; }
-      current[id] = { ...next, updatedAt: new Date(now).toISOString() };
+      if (same(next, effective[id] || { guest: '', service: '', description: '' })) continue;
+      const builtin = builtinFor(byId.get(id).name);
+      if (builtin && same(next, builtin)) delete saved[id]; // wieder der fest hinterlegte Stand
+      else if (!next.guest && !next.service && !next.description && !builtin) delete saved[id];
+      else saved[id] = { ...next, updatedAt: new Date(now).toISOString() };
     }
-    settings.accessCodes = await encryptCode(env, JSON.stringify(current));
+    settings.accessCodes = await encryptCode(env, JSON.stringify(saved));
     await saveSettings(env.DB, settings);
-    return json({ apartments: apartmentList(state), codes: current });
+    return json({ apartments, codes: await loadAccessCodes(env, settings, apartments) });
   }
 
   const resolve = path.match(/^\/api\/tasks\/([^/]+)\/reports\/([^/]+)\/resolve$/);

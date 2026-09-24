@@ -58,7 +58,9 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   optional mit Hinweis). Bei „Nein“ sofort dringende Push an den Admin; oben unter „Handlungsbedarf“, bis der Admin
   „Schlüssel geklärt“ tippt
 - **Zugangscodes** (Gäste-Code, Service-Schlüsselbox, Lage) je Wohnung: Admin trägt sie unter „Zugangscodes der Wohnungen“
-  ein (Tabelle aus Excel/Word einfügen oder von Hand). Gespeichert **verschlüsselt in der Datenbank**, nie im Programmcode.
+  ein (Tabelle aus Excel/Word einfügen oder von Hand), gespeichert **verschlüsselt in der Datenbank**. Zusätzlich fest
+  hinterlegt in `worker/src/access-codes.js` (Zuordnung über das Kürzel „#EINS“ … „#DREIZEHN“ im Smoobu-Namen, sonst
+  Adresse); in der App geänderte Codes haben Vorrang. **Diese Datei nur in privaten Repositories führen.**
   Abruf per Knopf „🔑 Zugangscodes“ bei der Reinigung: Admin, Leitung und die zugewiesene Mitarbeiterin (nur solange die
   Reinigung ansteht bzw. am Tag der Erledigung); jeder Abruf steht im Verlauf, Anzeige verschwindet nach 3 Minuten
 - **Schutz der Anmeldung**: je Gerät 3 Fehlversuche → 1 Min. Sperre; zusätzlich systemweit 30 Fehlversuche pro Stunde →
