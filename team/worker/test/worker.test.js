@@ -526,6 +526,8 @@ test('Checkliste Pflicht, „knapp“ melden → Einkaufsliste; Sprache Ungarisc
   await call('POST', '/api/tasks/99/confirm', { session: mia });
   const m = await me(mia);
   assert.equal(m.checklist.length, 0);
+  assert.deepEqual(m.aptDetails, {}, 'Link zur Apartment-Seite nur für Admin');
+  assert.ok(Object.keys((await me(admin)).aptDetails).length > 0);
   assert.ok(m.supplyItems.some((s) => s.id === 'bettwaesche') && m.supplyItems.some((s) => s.id === 'handtuecher') && !m.supplyItems.some((s) => s.id === 'tee'));
   assert.ok(m.supplyItems.some((s) => s.hu === 'Kávé'));
   assert.equal(m.lang, 'de');

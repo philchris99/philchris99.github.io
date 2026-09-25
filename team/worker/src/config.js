@@ -27,7 +27,7 @@ export default {
     9: { smoobuId: '2609853', name: '#NEUN | BRAUNSCHWEIG SÜD', address: 'Goethestraße 11A, 38122 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-9-neun' },
     10: { smoobuId: '2645223', name: '#ZEHN | BRAUNSCHWEIG HAUPTBAHNHOF', address: 'Berliner Platz 1D, 38102 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-10-zehn' },
     11: { smoobuId: '2682988', name: '#ELF | BRAUNSCHWEIG INNENSTADT', address: 'Gördelingerstraße 18, 38100 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-11-elf' },
-    12: { smoobuId: '2726728', name: '#ZWÖLF | BRAUNSCHWEIG HAUPTBAHNHOF', address: 'Berliner Platz 1C, 38102 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-12-zwoelf' },
+    12: { smoobuId: '2726728', name: '#ZWÖLF | BRAUNSCHWEIG HAUPTBAHNHOF', address: 'Berliner Platz 1C, 38102 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-10-zehn' },
     13: { smoobuId: '2911141', name: '#DREIZEHN | BRAUNSCHWEIG CITY', address: 'Juliusstraße 14, 38118 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-13-dreizehn' },
   },
   routeCity: 'Braunschweig',   // Ort der Wohnungen – für die Routenplanung (Adressen → Koordinaten über OpenStreetMap)

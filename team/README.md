@@ -99,7 +99,7 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und
   Knopf „Route in Google Maps öffnen“. Koordinaten der Adressen (aus `access-codes.js`) holt der Server einmalig über
   OpenStreetMap (max. 2 je Lauf) und speichert sie; Ort in `worker/src/config.js` (`routeCity`)
-- **Wohnungs-Details**: Wohnungsnamen (ⓘ) bei der Reinigung oder links im Kalender antippen → öffentlicher Name, Adresse und
+- **Wohnungs-Details** (nur Admin): Wohnungsnamen (ⓘ) bei der Reinigung oder links im Kalender antippen → öffentlicher Name, Adresse und
   Link zur Website mit „📋 Link kopieren“ / „🌐 Öffnen“ (`apartmentDetails` in `worker/src/config.js`)
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
   und im Abschluss-Ablauf
