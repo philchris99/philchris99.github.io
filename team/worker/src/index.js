@@ -352,12 +352,27 @@ function withDeadlines(result, now, cfg) {
   return { state: d.state, notifications: [...result.notifications, ...d.notifications] };
 }
 
+/** Öffentliche Angaben (Link zur Website, Adresse) je Wohnungs-ID – über die Nummer im Namen oder die Smoobu-ID */
+export function apartmentDetails(cfg, state) {
+  const all = cfg.apartmentDetails || {};
+  const names = {};
+  for (const t of Object.values(state.tasks || {})) names[t.apartmentId] = t.apartmentName;
+  for (const a of state.apartments || []) names[a.id] = a.name;
+  const out = {};
+  for (const [id, name] of Object.entries(names)) {
+    const d = Object.values(all).find((x) => x.smoobuId === String(id)) || all[L.apartmentNumber(name)];
+    if (d) out[id] = { name: d.name, address: d.address, url: d.url };
+  }
+  return out;
+}
+
 async function viewFor(env, cfg, settings, state, user, now) {
   const { date: today, time } = L.localParts(now, cfg.timezone);
   const recipient = user.role === 'owner' ? cfg.owner.id : user.id;
   const since = new Date(now - 14 * 86400000).toISOString();
   const base = {
     user: { id: user.id, name: user.name, role: user.role }, today, time, now: new Date(now).toISOString(),
+    aptDetails: apartmentDetails(cfg, state),
     startBy: cfg.startBy, finishBy: cfg.finishBy, checkoutTime: cfg.checkoutTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
     leads: await teamFor(env, cfg.leads, user.role === 'owner'),

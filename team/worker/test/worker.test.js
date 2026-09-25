@@ -805,3 +805,13 @@ test('Fehlender Smoobu-Schlüssel wird klar gemeldet', async () => {
   env.SMOOBU_API_KEY = saved;
   assert.match(s.syncError, /SMOOBU_API_KEY fehlt/);
 });
+
+test('Wohnungs-Details: Link zur Website je Wohnung (über Nummer im Namen oder Smoobu-ID)', async () => {
+  const { apartmentDetails } = await import('../src/index.js');
+  const cfg = (await import('../src/config.js')).default;
+  const d = apartmentDetails(cfg, { tasks: { 1: { apartmentId: '4004', apartmentName: '#VIER | Test' } }, apartments: [{ id: '2911141', name: 'Irgendwas' }, { id: '77', name: 'Ohne Nummer' }] });
+  assert.equal(d['4004'].url, 'https://www.apartments-strauss.de/apartments-detail/apartment-4-vier');
+  assert.equal(d['2911141'].address, 'Juliusstraße 14, 38118 Braunschweig');
+  assert.equal(d['77'], undefined);
+  assert.equal(Object.keys(cfg.apartmentDetails).length, 13);
+});

@@ -12,7 +12,7 @@ team.apartments-strauss.de ─(CNAME bei goneo)─▶ Cloudflare Pages ──▶
 | Ordner | Inhalt |
 |---|---|
 | `logic/` | Die Regeln (neue Buchung, Verlängerung, Storno, Bestätigen, Fristen) mit Tests |
-| `worker/` | Server: Smoobu-Abgleich, API, Push, Web-App (`public/`) |
+| `worker/` | Server: Smoobu-Abgleich, API, Push, Web-App (`public/`); Baustellenassistent in `src/bau.js` + `public/bau.html` |
 | `pages/` | Nur die Weiterleitung, damit die eigene Subdomain funktioniert |
 
 ## Funktionen
@@ -99,6 +99,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und
   Knopf „Route in Google Maps öffnen“. Koordinaten der Adressen (aus `access-codes.js`) holt der Server einmalig über
   OpenStreetMap (max. 2 je Lauf) und speichert sie; Ort in `worker/src/config.js` (`routeCity`)
+- **Wohnungs-Details**: Wohnungsnamen (ⓘ) bei der Reinigung oder links im Kalender antippen → öffentlicher Name, Adresse und
+  Link zur Website mit „📋 Link kopieren“ / „🌐 Öffnen“ (`apartmentDetails` in `worker/src/config.js`)
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung
   und im Abschluss-Ablauf
 - **Checkliste** vor dem Beenden: derzeit abgeschaltet; bei Bedarf Punkte in `logic/logic.js` (`checklist`) eintragen
@@ -206,7 +208,7 @@ Ohne Webhook kommen Änderungen spätestens nach 5 Minuten an.
 
 ```bash
 cd worker
-node --test test/worker.test.js ../logic/logic.test.js   # alle Tests
+node --test test/worker.test.js test/bau.test.js ../logic/logic.test.js   # alle Tests
 cp .dev.vars.example .dev.vars && npx wrangler dev --test-scheduled
 # Abgleich lokal auslösen: http://localhost:8787/__scheduled
 ```

@@ -5,6 +5,7 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '📋 Link kopieren': '📋 Link másolása', '🌐 Öffnen': '🌐 Megnyitás', 'Adresse': 'Cím', 'Details': 'Részletek', 'Wohnung': 'Lakás', 'Kopiert': 'Másolva',
     '✏️ Sonstiges (nicht in der Liste)': '✏️ Egyéb (nincs a listán)',
     'z. B. Föhn defekt, Kerzen, Spülbürste': 'pl. hajszárító hibás, gyertya, mosogatókefe',
     'Antippen oder eintragen, dann „Melden“.': 'Koppints vagy írd be, majd „Jelentés“.',

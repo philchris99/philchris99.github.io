@@ -308,6 +308,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   padding: 2px 6px; font-size: 12px; line-height: 1.15; display: flex; align-items: center; gap: 6px; min-height: 46px; }
 .cal-corner { min-height: 40px; }
 .cal-apt b { display: inline-flex; width: 22px; height: 22px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); font-size: 12px; align-items: center; justify-content: center; flex: none; }
+.apt-link { all: unset; cursor: pointer; font: inherit; }
+.apt-link span { font-size: .8em; color: var(--muted); }
+.apt-url { word-break: break-all; user-select: all; }
+.cal-apt.clickable { cursor: pointer; }
 .cal-apt span { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .cal-corner { z-index: 3; font-weight: 600; }
 .cal-days, .cal-row { position: relative; display: flex; border-bottom: 1px solid var(--cal-line); }
@@ -1026,6 +1030,23 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (data.today === t.date && t.checkOut && now < t.checkOut) return tr(`Zu früh? Check-out ist erst um ${t.checkOut} Uhr – eventuell sind noch Gäste in der Wohnung.`) + '\n\n' + tr('Trotzdem jetzt starten?');
     return '';
   }
+  /** Wohnungsname antippbar → Details mit Link zur Website (zum Kopieren) */
+  const aptTitle = (id, name) => (data.aptDetails || {})[id]
+    ? `<button type="button" class="apt-link" data-apt-info="${esc(id)}">${esc(name)} <span aria-hidden="true">ⓘ</span></button>` : esc(name);
+  function aptInfo(id) {
+    const d = (data.aptDetails || {})[id];
+    if (!d) return;
+    const t = (data.tasks || []).find((x) => x.apartmentId === id);
+    const loc = t && t.location && t.location.description;
+    openModal(`<div class="eyebrow">Wohnung</div>
+      <h3 id="modal-title">${esc(d.name)}</h3>
+      <dl>
+        <dt>Adresse</dt><dd>${esc(d.address)}${loc ? `<div class="meta">📍 ${esc(loc)}</div>` : ''}</dd>
+        <dt>Details</dt><dd><span id="apt-url" class="apt-url">${esc(d.url)}</span></dd>
+      </dl>
+      <div class="actions"><button type="button" class="primary" data-copy="apt-url">📋 Link kopieren</button>
+        <a class="btn" href="${esc(d.url)}" target="_blank" rel="noopener">🌐 Öffnen</a></div>`);
+  }
   function taskCard(t, opts) {
     opts = opts || {};
     const r = role();
@@ -1075,7 +1096,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const loc = active ? shortLoc(t.location) : '';
     return `<article class="${cls}" id="task-${id}">
       ${compact ? `<div class="task-top" style="align-items:center"><h3>${esc(t.apartmentName)}</h3>${statusLine(t)}</div>${chips(t) ? `<div class="chips">${chips(t)}</div>` : ''}` : `<div class="eyebrow">${isNew ? '<span class="chip new">NEU</span> ' : ''}${opts.next ? '<span class="chip next">Als Nächstes</span> ' : ''}${esc(dayWord(t.date))}${lastDay(t) > t.date ? ' bis ' + esc(dayWord(lastDay(t))) : ''} · ${t.manual ? 'Extra-Reinigung' : 'Check-out'}</div>
-      <h3>${esc(t.apartmentName)}</h3>
+      <h3>${aptTitle(t.apartmentId, t.apartmentName)}</h3>
       ${loc ? `<div class="loc">📍 ${esc(loc)}</div>` : ''}
       ${r === 'owner' && t.guest ? `<div class="meta">👤 ${esc(t.guest)}</div>` : ''}
       <div class="status-row">${statusLine(t)}${chips(t)}</div>`}
@@ -1773,7 +1794,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       }).join('');
       // Nummer steht im Kreis → daneben nur die Adresse („#EINS | Allerstraße 9“ → „Allerstraße 9“)
       const label = a.name.includes('|') ? a.name.split('|').slice(1).join('|').trim() : a.name;
-      return `<div class="cal-apt" title="${esc(a.name)}"><b>${a.number}</b><span>${esc(label)}</span></div>
+      return `<div class="cal-apt${(data.aptDetails || {})[a.id] ? ' clickable' : ''}" title="${esc(a.name)}"${(data.aptDetails || {})[a.id] ? ` data-apt-row="${esc(a.id)}"` : ''}><b>${a.number}</b><span>${esc(label)}</span></div>
         <div class="cal-row">${days.map((d) => `<div class="cal-cell ${cls(d)}"></div>`).join('')}${bars}${marks}</div>`;
     }).join('');
     $('app').innerHTML = `
@@ -2047,6 +2068,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
   const taskAction = (id, action, body, message) => sendAction(id, action, body, message);
 
+  // Kalender: Wohnung links antippen → Details mit Link
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('.cal-apt[data-apt-row]');
+    if (row) aptInfo(row.dataset.aptRow);
+  });
   document.addEventListener('click', async (e) => {
     const b = e.target.closest('button');
     if (!b || (b.type === 'submit' && b.closest('form')) || b.closest('#gallery')) return;
@@ -2069,6 +2095,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       } else if (d.calShift) {
         calFrom = Number(d.calShift) === 0 ? addDays(data.today, -3) : addDays(calFrom, Number(d.calShift));
         await openCalendar(false);
+      } else if (d.aptInfo) {
+        aptInfo(d.aptInfo);
       } else if (d.calBooking) {
         bookingDetails(d.calBooking);
       } else if (d.calClean) {
