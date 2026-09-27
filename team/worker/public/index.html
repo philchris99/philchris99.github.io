@@ -189,8 +189,9 @@ label.field { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
 .size-val { flex: none; }
 .size-val { font-size: 20px; font-variant-numeric: tabular-nums; }
 .track { position: relative; height: 12px; margin: 6px 0 4px; background: var(--done-bg); border-radius: 0 4px 4px 0; }
-.track .bar { height: 12px; border-radius: 0 4px 4px 0; background: #1E64B4; }
-@media (prefers-color-scheme: dark) { .track .bar { background: #4F8FD6; } }
+.track .bar { position: absolute; left: 0; top: 0; height: 12px; border-radius: 0 4px 4px 0; background: #1E64B4; }
+.track .bar.blocked { background: #9DBBE0; }
+@media (prefers-color-scheme: dark) { .track .bar { background: #4F8FD6; } .track .bar.blocked { background: #2E4A6B; } }
 .track .avg { position: absolute; top: -3px; width: 2px; height: 18px; background: var(--text); }
 .actions.range { align-items: center; margin: 4px 0 12px; }
 .actions.range .meta { flex: 1 1 100%; }
@@ -1408,26 +1409,36 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   /** Auslastung nach Wohnungsgröße: gebucht (= Nachfrage) als Balken, inkl. Blockierungen daneben */
+  // Auswertung nach Größe: inkl. Blockierungen (Standard) oder nur gebucht – Auswahl wird auf dem Gerät gemerkt
+  let sizeMode = (() => { try { return localStorage.getItem('size-mode') || 'incl'; } catch (e) { return 'incl'; } })();
   function sizeBlock(st) {
     const groups = st.groups || [];
     if (!groups.length) return '';
+    const incl = sizeMode !== 'booked';
+    const val = (x) => (incl ? x.pct : x.bookedPct);
     const byId = Object.fromEntries(st.current.perApartment.map((a) => [a.id, a]));
     const allBooked = st.current.capacity ? Math.round((st.current.bookedNights / st.current.capacity) * 1000) / 10 : 0;
+    const allIncl = st.current.pct;
+    const avg = incl ? allIncl : allBooked;
+    const tab = (mode, label) => `<button type="button" class="small${sizeMode === mode || (mode === 'incl' && incl) ? ' primary' : ''}" data-size-mode="${mode}">${label}</button>`;
     return `<div class="panel" style="margin-top:14px">
       <div class="eyebrow">Nach Wohnungsgröße · nächste ${st.days} Tage</div>
-      <p class="meta" style="margin:4px 0 10px">Balken = <b>gebucht</b> (echte Nachfrage). Durchschnitt aller Wohnungen: ${pctText(allBooked)} gebucht.</p>
+      <div class="actions" style="margin:8px 0 4px">${tab('incl', 'Inkl. Blockierungen')}${tab('booked', 'Nur gebucht')}</div>
+      <p class="meta" style="margin:4px 0 10px">Dunkel = <b>gebucht</b>, hell = <b>blockiert</b>. Durchschnitt aller Wohnungen:
+        ${incl ? `<b>${pctText(allIncl)} inkl. Blockierungen</b> (davon ${pctText(allBooked)} gebucht)` : `<b>${pctText(allBooked)} gebucht</b> (inkl. Blockierungen ${pctText(allIncl)})`}.</p>
       <div class="size-list">${groups.map((g) => {
-        const weak = g.apartments.map((id) => byId[id]).filter((a) => a && g.count > 1 && a.bookedPct < g.bookedPct - 20);
-        const verdict = g.bookedPct >= allBooked + 10 ? '<span class="chip yes">läuft gut</span>' : g.bookedPct <= allBooked - 10 ? '<span class="chip alert">läuft schwach</span>' : '';
+        const weak = g.apartments.map((id) => byId[id]).filter((a) => a && g.count > 1 && val(a) < val(g) - 20);
+        const verdict = val(g) >= avg + 10 ? '<span class="chip yes">läuft gut</span>' : val(g) <= avg - 10 ? '<span class="chip alert">läuft schwach</span>' : '';
         return `<div class="size-row">
           <div class="size-head"><span><b>${esc(g.category)}</b> <span class="meta">· ${g.count} ${g.count === 1 ? 'Wohnung' : 'Wohnungen'}</span> ${verdict}</span>
-            <b class="size-val">${pctText(g.bookedPct)}</b></div>
-          <div class="track"><div class="bar" style="width:${Math.max(g.bookedPct, 0.5)}%" title="${esc(g.category)}: ${pctText(g.bookedPct)} gebucht"></div>
-            <div class="avg" style="left:${allBooked}%" title="Durchschnitt ${pctText(allBooked)}"></div></div>
-          <div class="meta">inkl. Blockierungen ${pctText(g.pct)}${weak.length ? ` · unter Gruppenschnitt: ${weak.map((a) => `${esc(a.name)} (${pctText(a.bookedPct)})`).join(', ')}` : ''}</div>
+            <b class="size-val">${pctText(val(g))}</b></div>
+          <div class="track"><div class="bar blocked" style="width:${Math.max(g.pct, 0.5)}%" title="inkl. Blockierungen ${pctText(g.pct)}"></div>
+            <div class="bar" style="width:${Math.max(g.bookedPct, 0.5)}%" title="${esc(g.category)}: ${pctText(g.bookedPct)} gebucht"></div>
+            <div class="avg" style="left:${avg}%" title="Durchschnitt ${pctText(avg)}"></div></div>
+          <div class="meta">${incl ? `davon gebucht ${pctText(g.bookedPct)} · blockiert ${pctText(Math.round((g.pct - g.bookedPct) * 10) / 10)}` : `inkl. Blockierungen ${pctText(g.pct)}`}${weak.length ? ` · unter Gruppenschnitt: ${weak.map((a) => `${esc(a.name)} (${pctText(val(a))})`).join(', ')}` : ''}</div>
         </div>`;
       }).join('')}</div>
-      <p class="meta" style="margin-top:6px">Senkrechter Strich = Durchschnitt aller Wohnungen.</p>
+      <p class="meta" style="margin-top:6px">Senkrechter Strich = Durchschnitt aller Wohnungen (${incl ? 'inkl. Blockierungen' : 'nur gebucht'}).</p>
       ${groups.some((g) => g.category === 'ohne Angabe') ? '<p class="meta" style="margin-top:8px">„ohne Angabe“: Größe (noch) nicht aus Smoobu gelesen – unten unter „Kategorien festlegen“ selbst eintragen.</p>' : ''}
     </div>`;
   }
@@ -2310,6 +2321,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const text = inviteText(people().find((x) => x.id === d.shareInvite));
         if (navigator.share) await navigator.share({ text }).catch(() => {});
         else await navigator.clipboard.writeText(text).then(() => toast('Einladung kopiert – z. B. in WhatsApp einfügen'), () => prompt('Zum Kopieren:', text));
+      } else if (d.sizeMode) {
+        sizeMode = d.sizeMode;
+        try { localStorage.setItem('size-mode', sizeMode); } catch (e) { /* egal */ }
+        render();
       } else if (d.remove) {
         if (!armed(b, 'Wirklich entfernen? Nochmal tippen')) return;
         update(await api(`/api/team/${d.remove}/delete`, 'POST'));
