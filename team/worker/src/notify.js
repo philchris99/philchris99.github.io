@@ -11,6 +11,8 @@ const GROUP_TITLES = { new: 'neue Reinigungen', late: 'Reinigungen nicht bestät
 
 // Ungarische Überschriften für Personen, die die App auf Ungarisch nutzen (Text bleibt Deutsch)
 const HU_TITLES = {
+  'Termin abgesagt': 'Időpont lemondva',
+  'Neuer Termin – bitte bestätigen': 'Új időpont – kérjük, erősítsd meg',
   'Vertretung Reinigungsleitung': 'Takarítási vezető helyettesítése',
   'Vertretung beendet': 'Helyettesítés vége',
   'Neue Reinigung für dich': 'Új takarítás neked',

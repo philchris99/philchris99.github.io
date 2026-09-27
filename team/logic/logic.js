@@ -353,8 +353,11 @@
     resetForNewDate(existing, nowIso);
     existing.prevDate = oldDate;
     log(existing, nowIso, `Aufenthalt ${verb} (${diff}): Reinigung ${formatDate(oldDate)} → ${formatDate(existing.date)}`);
-    notifications.push(...notify(team(config, existing), 'rescheduled', existing, 'Reinigung verschoben',
-      `WICHTIG – ${existing.apartmentName}: Aufenthalt ${verb} (${diff}). Reinigung jetzt am ${formatDate(existing.date)} statt ${formatDate(oldDate)}. Bitte neu bestätigen.`));
+    // Zwei klare Nachrichten: 1) alter Termin abgesagt (Info), 2) neuer Termin – bitte bestätigen
+    notifications.push(...notify(team(config, existing), 'cancelled', existing, 'Termin abgesagt',
+      `❌ ${existing.apartmentName}: Die Reinigung am ${formatDate(oldDate)} entfällt – Aufenthalt ${verb} (${diff}). Neuer Termin folgt.`));
+    notifications.push(...notify(team(config, existing), 'rescheduled', existing, 'Neuer Termin – bitte bestätigen',
+      `✅ WICHTIG – ${existing.apartmentName}: Neue Reinigung am ${formatDate(existing.date)} (Check-out) statt ${formatDate(oldDate)}. Bitte in der App bestätigen.`));
     if (wasConfirmed) {
       notifications.push(...notify([config.owner.id], 'rescheduled', existing, 'Bestätigte Reinigung verschoben',
         `${existing.apartmentName}: ${formatDate(oldDate)} → ${formatDate(existing.date)}. Neue Bestätigung ausstehend.`));

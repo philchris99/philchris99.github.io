@@ -867,3 +867,21 @@ test('Einladung per WhatsApp: Handynummer je Person (nur für Admin/Leitung sich
   const cleared = await call('POST', `/api/team/${nora.id}`, { session: admin, body: { name: 'Nora B.', phone: '' } });
   assert.equal(cleared.body.staff.find((p) => p.id === nora.id).phone, '');
 });
+
+test('Buchung in Smoobu verlängert: beim Abgleich Absage des alten Termins + neuer Termin zum Bestätigen', async () => {
+  const cur = await me(admin);
+  const lead = cur.leads[0];
+  smoobuBookings = [booking(501, '2099-12-10')];
+  await runSync(env);
+  pushes = [];
+  smoobuBookings = [booking(501, '2099-12-13')];
+  await runSync(env);
+  const titles = pushes.map((p) => p.title);
+  assert.ok(titles.includes('Termin abgesagt'), titles.join(' | '));
+  assert.ok(titles.includes('Neuer Termin – bitte bestätigen'));
+  assert.ok(pushes.some((p) => /Die Reinigung am .*10\.12\.2099 entfällt/.test(p.message || p.body)), JSON.stringify(pushes[0]).slice(0, 200));
+  const t = (await me(admin)).tasks.find((x) => x.id === '501');
+  assert.equal(t.date, '2099-12-13');
+  assert.equal(t.prevDate, '2099-12-10');
+  assert.ok(lead, 'Leitung vorhanden');
+});

@@ -63,6 +63,9 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - Zeiten und Abstand einstellbar in `worker/src/config.js` (`startBy`, `finishBy`, `repeatMinutes`, `quietFrom`)
 
 **Weiteres**
+- **Buchung verlängert/verkürzt** (Smoobu, Abgleich alle 5 Min.): Leitung und zugewiesene Mitarbeiterin bekommen zwei Nachrichten –
+  „❌ Termin abgesagt“ (alter Tag entfällt, Info) und „✅ Neuer Termin – bitte bestätigen“ (neuer Check-out-Tag). Die Zuweisung
+  bleibt, beide müssen neu bestätigen; die Karte zeigt „⚠️ Neuer Termin (vorher …)“. Admin wird ebenfalls informiert.
 - „Neuigkeiten“ oben: was sich geändert hat (neu, zugewiesen, verlängert/verkürzt, verschoben, abgesagt, Hinweise)
 - Telefonnummer des Gastes aus Smoobu als Anruf-Knopf (`showGuestPhone` in `config.js`)
 - Hinweise/Meldungen mit bis zu 5 Fotos (Kamera oder Galerie, Vorschau mit Entfernen, eigene Fotos löschbar, Galerie-Ansicht)

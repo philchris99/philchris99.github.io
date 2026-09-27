@@ -194,8 +194,13 @@ test('Verlängerung: Datum neu, Bestätigungen zurückgesetzt, Leitung + Mitarbe
   assert.equal(t.status, 'offen');
   assert.equal(t.assignedTo, 'mia', 'Zuweisung bleibt');
   assert.equal(t.staffConfirmedAt, null);
-  assert.deepEqual(who(res.notifications), ['lea:rescheduled', 'mia:rescheduled', 'owner:rescheduled']);
-  assert.match(res.notifications.find((n) => n.to === 'mia').body, /verlängert.*So, 04\.10\.2026 statt Fr, 02\.10\.2026/);
+  // 1) Absage des alten Termins (Info), 2) neuer Termin zum Bestätigen – an Leitung und Mitarbeiterin; Admin informiert
+  assert.deepEqual(who(res.notifications), ['lea:cancelled', 'lea:rescheduled', 'mia:cancelled', 'mia:rescheduled', 'owner:rescheduled']);
+  const toMia = res.notifications.filter((n) => n.to === 'mia');
+  assert.equal(toMia[0].title, 'Termin abgesagt');
+  assert.match(toMia[0].body, /Die Reinigung am Fr, 02\.10\.2026 entfällt – Aufenthalt verlängert/);
+  assert.equal(toMia[1].title, 'Neuer Termin – bitte bestätigen');
+  assert.match(toMia[1].body, /Neue Reinigung am So, 04\.10\.2026 \(Check-out\) statt Fr, 02\.10\.2026\. Bitte in der App bestätigen/);
   // 6-Stunden-Frist startet ab der Änderung neu
   assert.equal(L.checkDeadlines(res.state, at('2026-09-24', '15:59'), CFG).notifications.length, 0);
   assert.deepEqual(who(L.checkDeadlines(res.state, at('2026-09-24', '16:00'), CFG).notifications), ['owner:late']);
@@ -546,8 +551,9 @@ test('Admin verschiebt Smoobu-Reinigung eine Woche nach Check-out → Team infor
 test('Check-out ändert sich in Smoobu: wichtige Nachricht mit Anzahl Tage; vom Admin verschobener Tag bleibt, wenn noch passend', () => {
   let { state } = L.applyBooking(confirmedTask(), booking({ action: 'update', departure: '2026-10-09' }), NOW, CFG);
   let res = L.applyBooking(confirmedTask(), booking({ action: 'update', departure: '2026-10-09' }), NOW, CFG);
-  const body = res.notifications.find((n) => n.to === 'mia').body;
-  assert.match(body, /^WICHTIG – Loft am Markt: Aufenthalt verlängert \(7 Tage später\)\. Reinigung jetzt am Fr, 09\.10\.2026 statt Fr, 02\.10\.2026/);
+  const [cancel, invite] = res.notifications.filter((n) => n.to === 'mia');
+  assert.match(cancel.body, /^❌ Loft am Markt: Die Reinigung am Fr, 02\.10\.2026 entfällt – Aufenthalt verlängert \(7 Tage später\)/);
+  assert.match(invite.body, /^✅ WICHTIG – Loft am Markt: Neue Reinigung am Fr, 09\.10\.2026 \(Check-out\) statt Fr, 02\.10\.2026/);
   assert.equal(res.state.tasks['100'].prevDate, '2026-10-02');
   // Admin hat auf 12.10. gelegt, Check-out verschiebt sich auf 05.10. → Reinigung bleibt 12.10., alle informiert
   ({ state } = L.moveCleaning(confirmedTask(), '100', '2026-10-12', NOW, CFG));
@@ -560,7 +566,7 @@ test('Check-out ändert sich in Smoobu: wichtige Nachricht mit Anzahl Tage; vom 
   res = L.applyBooking(state, booking({ action: 'update', departure: '2026-10-14' }), NOW, CFG);
   assert.equal(res.state.tasks['100'].date, '2026-10-14');
   assert.equal(res.state.tasks['100'].movedByAdmin, false);
-  assert.match(res.notifications[0].body, /Reinigung jetzt am Mi, 14\.10\.2026 statt Mo, 12\.10\.2026/);
+  assert.match(res.notifications.find((n) => n.kind === 'rescheduled').body, /Neue Reinigung am Mi, 14\.10\.2026 \(Check-out\) statt Mo, 12\.10\.2026/);
 });
 
 test('„Wohnung fertig“ mit Uhrzeit und nächster Anreise', () => {
