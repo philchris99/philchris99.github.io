@@ -5,6 +5,8 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '✉️ Nachricht von ': '✉️ Üzenet: ', 'Dauerhinweis:': 'Állandó megjegyzés:', 'Dauerhinweis zur Wohnung:': 'Állandó megjegyzés a lakáshoz:',
+    '✉️ Nachricht zu dieser Reinigung': '✉️ Üzenet ehhez a takarításhoz', '📌 Dauerhinweis zur Wohnung': '📌 Állandó megjegyzés a lakáshoz',
     '💬 Per WhatsApp einladen': '💬 Meghívás WhatsAppon', '💬 Jetzt per WhatsApp einladen': '💬 Meghívás most WhatsAppon', '📤 Teilen': '📤 Megosztás',
     'Name / Nummer ändern': 'Név / szám módosítása', 'Handynummer (für WhatsApp, freiwillig)': 'Mobilszám (WhatsApphoz, nem kötelező)',
     'Einladung kopiert – z. B. in WhatsApp einfügen': 'Meghívó másolva – pl. illeszd be a WhatsAppba',
@@ -426,6 +428,7 @@
     [/(\d\d:\d\d) Uhr vorbei und noch nicht begonnen/, '$1 elmúlt, és még nem kezdődött el'],
     [/noch niemandem zugewiesen/, 'még senkinek sincs kiosztva'],
     [/^Hinweis von Apartments Strauss: /, 'Megjegyzés – Apartments Strauss: '],
+    [/^Nachricht von Apartments Strauss: /, 'Üzenet – Apartments Strauss: '],
     [/^Hinweis von /, 'Megjegyzés: '],
     [/^Meldung: /, 'Bejelentés: '],
     [/^Antrag: /, 'Kérelem: '],

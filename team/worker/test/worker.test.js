@@ -270,7 +270,7 @@ test('Hinweis vom Admin mit Foto → Leitung + Mitarbeiterin; Mitarbeiterin lös
   note.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 9])], { type: 'image/jpeg' }), 'a.jpg');
   const n = await call('POST', '/api/tasks/20/report', { session: admin, body: note });
   assert.equal(n.status, 200, JSON.stringify(n.body));
-  assert.deepEqual(who().sort(), ['Hinweis von Apartments Strauss: FeWo Elbblick', 'Hinweis von Apartments Strauss: FeWo Elbblick']);
+  assert.deepEqual(who().sort(), ['Nachricht von Apartments Strauss: FeWo Elbblick', 'Nachricht von Apartments Strauss: FeWo Elbblick']);
 
   pushes = [];
   const rep = new FormData();

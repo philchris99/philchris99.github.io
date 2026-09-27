@@ -1189,7 +1189,7 @@
     const photoText = photos.length ? ` (${photos.length} Foto${photos.length > 1 ? 's' : ''})` : '';
     const fromOwner = user.role === 'owner';
     const to = fromOwner ? team(config, task) : [config.owner.id, ...team(config, task, user.id)];
-    const title = fromOwner ? `Hinweis von ${config.owner.name}: ${task.apartmentName}` : `Meldung: ${task.apartmentName}`;
+    const title = fromOwner ? `Nachricht von ${config.owner.name}: ${task.apartmentName}` : `Meldung: ${task.apartmentName}`;
     return { state, notifications: notify(to, fromOwner ? 'note' : 'report', task, title, `${author}: ${summary}${photoText}`) };
   }
 

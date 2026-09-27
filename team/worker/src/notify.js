@@ -38,7 +38,7 @@ const HU_TITLES = {
   'Check-out geändert – wichtig': 'Check-out módosult – fontos',
   'Antrag zurückgezogen': 'Kérelem visszavonva',
 };
-const HU_PREFIX = [['Hinweis von Apartments Strauss: ', 'Megjegyzés – Apartments Strauss: '], ['Meldung: ', 'Bejelentés: '],
+const HU_PREFIX = [['Nachricht von Apartments Strauss: ', 'Üzenet – Apartments Strauss: '], ['Hinweis von Apartments Strauss: ', 'Megjegyzés – Apartments Strauss: '], ['Meldung: ', 'Bejelentés: '],
   ['Knapp: ', 'Kevés: '], ['Antrag: ', 'Kérelem: '], ['Wohnung fertig: ', 'Lakás kész: ']];
 const HU_GROUP = { 'neue Reinigungen für dich': 'új takarítás neked', 'Reinigungen noch nicht gestartet': 'takarítás még nem kezdődött el',
   'Reinigungen noch nicht beendet': 'takarítás még nincs befejezve', 'Reinigungen nicht erledigt': 'takarítás nincs elvégezve',

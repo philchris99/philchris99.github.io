@@ -750,7 +750,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const author = r.byRole === 'owner' ? 'Apartments Strauss' : nameOf(r.by);
     const ids = r.photos.join(',');
     return `<div class="report${r.byRole === 'owner' ? ' owner' : ''}${r.resolved ? ' resolved' : ''}">
-      <div class="meta"><b>${r.final ? 'Abschlussbericht · ' : r.byRole === 'owner' ? 'Hinweis von ' : ''}${esc(author)}</b> · ${fmtTime(r.at)}${r.resolved && !r.final ? ' · behoben' : ''}</div>
+      <div class="meta"><b>${r.final ? 'Abschlussbericht · ' : r.byRole === 'owner' ? '✉️ Nachricht von ' : ''}${esc(author)}</b> · ${fmtTime(r.at)}${r.resolved && !r.final ? ' · behoben' : ''}</div>
       ${r.text ? `<p>${esc(r.text)}</p>` : ''}
       ${r.photos.length ? `<div class="thumbs">${r.photos.map((p, i) => `<div class="thumb">
         <button type="button" data-gallery="${esc(ids)}" data-index="${i}" aria-label="${p.startsWith('v') ? 'Video' : 'Foto'} ${i + 1} öffnen">${p.startsWith('v')
@@ -762,7 +762,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   function reportForm(t) {
-    const label = role() === 'owner' ? '📝 Hinweis für das Team' : '📷 Was ist kaputt oder stimmt nicht?';
+    const label = role() === 'owner' ? '✉️ Nachricht zu dieser Reinigung – nur für diesen Termin. Reinigungsleitung und eingeteilte Mitarbeiterin bekommen sofort eine Push-Nachricht; steht danach auf dieser Reinigung.' : '📷 Was ist kaputt oder stimmt nicht?';
     return `<form class="report-form" data-report-form="${esc(t.id)}">
       <label class="field">${label}
         <textarea name="text" id="text-${esc(t.id)}" placeholder="${role() === 'owner' ? 'z. B. Bitte Kaffee auffüllen …' : 'z. B. Handtücher fehlen, Glühbirne im Bad defekt …'}"></textarea></label>
@@ -772,7 +772,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <label>🖼️ Galerie<input type="file" accept="image/*,video/*" multiple data-photo-input="${esc(t.id)}"></label>
       </div>
       <div class="thumbs" data-previews="${esc(t.id)}">${previewsHtml(t.id)}</div>
-      <div class="actions"><button class="primary" type="submit">${role() === 'owner' ? 'Hinweis senden' : 'Meldung senden'}</button>
+      <div class="actions"><button class="primary" type="submit">${role() === 'owner' ? 'Nachricht senden' : 'Meldung senden'}</button>
         <button type="button" data-toggle-report="${esc(t.id)}">Abbrechen</button></div>
     </form>`;
   }
@@ -919,7 +919,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   /** Admin: Übergabe-Notiz der Wohnung – steht bei jeder Reinigung dieser Wohnung */
   function aptNoteForm(t) {
     return `<form class="report-form" data-apt-note-form="${esc(t.apartmentId)}">
-      <label class="field">Hinweis zur Wohnung (gilt für alle Reinigungen dieser Wohnung, bis er gelöscht wird)
+      <label class="field">📌 Dauerhinweis zur Wohnung – steht gelb bei <b>jeder</b> Reinigung dieser Wohnung (auch künftigen) und beim Fertig-Melden, bis Sie ihn löschen. Keine Push-Nachricht.
         <textarea name="text" rows="3" maxlength="1000" placeholder="z. B. Kinderbett aufgebaut lassen · Heizung im Bad klemmt · Schlüssel für Keller im Schrank">${esc(t.aptNote || '')}</textarea></label>
       <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-apt-note-close>Abbrechen</button></div>
     </form>`;
@@ -946,7 +946,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     $('finish').innerHTML = `<div class="finish-inner"><form data-finish-form="${esc(t.id)}">
       <div class="finish-head"><div class="eyebrow">🏁 Fertig melden</div><h2>${esc(t.apartmentName)}</h2>
         ${shortLoc(t.location) ? `<div class="meta">📍 ${esc(shortLoc(t.location))}</div>` : ''}</div>
-      ${t.aptNote ? `<div class="apt-note">📌 <b>Hinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
+      ${t.aptNote ? `<div class="apt-note">📌 <b>Dauerhinweis zur Wohnung:</b> ${esc(t.aptNote)}</div>` : ''}
       <div class="step"><b><span class="num">1</span>📷 Fotos oder Video</b> <span class="meta">(freiwillig)</span>
         <div class="pick">
           <label>📷 Foto<input type="file" accept="image/*" capture="environment" data-photo-input="${esc(key)}"></label>
@@ -1085,7 +1085,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (canWork && !t.startedAt) more.push(btn(`data-done="${id}"`, '🏁 Fertig melden (ohne Start)'));
     if ((active || doneToday) && (r !== 'staff' || mineToDo)) more.push(btn(`data-codes="${id}"`, shownCodes[t.id] ? '🔑 Codes ausblenden' : '🔑 Codes anzeigen'));
     if (t.guestPhone && active) more.push(`<a class="more-btn" href="tel:${esc(t.guestPhone.replace(/[^\d+]/g, ''))}">📞 Gast anrufen (${esc(t.guestPhone)})</a>`);
-    if (t.status !== 'storniert') more.push(btn(`data-toggle-report="${id}"`, r === 'owner' ? '📝 Hinweis ans Team' : '📷 Problem melden'));
+    if (t.status !== 'storniert') more.push(btn(`data-toggle-report="${id}"`, r === 'owner' ? '✉️ Nachricht zu dieser Reinigung' : '📷 Problem melden'));
     if ((active || doneToday) && r !== 'owner' && (r === 'lead' || mineToDo)) more.push(btn(`data-supply="${id}"`, '🛒 Etwas fehlt'));
     if (active && r !== 'owner' && (r === 'lead' || mineToDo)) {
       if (reqOpen) more.push(btn(`data-period-withdraw="${id}"`, '↩️ Antrag zurückziehen'));
@@ -1096,7 +1096,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       if (!t.manual) more.push(btn(`data-move="${id}"`, '📅 Anderer Tag'));
       more.push(btn(`data-period="${id}"`, t.latestDate ? '📆 Zeitraum ändern' : '📆 Zeitraum erlauben'));
     }
-    if (r === 'owner') more.push(btn(`data-apt-note="${id}"`, '📌 Hinweis zur Wohnung'));
+    if (r === 'owner') more.push(btn(`data-apt-note="${id}"`, t.aptNote ? '📌 Dauerhinweis zur Wohnung ändern' : '📌 Dauerhinweis zur Wohnung'));
     if (r === 'owner' && t.manual && active) {
       more.push(btn(`data-edit-task="${id}"`, '✏️ Bearbeiten'));
       more.push(btn(`data-cancel="${id}"`, '✖️ Absagen', 'danger'));
@@ -1109,7 +1109,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${loc ? `<div class="loc">📍 ${esc(loc)}</div>` : ''}
       ${r === 'owner' && t.guest ? `<div class="meta">👤 ${esc(t.guest)}</div>` : ''}
       <div class="status-row">${statusLine(t)}${chips(t)}</div>`}
-      ${t.aptNote ? `<div class="apt-note">📌 ${esc(t.aptNote)}</div>` : ''}
+      ${t.aptNote ? `<div class="apt-note">📌 <b>Dauerhinweis:</b> ${esc(t.aptNote)}</div>` : ''}
       ${t.note ? `<div class="note">📝 ${esc(t.note)}</div>` : ''}
       ${nextGuests(t)}
       ${requestBox(t)}
@@ -2034,7 +2034,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         update(await api('/api/apt-notes', 'POST', { apartmentId: form.dataset.aptNoteForm, text: form.elements.text.value }));
         aptNoteTask = null;
         render();
-        toast('Hinweis zur Wohnung gespeichert');
+        toast('Dauerhinweis gespeichert – steht jetzt bei jeder Reinigung dieser Wohnung');
       } else if (form.dataset.doneForm) {
         const choice = form.elements.keys.value;
         if (choice !== '1' && choice !== '0') throw new Error('Bitte angeben, ob die Gästeschlüssel in der Box sind');
