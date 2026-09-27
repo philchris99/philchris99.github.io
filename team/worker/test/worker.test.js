@@ -817,3 +817,36 @@ test('Wohnungs-Details: Link zur Website je Wohnung (über Nummer im Namen oder 
   assert.equal(d['77'], undefined);
   assert.equal(Object.keys(cfg.apartmentDetails).length, 13);
 });
+
+test('Vertretung: Admin gibt einer Mitarbeiterin die Rechte der Reinigungsleitung (bestätigen, einteilen) und nimmt sie wieder weg', async () => {
+  // eigenes Team für diesen Test (frühere Tests haben die Leitung entfernt)
+  const cur = await me(admin);
+  for (const p of [...cur.leads, ...cur.staff]) await call('POST', `/api/team/${p.id}/delete`, { session: admin });
+  const l = await call('POST', '/api/team', { session: admin, body: { name: 'Lea', role: 'lead' } });
+  const leaId = l.body.leads[0].id;
+  const lea = (await call('POST', '/api/login', { body: { code: l.body.newCode.code } })).body.session;
+  const st = await call('POST', '/api/team', { session: admin, body: { name: 'Mia' } });
+  const miaId = st.body.staff[0].id;
+  const mia = (await call('POST', '/api/login', { body: { code: st.body.newCode.code } })).body.session;
+  smoobuBookings = [booking(401, '2099-12-01')];
+  await runSync(env);
+  assert.equal((await call('POST', `/api/team/${miaId}/deputy`, { session: lea, body: { on: true } })).status, 403, 'nur Admin');
+  assert.equal((await call('POST', '/api/tasks/401/lead-confirm', { session: mia })).status, 403, 'vorher keine Leitungsrechte');
+  pushes = [];
+  const on = await call('POST', `/api/team/${miaId}/deputy`, { session: admin, body: { on: true } });
+  assert.equal(on.status, 200);
+  assert.ok(on.body.staff.find((p) => p.id === miaId).deputy);
+  assert.deepEqual(on.body.leads.map((p) => p.id), [leaId], 'Reinigungsleitung bleibt Lea');
+  assert.ok(pushes.some((p) => p.title === 'Vertretung Reinigungsleitung'), 'Mia wird benachrichtigt');
+  const m = await me(mia);
+  assert.equal(m.user.role, 'lead');
+  assert.equal(m.user.deputy, true);
+  assert.equal((await call('POST', '/api/tasks/401/lead-confirm', { session: mia })).status, 200, 'bestätigt als Leitung');
+  assert.equal((await call('POST', '/api/tasks/401/assign', { session: mia, body: { to: miaId } })).status, 200, 'teilt ein (auch sich selbst)');
+  assert.equal((await call('POST', '/api/tasks/401/confirm', { session: mia })).status, 200, 'nimmt als Mitarbeiterin an');
+  assert.equal((await call('POST', '/api/team', { session: mia, body: { name: 'Neu' } })).status, 403, 'verwaltet kein Team');
+  assert.equal((await me(lea)).user.role, 'lead');
+  const off = await call('POST', `/api/team/${miaId}/deputy`, { session: admin, body: { on: false } });
+  assert.equal(off.body.staff.find((p) => p.id === miaId).deputy, undefined);
+  assert.equal((await me(mia)).user.role, 'staff');
+});

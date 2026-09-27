@@ -56,7 +56,9 @@ async function loadConfig(env) {
   delete settings.cleaners;
   settings.leads = settings.leads || [];
   settings.staff = settings.staff || [];
-  return { cfg: { ...L.DEFAULT_CONFIG, ...config, leads: settings.leads, staff: settings.staff, langs: settings.lang || {} }, settings };
+  // Vertretung: Mitarbeiterin, der der Admin die Rechte der Reinigungsleitung gegeben hat (bestätigen, einteilen, Leitungs-Nachrichten)
+  const deputies = settings.staff.filter((s) => s.deputy).map((s) => ({ ...s, deputy: true }));
+  return { cfg: { ...L.DEFAULT_CONFIG, ...config, leads: [...settings.leads, ...deputies], staff: settings.staff, langs: settings.lang || {} }, settings };
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +338,7 @@ function apartmentList(state) {
     .sort((a, b) => L.compareApartments(a.name, b.name)); // #EINS … #DREIZEHN in Zahlenfolge
 }
 
-const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt });
+const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, ...(p.deputy ? { deputy: true, deputySince: p.deputySince || null } : {}) });
 /** Team-Liste; Codes sieht der Admin für alle, die Leitung für ihre Mitarbeiterinnen. */
 async function teamFor(env, list, withCodes) {
   return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc) } : {}) })));
@@ -371,11 +373,11 @@ async function viewFor(env, cfg, settings, state, user, now) {
   const recipient = user.role === 'owner' ? cfg.owner.id : user.id;
   const since = new Date(now - 14 * 86400000).toISOString();
   const base = {
-    user: { id: user.id, name: user.name, role: user.role }, today, time, now: new Date(now).toISOString(),
+    user: { id: user.id, name: user.name, role: user.role, ...(user.deputy ? { deputy: true } : {}) }, today, time, now: new Date(now).toISOString(),
     aptDetails: user.role === 'owner' ? apartmentDetails(cfg, state) : {}, // nur Admin
     startBy: cfg.startBy, finishBy: cfg.finishBy, checkoutTime: cfg.checkoutTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
-    leads: await teamFor(env, cfg.leads, user.role === 'owner'),
+    leads: await teamFor(env, cfg.leads.filter((l) => !l.deputy), user.role === 'owner'),
     staff: await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'),
     // Änderungen der letzten 14 Tage für diese Person (oben „Neuigkeiten“)
     changes: (state.log || []).filter((n) => n.to === recipient && CHANGE_KINDS.includes(n.kind) && n.at >= since).slice(0, 30),
@@ -779,7 +781,8 @@ async function handleApi(request, env, url, ctx) {
     return code;
   };
   const listFor = (kind) => (kind === 'lead' ? settings.leads : settings.staff);
-  const mayManage = (kind) => role === 'owner' || (role === 'lead' && kind === 'staff');
+  // Vertretung darf Reinigungen bestätigen/einteilen, aber nicht das Team verwalten
+  const mayManage = (kind) => role === 'owner' || (role === 'lead' && !user.deputy && kind === 'staff');
 
   if (path === '/api/team' && request.method === 'POST') {
     const body = await readJson();
@@ -798,12 +801,23 @@ async function handleApi(request, env, url, ctx) {
     return teamReply({ newCode: { name, code } });
   }
 
-  const team = path.match(/^\/api\/team\/([a-z0-9]+)(?:\/(code|delete))?$/);
+  const team = path.match(/^\/api\/team\/([a-z0-9]+)(?:\/(code|delete|deputy))?$/);
   if (team && request.method === 'POST') {
     const kind = settings.leads.some((p) => p.id === team[1]) ? 'lead' : 'staff';
     const entry = listFor(kind).find((p) => p.id === team[1]);
     if (!entry) return fail('Person nicht gefunden', 404);
     if (!mayManage(kind)) return fail('Nicht erlaubt', 403);
+    if (team[2] === 'deputy') { // nur Admin: Mitarbeiterin vertritt die Reinigungsleitung (an/aus)
+      if (role !== 'owner' || kind !== 'staff') return fail('Nicht erlaubt', 403);
+      const on = !!(await readJson()).on;
+      if (on) { entry.deputy = true; entry.deputySince = new Date(now).toISOString(); } else { delete entry.deputy; delete entry.deputySince; }
+      await saveSettings(env.DB, settings);
+      const next = await loadConfig(env);
+      const msg = on ? 'Du vertrittst ab sofort die Reinigungsleitung: Reinigungen bestätigen und einteilen. Bitte die App neu öffnen.'
+        : 'Die Vertretung der Reinigungsleitung ist beendet.';
+      ctx.waitUntil(deliver(env, next.cfg, [{ to: entry.id, kind: 'request', title: on ? 'Vertretung Reinigungsleitung' : 'Vertretung beendet', body: msg }]).catch(() => {}));
+      return teamReply({});
+    }
     if (team[2] === 'delete') {
       if (kind === 'lead') settings.leads = settings.leads.filter((p) => p !== entry);
       else settings.staff = settings.staff.filter((p) => p !== entry);

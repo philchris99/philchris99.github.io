@@ -1197,13 +1197,15 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <label class="field">Name <input name="name" value="${esc(p.name)}" required maxlength="60"></label>
         <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-edit-cancel>Abbrechen</button></div>
       </form>` : `
-      <div class="panel"><div class="person"><b style="font-size:17px">${esc(p.name)}</b><span class="meta">${kind === 'lead' ? 'Reinigungsleitung' : 'Mitarbeiterin'}</span></div>
+      <div class="panel"><div class="person"><b style="font-size:17px">${esc(p.name)}</b><span class="meta">${kind === 'lead' ? 'Reinigungsleitung' : 'Mitarbeiterin'}</span>
+        ${p.deputy ? '<span class="chip period">👑 Vertritt die Reinigungsleitung</span>' : ''}</div>
         ${'code' in p ? `<div class="codeline"><span class="meta">Anmeldecode:</span>${p.code
           ? `<span class="code" id="code-${esc(p.id)}">${esc(p.code.slice(0, 3))} ${esc(p.code.slice(3))}</span><button class="small" data-copy="code-${esc(p.id)}">Kopieren</button>`
           : '<span class="meta">nicht mehr sichtbar – bitte „Neuen Code erzeugen“</span>'}</div>` : ''}
         <div class="actions">
           <button class="small" data-edit-person="${esc(p.id)}">Name ändern</button>
           <button class="small" data-newcode="${esc(p.id)}">Neuen Code erzeugen</button>
+          ${kind === 'staff' && role() === 'owner' ? `<button class="small${p.deputy ? '' : ' go'}" data-deputy="${esc(p.id)}" data-on="${p.deputy ? '' : '1'}">${p.deputy ? '👑 Vertretung beenden' : '👑 Als Vertretung der Leitung'}</button>` : ''}
           <button class="small danger" data-remove="${esc(p.id)}">Entfernen</button>
         </div></div>`).join('');
     // Es gibt genau eine Reinigungsleitung – dann kein weiteres Anlegen
@@ -1259,7 +1261,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     if (page === 'team') {
       return navBar() + `<div class="greeting"><h1>Team &amp; Meldungen</h1></div>
         ${sectionIf(reports.length, 'meldungen', 'Offene Meldungen', reports.length + ' offen', reportsBlock(reports), 'key')}
-        ${section('team', 'Mein Team', (data.staff || []).length + ' Mitarbeiterinnen', codeBox() + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
+        ${data.user.deputy ? '<p class="meta">Du vertrittst die Reinigungsleitung. Das Team verwaltet Apartments Strauss.</p>' : section('team', 'Mein Team', (data.staff || []).length + ' Mitarbeiterinnen', codeBox() + teamList('staff', data.staff || [], 'Mitarbeiterinnen'))}
         ${pushSetup()}`;
     }
     const active = data.tasks.filter(isActive);
@@ -1835,7 +1837,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   function renderWho() {
-    const label = { owner: 'Admin', lead: 'Reinigungsleitung', staff: 'Mitarbeiterin' }[role()];
+    const label = data.user.deputy ? 'Vertretung Reinigungsleitung' : { owner: 'Admin', lead: 'Reinigungsleitung', staff: 'Mitarbeiterin' }[role()];
     $('who').innerHTML = `<b>${esc(data.user.name)}</b>${label} · ${esc(data.time)} Uhr<br><button type="button" data-logout>Abmelden</button>`
       + `<button type="button" class="lang" data-lang="${lang === 'hu' ? 'de' : 'hu'}" aria-label="${lang === 'hu' ? 'Deutsch' : 'Magyar'}">${lang === 'hu' ? '🇩🇪 DE' : '🇭🇺 HU'}</button>`;
   }
@@ -2278,6 +2280,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const res = await api(`/api/team/${d.newcode}/code`, 'POST');
         newCode = res.newCode; update(res);
         document.getElementById('team').scrollIntoView();
+      } else if (d.deputy) {
+        if (d.on && !armed(b, 'Rechte der Reinigungsleitung geben? Nochmal tippen')) return;
+        update(await api(`/api/team/${d.deputy}/deputy`, 'POST', { on: !!d.on }));
+        toast(d.on ? 'Vertretung aktiv – sie kann jetzt Reinigungen bestätigen und einteilen' : 'Vertretung beendet');
       } else if (d.remove) {
         if (!armed(b, 'Wirklich entfernen? Nochmal tippen')) return;
         update(await api(`/api/team/${d.remove}/delete`, 'POST'));

@@ -5,6 +5,10 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '👑 Vertritt die Reinigungsleitung': '👑 Helyettesíti a takarítási vezetőt', '👑 Als Vertretung der Leitung': '👑 Vezető helyettese legyen',
+    '👑 Vertretung beenden': '👑 Helyettesítés vége', 'Vertretung Reinigungsleitung': 'Takarítási vezető helyettese',
+    'Du vertrittst die Reinigungsleitung. Das Team verwaltet Apartments Strauss.': 'Te helyettesíted a takarítási vezetőt. A csapatot az Apartments Strauss kezeli.',
+    'Rechte der Reinigungsleitung geben? Nochmal tippen': 'Vezetői jogok megadása? Koppints újra',
     '📋 Link kopieren': '📋 Link másolása', '🌐 Öffnen': '🌐 Megnyitás', 'Adresse': 'Cím', 'Details': 'Részletek', 'Wohnung': 'Lakás', 'Kopiert': 'Másolva',
     '✏️ Sonstiges (nicht in der Liste)': '✏️ Egyéb (nincs a listán)',
     'z. B. Föhn defekt, Kerzen, Spülbürste': 'pl. hajszárító hibás, gyertya, mosogatókefe',
