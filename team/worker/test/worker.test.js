@@ -850,3 +850,16 @@ test('Vertretung: Admin gibt einer Mitarbeiterin die Rechte der Reinigungsleitun
   assert.equal(off.body.staff.find((p) => p.id === miaId).deputy, undefined);
   assert.equal((await me(mia)).user.role, 'staff');
 });
+
+test('Einladung per WhatsApp: Handynummer je Person (nur für Admin/Leitung sichtbar), änderbar', async () => {
+  const st = await call('POST', '/api/team', { session: admin, body: { name: 'Nora', phone: '0171 / 123-45 67' } });
+  const nora = st.body.staff.find((p) => p.name === 'Nora');
+  assert.equal(nora.phone, '0171 123 45 67', 'gespeichert, Sonderzeichen entfernt');
+  assert.match(nora.code, /^\d{6}$/);
+  const session = (await call('POST', '/api/login', { body: { code: st.body.newCode.code } })).body.session;
+  assert.equal((await me(session)).staff.find((p) => p.id === nora.id).phone, undefined, 'Mitarbeiterin sieht keine Nummern');
+  const upd = await call('POST', `/api/team/${nora.id}`, { session: admin, body: { name: 'Nora', phone: '+36 30 1234567' } });
+  assert.equal(upd.body.staff.find((p) => p.id === nora.id).phone, '+36 30 1234567');
+  const cleared = await call('POST', `/api/team/${nora.id}`, { session: admin, body: { name: 'Nora B.', phone: '' } });
+  assert.equal(cleared.body.staff.find((p) => p.id === nora.id).phone, '');
+});

@@ -99,6 +99,10 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   (gleiches Haus direkt hintereinander) 3. Reinigungen mit Zeitraum („kann auch bis …“) zum Schluss. Mit Entfernungen und
   Knopf „Route in Google Maps öffnen“. Koordinaten der Adressen (aus `access-codes.js`) holt der Server einmalig über
   OpenStreetMap (max. 2 je Lauf) und speichert sie; Ort in `worker/src/config.js` (`routeCity`)
+- **Einladung per WhatsApp** (Admin/Leitung → Team): „💬 Per WhatsApp einladen“ öffnet WhatsApp mit fertigem Text (Deutsch +
+  Ungarisch) – mit hinterlegter Handynummer direkt im Chat der Person, sonst Kontakt wählen; „📤 Teilen“ für andere Apps.
+  Der Link (`…/#login=<Code>`) trägt den Code auf dem Handy ein und meldet sofort an (der Code wird dabei nicht an den Server
+  im Link geschickt und verschwindet aus der Adresszeile). Direkt nach dem Anlegen erscheint „Jetzt per WhatsApp einladen“.
 - **Vertretung der Reinigungsleitung** (Admin → Team): bei einer Mitarbeiterin „👑 Als Vertretung der Leitung“ – sie meldet sich
   mit ihrem eigenen Code an und kann dann Reinigungen als Leitung bestätigen und einteilen (auch sich selbst), bekommt die
   Nachrichten der Leitung und sieht alle Reinigungen; das Team verwalten kann sie nicht. „👑 Vertretung beenden“ nimmt die

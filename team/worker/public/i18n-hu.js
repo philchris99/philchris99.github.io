@@ -5,6 +5,9 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '💬 Per WhatsApp einladen': '💬 Meghívás WhatsAppon', '💬 Jetzt per WhatsApp einladen': '💬 Meghívás most WhatsAppon', '📤 Teilen': '📤 Megosztás',
+    'Name / Nummer ändern': 'Név / szám módosítása', 'Handynummer (für WhatsApp, freiwillig)': 'Mobilszám (WhatsApphoz, nem kötelező)',
+    'Einladung kopiert – z. B. in WhatsApp einfügen': 'Meghívó másolva – pl. illeszd be a WhatsAppba',
     '👑 Vertritt die Reinigungsleitung': '👑 Helyettesíti a takarítási vezetőt', '👑 Als Vertretung der Leitung': '👑 Vezető helyettese legyen',
     '👑 Vertretung beenden': '👑 Helyettesítés vége', 'Vertretung Reinigungsleitung': 'Takarítási vezető helyettese',
     'Du vertrittst die Reinigungsleitung. Das Team verwaltet Apartments Strauss.': 'Te helyettesíted a takarítási vezetőt. A csapatot az Apartments Strauss kezeli.',

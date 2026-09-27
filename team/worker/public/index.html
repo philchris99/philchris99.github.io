@@ -624,6 +624,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </form>`;
     translate($('app'));
     $('code').focus();
+    // Einladungslink (…/#login=123456): Code eintragen und direkt anmelden
+    const m = /login=(\d{6})/.exec(location.hash);
+    if (m) { history.replaceState(null, '', location.pathname + location.search); $('code').value = m[1]; tryCode(); }
   }
 
   /** Gesperrt: kein Eingabefeld, nur Countdown; danach neu beim Server nachfragen */
@@ -1191,10 +1194,22 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   // ---- Team -------------------------------------------------------------------
+  // Einladung: Link trägt den Code auf dem Gerät ein (#login=…, wird nicht an den Server geschickt) → ein Tipp genügt
+  const waNumber = (phone) => { let d = String(phone || '').replace(/[^\d+]/g, ''); if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = '49' + d.slice(1); return d; };
+  function inviteText(p) {
+    const link = `${location.origin}/#login=${p.code}`;
+    const role = (data.leads || []).some((x) => x.id === p.id) ? 'Reinigungsleitung' : 'Reinigungsteam';
+    return `Hallo ${p.name}! 👋\nHier ist dein Zugang zur App von Apartments Strauss (${role}):\n👉 ${link}\n`
+      + `Einfach antippen – du bist direkt angemeldet. Dein persönlicher Code: ${p.code.slice(0, 3)} ${p.code.slice(3)}\n`
+      + `Tipp: Danach „Zum Home-Bildschirm“ hinzufügen und in der App die Push-Nachrichten einrichten.\n\n`
+      + `🇭🇺 Szia ${p.name}! Ez a belépésed az Apartments Strauss alkalmazásához:\n👉 ${link}\n`
+      + `Koppints rá – azonnal be vagy jelentkezve. Személyes kódod: ${p.code.slice(0, 3)} ${p.code.slice(3)}`;
+  }
   function teamList(kind, persons, title) {
     const rows = persons.map((p) => editPerson === p.id ? `
       <form class="panel" data-edit-person="${esc(p.id)}">
         <label class="field">Name <input name="name" value="${esc(p.name)}" required maxlength="60"></label>
+        <label class="field">Handynummer (für WhatsApp, freiwillig) <input name="phone" type="tel" value="${esc(p.phone || '')}" maxlength="25" placeholder="0171 …"></label>
         <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-edit-cancel>Abbrechen</button></div>
       </form>` : `
       <div class="panel"><div class="person"><b style="font-size:17px">${esc(p.name)}</b><span class="meta">${kind === 'lead' ? 'Reinigungsleitung' : 'Mitarbeiterin'}</span>
@@ -1203,7 +1218,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           ? `<span class="code" id="code-${esc(p.id)}">${esc(p.code.slice(0, 3))} ${esc(p.code.slice(3))}</span><button class="small" data-copy="code-${esc(p.id)}">Kopieren</button>`
           : '<span class="meta">nicht mehr sichtbar – bitte „Neuen Code erzeugen“</span>'}</div>` : ''}
         <div class="actions">
-          <button class="small" data-edit-person="${esc(p.id)}">Name ändern</button>
+          ${p.code ? `<button class="small go" data-invite="${esc(p.id)}">💬 Per WhatsApp einladen</button><button class="small" data-share-invite="${esc(p.id)}">📤 Teilen</button>` : ''}
+          <button class="small" data-edit-person="${esc(p.id)}">Name / Nummer ändern</button>
           <button class="small" data-newcode="${esc(p.id)}">Neuen Code erzeugen</button>
           ${kind === 'staff' && role() === 'owner' ? `<button class="small${p.deputy ? '' : ' go'}" data-deputy="${esc(p.id)}" data-on="${p.deputy ? '' : '1'}">${p.deputy ? '👑 Vertretung beenden' : '👑 Als Vertretung der Leitung'}</button>` : ''}
           <button class="small danger" data-remove="${esc(p.id)}">Entfernen</button>
@@ -1216,6 +1232,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <form class="panel" data-add-person="${kind}" style="margin-top:10px">
         <div class="form-grid"><label class="field">${kind === 'lead' ? 'Reinigungsleitung anlegen' : 'Mitarbeiterin hinzufügen'}
           <input name="name" required maxlength="60" placeholder="Name"></label>
+          <label class="field">Handynummer (für WhatsApp, freiwillig)<input name="phone" type="tel" maxlength="25" placeholder="0171 …"></label>
           <button class="primary" type="submit">Anlegen und Code erzeugen</button></div>
       </form>`}`;
   }
@@ -1224,7 +1241,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <div class="code">${esc(newCode.code.slice(0, 3))} ${esc(newCode.code.slice(3))}</div>
       <p class="meta">Persönlich weitergeben. Anmeldung unter <b>${esc(location.host)}</b>. Der Code bleibt unten in der Liste jederzeit sichtbar.
       „Neuen Code erzeugen“ meldet alle bisherigen Geräte dieser Person ab.</p>
-      <div class="actions"><button class="small" data-hide-code>Verstanden, ausblenden</button></div></div>` : '';
+      <div class="actions">${(() => { const p = people().find((x) => x.name === newCode.name && x.code === newCode.code);
+        return p ? `<button class="go" data-invite="${esc(p.id)}">💬 Jetzt per WhatsApp einladen</button><button class="small" data-share-invite="${esc(p.id)}">📤 Teilen</button>` : ''; })()}
+        <button class="small" data-hide-code>Verstanden, ausblenden</button></div></div>` : '';
   }
 
   // ---- Mitarbeiterin ----------------------------------------------------------
@@ -2035,12 +2054,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         update(await api('/api/owner-code', 'POST', { code: $('owner-code-input').value }));
         toast('Admin-Code gespeichert – ab jetzt reicht der Code auf der Startseite');
       } else if (form.dataset.addPerson) {
-        const res = await api('/api/team', 'POST', { name: form.elements.name.value, role: form.dataset.addPerson });
+        const res = await api('/api/team', 'POST', { name: form.elements.name.value, phone: form.elements.phone ? form.elements.phone.value : '', role: form.dataset.addPerson });
         newCode = res.newCode;
         update(res);
         document.getElementById('team').scrollIntoView();
       } else if (form.dataset.editPerson) {
-        const res = await api(`/api/team/${form.dataset.editPerson}`, 'POST', { name: form.elements.name.value });
+        const res = await api(`/api/team/${form.dataset.editPerson}`, 'POST', { name: form.elements.name.value, phone: form.elements.phone.value });
         editPerson = null;
         update(res);
         toast('Gespeichert');
@@ -2284,6 +2303,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         if (d.on && !armed(b, 'Rechte der Reinigungsleitung geben? Nochmal tippen')) return;
         update(await api(`/api/team/${d.deputy}/deputy`, 'POST', { on: !!d.on }));
         toast(d.on ? 'Vertretung aktiv – sie kann jetzt Reinigungen bestätigen und einteilen' : 'Vertretung beendet');
+      } else if (d.invite) {
+        const p = people().find((x) => x.id === d.invite);
+        window.open(`https://wa.me/${p.phone ? waNumber(p.phone) : ''}?text=${encodeURIComponent(inviteText(p))}`, '_blank');
+      } else if (d.shareInvite) {
+        const text = inviteText(people().find((x) => x.id === d.shareInvite));
+        if (navigator.share) await navigator.share({ text }).catch(() => {});
+        else await navigator.clipboard.writeText(text).then(() => toast('Einladung kopiert – z. B. in WhatsApp einfügen'), () => prompt('Zum Kopieren:', text));
       } else if (d.remove) {
         if (!armed(b, 'Wirklich entfernen? Nochmal tippen')) return;
         update(await api(`/api/team/${d.remove}/delete`, 'POST'));
@@ -2348,6 +2374,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       }
     } catch { /* offline */ }
   };
+  // Einladungslink auf einem bereits angemeldeten Gerät: Code nicht in der Adresszeile stehen lassen
+  if (auth && /login=/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
   checkVersion();
   refresh(true);
   setInterval(() => { if (!document.hidden) { refresh(); checkVersion(); } }, 60000);

@@ -338,10 +338,12 @@ function apartmentList(state) {
     .sort((a, b) => L.compareApartments(a.name, b.name)); // #EINS … #DREIZEHN in Zahlenfolge
 }
 
+/** Telefonnummer (für WhatsApp-Einladung): nur Ziffern, +, Leerzeichen */
+const cleanPhone = (v) => String(v || '').replace(/[^\d+ ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25);
 const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, ...(p.deputy ? { deputy: true, deputySince: p.deputySince || null } : {}) });
 /** Team-Liste; Codes sieht der Admin für alle, die Leitung für ihre Mitarbeiterinnen. */
 async function teamFor(env, list, withCodes) {
-  return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc) } : {}) })));
+  return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc), phone: p.phone || '' } : {}) })));
 }
 const CHANGE_KINDS = ['new', 'assigned', 'unassigned', 'rescheduled', 'cancelled', 'edited', 'note', 'report', 'late', 'request', 'period', 'keys'];
 
@@ -795,6 +797,8 @@ async function handleApi(request, env, url, ctx) {
     const name = String(body.name || '').trim().slice(0, 60);
     if (!name) return fail('Bitte einen Namen eingeben');
     const entry = { id: randomId(kind === 'lead' ? 'l' : 'm', 8), name, version: 1, createdAt: new Date(now).toISOString(), createdBy: user.id };
+    const phone = cleanPhone(body.phone);
+    if (phone) entry.phone = phone;
     const code = await withNewCode(entry);
     listFor(kind).push(entry);
     await saveSettings(env.DB, settings);
@@ -830,9 +834,11 @@ async function handleApi(request, env, url, ctx) {
       await saveSettings(env.DB, settings);
       return teamReply({ newCode: { name: entry.name, code } });
     }
-    const name = String((await readJson()).name || '').trim().slice(0, 60);
+    const body = await readJson();
+    const name = String(body.name || '').trim().slice(0, 60);
     if (!name) return fail('Bitte einen Namen eingeben');
     entry.name = name;
+    if ('phone' in body) { const phone = cleanPhone(body.phone); if (phone) entry.phone = phone; else delete entry.phone; }
     await saveSettings(env.DB, settings);
     return teamReply({});
   }
