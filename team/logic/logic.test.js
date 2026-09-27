@@ -665,3 +665,14 @@ test('Doch früher: Reinigungskraft hebt genehmigten Zeitraum auf → Admin-Push
   assert.equal(later.latestDate, '2026-10-03');
   assert.throws(() => L.withdrawPeriod(confirmedTask(), '100', MIA, NOW, CFG), /keinen späteren Zeitraum/);
 });
+
+test('Sperrzeiten (Blockierungen) erzeugen nie eine Reinigung – egal wie viele Nächte', () => {
+  const blocks = [1, 2, 3, 4, 7, 14].map((n, i) => ({ id: 950 + i, type: 'reservation', arrival: '2026-10-01', departure: L.addDays('2026-10-01', n),
+    apartment: { id: 30 + i, name: `Wohnung ${i}` }, 'is-blocked-booking': true }));
+  let res = L.syncFromSmoobu(L.createState(), [], NOW, CFG);
+  res = L.syncFromSmoobu(res.state, blocks, NOW, CFG, 30, '2026-09-22');
+  assert.equal(Object.keys(res.state.tasks).length, 0);
+  assert.equal(res.notifications.length, 0);
+  assert.equal(Object.values(res.state.reservations).filter((r) => r.blocked).length, blocks.length, 'nur im Kalender');
+  assert.equal(L.fromSmoobuBooking(blocks[0]), null);
+});
