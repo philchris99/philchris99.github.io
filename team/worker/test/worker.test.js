@@ -845,6 +845,10 @@ test('Vertretung: Admin gibt einer Mitarbeiterin die Rechte der Reinigungsleitun
   assert.equal((await call('POST', '/api/tasks/401/assign', { session: mia, body: { to: miaId } })).status, 200, 'teilt ein (auch sich selbst)');
   assert.equal((await call('POST', '/api/tasks/401/confirm', { session: mia })).status, 200, 'nimmt als Mitarbeiterin an');
   assert.equal((await call('POST', '/api/team', { session: mia, body: { name: 'Neu' } })).status, 403, 'verwaltet kein Team');
+  smoobuBookings = [booking(401, '2099-12-01'), booking(402, '2099-12-02')];
+  await runSync(env);
+  assert.equal((await call('POST', '/api/tasks/402/assign', { session: mia, body: { to: leaId } })).status, 200, 'Vertretung teilt auch die Reinigungsleitung ein');
+  assert.equal((await call('POST', '/api/tasks/402/confirm', { session: lea })).status, 200, 'Leitung nimmt an');
   assert.equal((await me(lea)).user.role, 'lead');
   const off = await call('POST', `/api/team/${miaId}/deputy`, { session: admin, body: { on: false } });
   assert.equal(off.body.staff.find((p) => p.id === miaId).deputy, undefined);

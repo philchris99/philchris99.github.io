@@ -316,6 +316,7 @@
     // Wochentage in Datumsangaben vom Server („Di, 29.09.2026“)
     [/\b(So|Mo|Di|Mi|Do|Fr|Sa), (\d\d\.\d\d\.)/g, (m, d, rest) => `${WD[d]}, ${rest}`],
     [/^📍 (.+)$/, (m, x) => '📍 ' + place(x)],
+    [/^(.+) \(Reinigungsleitung\)$/, '$1 (takarítási vezető)'],
     [/^Zu früh\? Die Reinigung ist erst für (.+?) \((.+)\) geplant – eventuell sind noch Gäste in der Wohnung\.$/, (m, d, date) => `Túl korán? A takarítás csak erre a napra van tervezve: ${dict[d] || d} (${date}) – lehet, hogy még vendégek vannak a lakásban.`],
     [/^Zu früh\? Check-out ist erst um (.+) Uhr – eventuell sind noch Gäste in der Wohnung\.$/, 'Túl korán? A kijelentkezés csak $1-kor van – lehet, hogy még vendégek vannak a lakásban.'],
     [/^⚠ Datum geändert – vorher (.+)$/, '⚠ Dátum módosult – korábban: $1'],

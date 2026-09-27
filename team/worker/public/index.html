@@ -1017,7 +1017,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   function assignControl(t) {
     // Vertretung steht selbst in der Mitarbeiterinnen-Liste → nur einmal als „Ich selbst“ anbieten
-    const options = [...(data.staff || []).filter((s) => s.id !== data.user.id).map((s) => [s.id, s.name]), [data.user.id, `Ich selbst (${data.user.name})`]];
+    // Auswahl: Mitarbeiterinnen, Reinigungsleitung (für die Vertretung), „Ich selbst“ – jede Person nur einmal
+    const options = [
+      ...(data.staff || []).filter((s) => s.id !== data.user.id).map((s) => [s.id, s.name]),
+      ...(data.leads || []).filter((l) => l.id !== data.user.id).map((l) => [l.id, `${l.name} (Reinigungsleitung)`]),
+      [data.user.id, `Ich selbst (${data.user.name})`]];
     return `<div class="assign">
       <select data-assign-select="${esc(t.id)}" aria-label="Mitarbeiterin auswählen">
         <option value="">${t.assignedTo ? 'Neu zuweisen …' : 'Mitarbeiterin wählen …'}</option>
