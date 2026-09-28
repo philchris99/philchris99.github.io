@@ -1877,8 +1877,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <label>Empfänger (Rechnungsadresse)</label><textarea name="recipient" rows="4">${esc(inv.recipient)}</textarea>
       <label>Leistungen (Betrag brutto, USt)</label>${lines}
       <button type="button" class="small" data-inv-addline>+ Position</button>
-      <label>Zahlung</label><textarea name="payment" rows="2">${esc(inv.payment)}</textarea>
-      <label>Hinweis (optional)</label><input name="note" value="${esc(inv.note || '')}">
+      <label><input type="checkbox" name="paid" style="width:auto;min-height:0"${inv.paid ? ' checked' : ''}> bereits bezahlt (z. B. über Booking.com) – sonst Zahlungsziel</label>
+      <label>Zahlungsziel in Tagen (wenn nicht bezahlt)</label><input name="dueDays" inputmode="numeric" value="${esc(inv.dueDays == null ? 7 : inv.dueDays)}">
+      <label>Zahlungsart</label><input name="method" value="${esc(inv.method || 'Überweisung')}">
+      <label>Zahlungshinweis</label><textarea name="payment" rows="2">${esc(inv.payment)}</textarea>
+      <label>Sprache der Rechnung</label><select name="lang"><option value="de"${inv.lang !== 'en' ? ' selected' : ''}>Deutsch</option><option value="en"${inv.lang === 'en' ? ' selected' : ''}>Englisch</option></select>
+      <label>Hinweis (optional, z. B. Referenznummer der Firma)</label><input name="note" value="${esc(inv.note || '')}">
       <label>Rechnungsdatum</label><input type="date" name="date" value="${esc(inv.date)}">
       <p class="meta">Summe ${eur(inv.totals.gross)} brutto · darin USt ${eur(inv.totals.vat)}. Nach dem Ausstellen ist die Rechnung unveränderlich (Korrektur nur per Storno).</p>
       <div class="actions"><button type="button" class="small" data-inv-save="${esc(inv.id)}">Speichern</button>
@@ -1887,7 +1891,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
   function readInvForm(form) {
     const f = (n) => form.querySelector(`[name="${n}"]`).value;
-    return { issuerId: f('issuerId'), recipient: f('recipient'), payment: f('payment'), note: f('note'), date: f('date'),
+    return { issuerId: f('issuerId'), recipient: f('recipient'), payment: f('payment'), note: f('note'), date: f('date'), method: f('method'), lang: f('lang'),
+      paid: form.querySelector('[name="paid"]').checked, dueDays: f('dueDays'),
       lines: [...form.querySelectorAll('[data-inv-line]')].map((r) => ({ text: r.querySelector('[data-l="text"]').value, gross: r.querySelector('[data-l="gross"]').value, vat: r.querySelector('[data-l="vat"]').value }))
         .filter((l) => l.text.trim() || Number(String(l.gross).replace(',', '.'))) };
   }
@@ -1926,9 +1931,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <button class="small" data-wgb-open="${esc(t.booking)}">📄 Wohnungsgeberbestätigung</button></div>
       ${invs.map((i) => invoiceEditor(i, t.booking)).join('')}
       ${wgbOpen.has(t.booking) ? `<div class="panel inv-grid" style="margin-top:8px"><b>📄 Wohnungsgeberbestätigung</b>
-        <label>Namen aller Personen (eine je Zeile)</label><textarea id="wgb-names-${esc(t.booking)}" rows="3" data-dirty-on></textarea>
+        <label>Personen – je Zeile: Name, Vorname – Geburtsdatum</label><textarea id="wgb-names-${esc(t.booking)}" rows="4" placeholder="Bandaru, Kishore – 01.01.1991"></textarea>
         <label>Einzugsdatum</label><input type="date" id="wgb-date-${esc(t.booking)}" value="${esc(t.arrival || '')}">
-        <label>Anschrift der Wohnung (leer = aus den Wohnungsdaten)</label><input id="wgb-addr-${esc(t.booking)}">
+        <label>Anschrift der Wohnung (leer = aus den Wohnungsdaten)</label><input id="wgb-addr-${esc(t.booking)}" placeholder="Brucknerstraße 10, 38106 Braunschweig">
+        <label>Stockwerk / Lage (leer = aus den Wohnungsdaten)</label><input id="wgb-floor-${esc(t.booking)}" placeholder="3. OG rechts">
         <div class="actions"><button class="primary" data-wgb-create="${esc(t.booking)}">Erstellen</button></div></div>` : ''}
       ${(t.docs || []).map((d) => `<div class="panel" style="margin-top:8px">📄 Wohnungsgeberbestätigung vom ${esc(fmtTime(new Date(d.created).toISOString()))}
         <div class="actions"><a class="btn small" href="${esc(d.url)}" target="_blank" rel="noopener">Ansehen</a><button class="small" data-inv-link="${esc(d.url)}" data-booking="${esc(t.booking)}">Link in Antwort</button></div></div>`).join('')}
@@ -1967,7 +1973,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <label>Ort / Unterzeichner (Wohnungsgeberbestätigung)</label><div class="inv-line" style="grid-template-columns:1fr 1fr"><input data-k="place" value="${esc(x.place || '')}" placeholder="Braunschweig"><input data-k="signer" value="${esc(x.signer || '')}" placeholder="Name"></div></fieldset>`;
     const apts = invData.apartments.map((a) => { const m = st.apts[a.id] || {}; return `<tr data-apt="${esc(a.id)}"><td>${esc(a.name)}</td>
       <td><select data-k="issuer"><option value="">–</option>${iss.map((x, i) => `<option value="${esc(x.id)}"${m.issuer === x.id ? ' selected' : ''}>${esc(x.name || 'Aussteller ' + (i + 1))}</option>`).join('')}</select></td>
-      <td><input data-k="prefix" value="${esc(m.prefix || '')}" placeholder="VIER-"></td><td><input data-k="next" inputmode="numeric" value="${esc(invData.counters[a.id] || 1)}"></td></tr>`; }).join('');
+      <td><input data-k="prefix" value="${esc(m.prefix || '')}" placeholder="BER" style="max-width:90px"></td>
+      <td><input data-k="owner" value="${esc(m.owner || '')}" placeholder="= Aussteller"></td></tr>`; }).join('');
+    const series = (invData.series || []).map((x) => `<tr data-series="${esc(x.prefix)}"><td><b>${esc(x.prefix)}</b></td><td><input data-k="next" inputmode="numeric" value="${esc(x.next)}" style="max-width:100px"></td></tr>`).join('');
     const list = invData.invoices.filter((i) => i.number).map((i) => `<tr><td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.number)}</a></td><td>${esc(dayShort(i.date))}</td>
       <td>${esc(i.aptName || '')}</td><td>${esc(String(i.recipient || '').split('\n')[0])}</td><td style="text-align:right">${eur(i.totals.gross)}</td><td>${esc(invoiceStatus(i))}${i.sentAt ? ' ✓' : ''}</td></tr>`).join('');
     return `<details class="more" id="invoices" open><summary>🧾 Rechnungen (Aussteller, Nummern, Übersicht)</summary>
@@ -1976,8 +1984,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <form class="inv-grid" data-inv-settings style="margin-top:10px">
         ${iss.map(issuerForm).join('')}
         <div class="panel scroll"><b>Wohnungen: Aussteller & Nummernkreis</b>
-          <p class="meta">Jede Wohnung hat einen eigenen, fortlaufenden Nummernkreis. „Nächste Nr.“ = die Nummer der nächsten Rechnung (einmal an Smoobu anpassen).</p>
-          <table><tr><th>Wohnung</th><th>Aussteller</th><th>Präfix</th><th>Nächste Nr.</th></tr>${apts}</table>
+          <p class="meta">Wohnungen mit gleichem Präfix teilen sich einen fortlaufenden Nummernkreis (z. B. alle Berliner-Platz-Wohnungen „BER“), jedes Jahr neu ab 1.
+            „Eigentümer“ nur ausfüllen, wenn der Aussteller nicht Eigentümer ist (für die Wohnungsgeberbestätigung).</p>
+          <table><tr><th>Wohnung</th><th>Aussteller</th><th>Präfix</th><th>Eigentümer (falls abweichend)</th></tr>${apts}</table>
+          <b style="display:block;margin-top:10px">Nächste Rechnungsnummer ${esc(invData.year || '')}</b>
+          <p class="meta">Einmal an die letzte Nummer aus Smoobu anpassen (letzte BER-2026-053 → hier 54).</p>
+          <table><tr><th>Präfix</th><th>Nächste Nr.</th></tr>${series || '<tr><td colspan="2" class="meta">Erst Präfixe speichern.</td></tr>'}</table>
           <label class="meta">Format ({prefix} {jahr} {nr} {nr3} {nr4})</label><input name="format" value="${esc(st.format)}"></div>
         <button type="submit" class="primary">Speichern</button></form></details>`;
   }
@@ -2546,11 +2558,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         });
         const apts = {}, next = {};
         for (const r of form.querySelectorAll('[data-apt]')) {
-          apts[r.dataset.apt] = { issuer: r.querySelector('[data-k="issuer"]').value, prefix: r.querySelector('[data-k="prefix"]').value };
-          next[r.dataset.apt] = r.querySelector('[data-k="next"]').value;
+          apts[r.dataset.apt] = { issuer: r.querySelector('[data-k="issuer"]').value, prefix: r.querySelector('[data-k="prefix"]').value, owner: r.querySelector('[data-k="owner"]').value };
         }
+        for (const r of form.querySelectorAll('[data-series]')) next[r.dataset.series] = r.querySelector('[data-k="next"]').value;
         const r = await api('/api/invoices/settings', 'POST', { issuers, apts, next, format: form.querySelector('[name="format"]').value });
-        invData = { ...invData, settings: r.settings, counters: r.counters };
+        invData = { ...invData, settings: r.settings, series: r.series, year: r.year };
         delete form.dataset.dirty;
         toast('Rechnungs-Einstellungen gespeichert');
         render();
@@ -3095,7 +3107,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
       } else if (d.wgbCreate) {
         const id = d.wgbCreate;
-        await api('/api/wgb', 'POST', { booking: id, names: $('wgb-names-' + id).value, moveIn: $('wgb-date-' + id).value, address: $('wgb-addr-' + id).value });
+        await api('/api/wgb', 'POST', { booking: id, names: $('wgb-names-' + id).value, moveIn: $('wgb-date-' + id).value, address: $('wgb-addr-' + id).value, floor: $('wgb-floor-' + id).value });
         wgbOpen.delete(id);
         toast('Wohnungsgeberbestätigung erstellt');
         await loadInbox();

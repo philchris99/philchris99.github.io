@@ -20,7 +20,7 @@ import {
 } from './store.js';
 import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, maskStrict, categoryOrder, labelOf } from './inquiries.js';
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, sendMessageToGuest, fetchGuest, diagnose } from './smoobu.js';
-import { needsReply, language, topicsOf, templateDraft, aiPrompt, planFacts, fingerprint, invoiceTotals, invoiceNumber, invoiceHtml, wgbHtml, TOPIC_LABELS } from './messages.js';
+import { needsReply, language, topicsOf, templateDraft, aiPrompt, planFacts, fingerprint, invoiceTotals, invoiceNumber, invoiceHtml, wgbHtml, parsePerson, splitName, TOPIC_LABELS } from './messages.js';
 import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
@@ -660,10 +660,18 @@ function invoiceSettings(settings) {
   const defApts = {};
   for (const [num, d] of Object.entries(config.apartmentDetails || {})) {
     const word = (String(d.name || '').match(/#\s*([A-ZÄÖÜ]+)/) || [])[1];
-    if (d.smoobuId) defApts[d.smoobuId] = { issuer: (ISSUERS.byNumber || {})[num] || '', prefix: word ? word + '-' : '' };
+    if (d.smoobuId) defApts[d.smoobuId] = { issuer: (ISSUERS.byNumber || {})[num] || '', prefix: (ISSUERS.series || {})[num] || word || '' };
   }
-  return { format: own.format || '{prefix}{jahr}-{nr3}', issuers: own.issuers && own.issuers.length ? own.issuers : (ISSUERS.issuers || []),
+  return { format: own.format || '{prefix}-{jahr}-{nr3}', issuers: own.issuers && own.issuers.length ? own.issuers : (ISSUERS.issuers || []),
     apts: { ...defApts, ...(own.apts || {}) } };
+}
+/** Nummernkreis: gleiches Präfix = gemeinsame Nummern, jedes Jahr neu ab 1 */
+const seriesOf = (iset, apt) => ((iset.apts[apt] || {}).prefix || '').trim() || `whg${apt}`;
+const seriesKey = (iset, apt, date) => `${seriesOf(iset, apt)}|${String(date || '').slice(0, 4)}`;
+async function seriesList(env, iset, year) {
+  const counters = await invoiceCounters(env.DB);
+  const names = [...new Set(Object.values(iset.apts).map((a) => (a.prefix || '').trim()).filter(Boolean))].sort();
+  return names.map((p) => ({ prefix: p, next: counters[`${p}|${year}`] || 1 }));
 }
 /** Ausstattung einer Wohnung (Betten, Babyausstattung) über Smoobu-ID oder Nummer im Namen */
 function factsFor(aptId, aptName) {
@@ -702,19 +710,26 @@ async function invoiceDraft(env, cfg, settings, state, booking, now) {
       if (text && !/^KEINE/i.test(text) && text.length < 400) recipient = text;
     }
   }
-  const nights = Math.round((Date.parse(raw.departure) - Date.parse(raw.arrival)) / 86400000);
   const aptName = (raw.apartment && raw.apartment.name) || aptNameOf(state, apt);
   const channel = (raw.channel && raw.channel.name) || '';
-  const paid = /^yes|true|1$/i.test(String(raw['price-paid'] ?? ''));
-  const dm = (iso) => iso.split('-').reverse().join('.');
+  const viaPortal = /booking|airbnb|expedia|agoda|vrbo|check24/i.test(channel);
+  const paid = viaPortal || /^(yes|true|1)$/i.test(String(raw['price-paid'] ?? ''));
+  const dmy = (iso) => { const [y, m, d] = iso.split('-'); return `${d}.${m}.${y.slice(2)}`; };
   const vat = issuer && issuer.smallBusiness ? 0 : Number(issuer && issuer.vat != null ? issuer.vat : 7);
+  const lang = /^(de|deu|german)/i.test(String(raw.language || 'de')) ? 'de' : 'en';
+  const adults = Number(raw.adults) || 0, children = Number(raw.children) || 0;
+  const people = [adults ? `${adults} ${lang === 'de' ? (adults === 1 ? 'Erwachsener' : 'Erwachsene') : (adults === 1 ? 'Adult' : 'Adults')}` : '',
+    children ? `${children} ${lang === 'de' ? (children === 1 ? 'Kind' : 'Kinder') : (children === 1 ? 'Child' : 'Children')}` : ''].filter(Boolean).join(', ');
   return {
     id: randomId('re', 12), booking: String(booking), apt, status: 'entwurf', created: now,
     issuerId: issuer ? issuer.id : '', recipient, guest: guestName, arrival: raw.arrival, departure: raw.departure, aptName, channel,
     bookingRef: String(raw['reference-id'] || booking), date: L.localParts(now, cfg.timezone).date,
-    lines: [{ text: `Übernachtung ${aptName}\n${nights} ${nights === 1 ? 'Nacht' : 'Nächte'} vom ${dm(raw.arrival)} bis ${dm(raw.departure)}`, gross: Number(raw.price) || 0, vat }],
-    payment: paid || /booking|airbnb|expedia|agoda/i.test(channel) ? `Der Betrag wurde bereits${channel ? ` über ${channel}` : ''} bezahlt.` : 'Bitte überweisen Sie den Betrag innerhalb von 14 Tagen auf das unten angegebene Konto.',
-    note: '', lang: /^(de|deu|german)/i.test(String(raw.language || 'de')) ? 'de' : 'en',
+    lines: [{ text: `${aptName}, ${dmy(raw.arrival)} - ${dmy(raw.departure)}${people ? ', ' + people : ''}`, gross: Number(raw.price) || 0, vat }],
+    paid, dueDays: paid ? null : 7, method: lang === 'de' ? 'Überweisung' : 'Bank transfer',
+    payment: lang === 'de'
+      ? (paid ? `Vielen Dank für den Aufenthalt${viaPortal ? ` und die Zahlung via ${channel}` : ' und die Zahlung'}.` : 'Hiermit bestätigen wir die Buchung der Unterkunft und bitten um Zahlung entsprechend des Zahlungsziels.')
+      : (paid ? `Thank you for your stay${viaPortal ? ` and the payment via ${channel}` : ' and the payment'}.` : 'We hereby confirm the booking of the accommodation and kindly ask for payment by the due date.'),
+    note: '', lang,
   };
 }
 function invoiceView(inv, cfg, request) {
@@ -1467,7 +1482,8 @@ async function handleApi(request, env, url, ctx) {
   // ---- Rechnungen ----
   if (path === '/api/invoices' && request.method === 'GET') {
     const { state } = await loadState(env.DB);
-    return json({ settings: invoiceSettings(settings), counters: await invoiceCounters(env.DB),
+    const year = L.localParts(now, cfg.timezone).date.slice(0, 4);
+    return json({ settings: invoiceSettings(settings), year, series: await seriesList(env, invoiceSettings(settings), year),
       apartments: apartmentList(state).map((a) => ({ id: a.id, name: a.name })), invoices: (await listInvoices(env.DB, 100)).map((i) => invoiceView(i, cfg, request)) });
   }
   if (path === '/api/invoices/settings' && request.method === 'POST') {
@@ -1478,15 +1494,17 @@ async function handleApi(request, env, url, ctx) {
       bank: str(x.bank, 300), footer: str(x.footer, 400), smallBusiness: !!x.smallBusiness, vat: x.vat === '' || x.vat == null ? 7 : Number(x.vat) || 0,
       place: str(x.place, 60), signer: str(x.signer, 100) })).filter((x) => x.name);
     const apts = {};
-    for (const [id, v] of Object.entries(body.apts || {})) apts[id] = { issuer: str(v.issuer, 20), prefix: str(v.prefix, 30) };
-    settings.invoice = { format: str(body.format, 60) || '{prefix}{jahr}-{nr3}', issuers, apts };
+    for (const [id, v] of Object.entries(body.apts || {})) apts[id] = { issuer: str(v.issuer, 20), prefix: str(v.prefix, 30).replace(/[^\w-]/g, ''), owner: str(v.owner, 300) };
+    settings.invoice = { format: str(body.format, 60) || '{prefix}-{jahr}-{nr3}', issuers, apts };
     await saveSettings(env.DB, settings);
+    const year = L.localParts(now, cfg.timezone).date.slice(0, 4);
     const counters = await invoiceCounters(env.DB);
-    for (const [id, v] of Object.entries(body.next || {})) {
+    for (const [prefix, v] of Object.entries(body.next || {})) {
       const n = Math.floor(Number(v));
-      if (n >= 1 && n !== counters[id]) await setInvoiceCounter(env.DB, id, n);
+      const key = `${prefix}|${year}`;
+      if (n >= 1 && n !== (counters[key] || 1)) await setInvoiceCounter(env.DB, key, n);
     }
-    return json({ settings: invoiceSettings(settings), counters: await invoiceCounters(env.DB) });
+    return json({ settings: invoiceSettings(settings), year, series: await seriesList(env, invoiceSettings(settings), year) });
   }
   if (path === '/api/invoices/draft' && request.method === 'POST') {
     if (!smoobuCreds(env).key) return fail('Smoobu ist nicht verbunden');
@@ -1523,7 +1541,9 @@ async function handleApi(request, env, url, ctx) {
       if (body.recipient != null) inv.recipient = String(body.recipient).slice(0, 600);
       if (body.issuerId != null) inv.issuerId = String(body.issuerId);
       if (Array.isArray(body.lines)) inv.lines = body.lines.slice(0, 20).map((l) => ({ text: String(l.text || '').slice(0, 500), gross: Math.round((Number(String(l.gross).replace(',', '.')) || 0) * 100) / 100, vat: Number(l.vat) || 0 }));
-      for (const k of ['payment', 'note', 'date', 'lang']) if (body[k] != null) inv[k] = String(body[k]).slice(0, 800);
+      for (const k of ['payment', 'note', 'date', 'lang', 'method']) if (body[k] != null) inv[k] = String(body[k]).slice(0, 800);
+      if (body.paid != null) { inv.paid = !!body.paid; inv.dueDays = inv.paid ? null : (Number(body.dueDays) >= 0 && body.dueDays !== '' ? Number(body.dueDays) : 7); }
+      else if (body.dueDays != null && !inv.paid) inv.dueDays = Number(body.dueDays) || 0;
       await saveInvoice(env.DB, inv);
       return json({ invoice: invoiceView(inv, cfg, request) });
     }
@@ -1540,19 +1560,20 @@ async function handleApi(request, env, url, ctx) {
       if (!issuer.taxNo && !issuer.vatId) return fail(`Steuernummer oder USt-IdNr. von „${issuer.name}“ fehlt (Pflichtangabe)`);
       if (!String(inv.recipient || '').trim()) return fail('Empfänger fehlt');
       if (!invoiceTotals(inv.lines).gross) return fail('Betrag fehlt');
-      const n = await takeInvoiceNumber(env.DB, inv.apt || 'x');
       inv.date = inv.date || L.localParts(now, cfg.timezone).date;
-      inv.number = invoiceNumber(iset.format, (iset.apts[inv.apt] || {}).prefix || '', n, inv.date);
+      const n = await takeInvoiceNumber(env.DB, seriesKey(iset, inv.apt, inv.date));
+      inv.number = invoiceNumber(iset.format, seriesOf(iset, inv.apt), n, inv.date);
+      if (inv.dueDays != null && !inv.paid) inv.due = L.addDays(inv.date, Number(inv.dueDays) || 0);
       inv.issuer = issuer; inv.status = 'ausgestellt'; inv.token = randomId('', 24); inv.issuedAt = now;
       await saveInvoice(env.DB, inv);
       return json({ invoice: invoiceView(inv, cfg, request) });
     }
     if (iv[2] === 'cancel') {
       if (inv.status !== 'ausgestellt') return fail('Nur ausgestellte Rechnungen können storniert werden');
-      const n = await takeInvoiceNumber(env.DB, inv.apt || 'x');
       const date = L.localParts(now, cfg.timezone).date;
+      const n = await takeInvoiceNumber(env.DB, seriesKey(iset, inv.apt, date));
       const st = { ...inv, id: randomId('re', 12), status: 'storno', created: now, date, refNumber: inv.number, refId: inv.id, sendAt: null, sentAt: null,
-        lines: inv.lines.map((l) => ({ ...l, gross: -l.gross })), number: invoiceNumber(iset.format, (iset.apts[inv.apt] || {}).prefix || '', n, date),
+        lines: inv.lines.map((l) => ({ ...l, gross: -l.gross })), number: invoiceNumber(iset.format, seriesOf(iset, inv.apt), n, date), due: null,
         token: randomId('', 24), issuedAt: now, payment: '' };
       await saveInvoice(env.DB, st);
       inv.cancelled = true; inv.status = 'storniert'; inv.cancelId = st.id; inv.sendAt = null;
@@ -1570,22 +1591,33 @@ async function handleApi(request, env, url, ctx) {
   // ---- Wohnungsgeberbestätigung ----
   if (path === '/api/wgb' && request.method === 'POST') {
     const body = await readJson();
-    const names = (Array.isArray(body.names) ? body.names : String(body.names || '').split('\n')).map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
-    if (!names.length) return fail('Bitte die Namen eintragen');
+    const lines = (Array.isArray(body.names) ? body.names : String(body.names || '').split('\n')).map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
+    if (!lines.length) return fail('Bitte die Personen eintragen (je Zeile: Name, Vorname – Geburtsdatum)');
+    const persons = lines.map(parsePerson);
     const t = body.booking ? await getThread(env.DB, body.booking) : null;
     const iset = invoiceSettings(settings);
     const apt = String(body.apt || (t && t.apt) || '');
-    const issuer = iset.issuers.find((x) => x.id === (iset.apts[apt] || {}).issuer) || iset.issuers[0];
+    const map = iset.apts[apt] || {};
+    const issuer = iset.issuers.find((x) => x.id === map.issuer) || iset.issuers[0];
     const { state } = await loadState(env.DB);
+    const aptName = aptNameOf(state, apt);
     const details = apartmentDetails(cfg, state)[apt] || {};
-    const b = builtinFor(aptNameOf(state, apt));
+    const b = builtinFor(aptName) || {};
+    // Anschrift „Brucknerstraße 10, 38106 Braunschweig“ → Straße / PLZ / Ort
+    const full = String(body.address || details.address || b.address || '').trim();
+    const m = full.match(/^(.*?),\s*(\d{5})\s+(.+)$/);
+    const addr = issuer ? String(issuer.address || '').split('\n') : [];
+    const name = splitName(issuer ? issuer.signer || issuer.name : '');
     const doc = { id: randomId('wg', 12), kind: 'wgb', booking: body.booking ? String(body.booking) : null, token: randomId('', 24), created: now,
-      names, moveIn: /^\d{4}-\d\d-\d\d$/.test(body.moveIn || '') ? body.moveIn : (t && t.arrival) || '',
-      address: String(body.address || details.address || (b && b.address) || '').trim(),
-      landlord: String(body.landlord || (issuer ? `${issuer.name}\n${issuer.address}` : '')).trim(), owner: String(body.owner || '').trim(),
-      place: (issuer && issuer.place) || 'Braunschweig', signer: (issuer && issuer.signer) || '', date: L.localParts(now, cfg.timezone).date };
-    if (!doc.address) return fail('Anschrift der Wohnung fehlt – bitte eintragen');
-    if (!doc.landlord) return fail('Wohnungsgeber fehlt – bitte unter Rechnungen einen Aussteller anlegen oder eintragen');
+      persons, moveIn: /^\d{4}-\d\d-\d\d$/.test(body.moveIn || '') ? body.moveIn : (t && t.arrival) || '',
+      street: m ? m[1] : full.replace(/\s*\(\d+\)\s*$/, ''), zip: m ? m[2] : '', city: m ? m[3] : 'Braunschweig',
+      floor: String(body.floor || b.description || '').trim(),
+      landlord: { last: name.last, first: name.first, street: addr[0] || '', city: addr.slice(1).join(', ') },
+      owner: String(body.owner != null ? body.owner : map.owner || '').trim(),
+      place: (issuer && issuer.place) || 'Braunschweig', signer: (issuer && (issuer.signer || issuer.name)) || '', date: L.localParts(now, cfg.timezone).date };
+    if (!doc.street) return fail('Anschrift der Wohnung fehlt – bitte eintragen');
+    if (!doc.landlord.last || !doc.landlord.street) return fail('Wohnungsgeber fehlt – bitte unter Rechnungen Name und Anschrift des Ausstellers eintragen');
+    if (persons.some((p) => !p.birth)) return fail('Bitte zu jeder Person das Geburtsdatum angeben (z. B. „Schmidt, Anna – 01.01.1990“)');
     await saveDoc(env.DB, doc);
     return json({ doc: { id: doc.id, kind: 'wgb', url: docUrl(cfg, request, doc.token) } });
   }

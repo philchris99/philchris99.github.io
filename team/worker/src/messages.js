@@ -142,8 +142,8 @@ export function templateDraft(ctx) {
       add(t, de ? 'gerne stellen wir dir eine Rechnung aus. Falls sie auf eine Firma laufen soll, schick uns bitte die vollständige Rechnungsadresse (Firmenname, Straße, PLZ, Ort, ggf. USt-IdNr.). Die Rechnung bekommst du nach deiner Abreise als Link per Nachricht.'
         : 'we are happy to issue an invoice. If it should be made out to a company, please send us the full billing address (company name, street, postcode, city, VAT ID if applicable). You will receive the invoice as a link by message after your departure.');
     } else if (t === 'wgb') {
-      add(t, de ? 'gerne stellen wir dir eine Wohnungsgeberbestätigung für das Bürgeramt aus. Bitte schick uns dafür die vollständigen Namen (Vor- und Nachname) aller Personen, die sich anmelden.'
-        : 'we are happy to provide the landlord confirmation (Wohnungsgeberbestätigung) for the registration office. Please send us the full names (first and last name) of everyone who is registering.');
+      add(t, de ? 'gerne stellen wir dir eine Wohnungsgeberbestätigung für das Bürgeramt aus. Bitte schick uns dafür von allen Personen, die sich anmelden, den vollständigen Namen (Vor- und Nachname) und das Geburtsdatum.'
+        : 'we are happy to provide the landlord confirmation (Wohnungsgeberbestätigung) for the registration office. Please send us the full name (first and last name) and date of birth of everyone who is registering.');
     } else if (t === 'parking') {
       if (!s.parking && done.has('checkin') && ctx.guestLink) add(t, de ? 'Infos zum Parken stehen ebenfalls im Link oben.' : 'Parking information is also in the link above.');
       else add(t, s.parking || (de ? `Infos zum Parken findest du in deinem Gäste-Link:${link || ' [Gäste-Link]'}` : `You will find parking information in your guest link:${link || ' [guest link]'}`));
@@ -282,48 +282,84 @@ td.n,th.n{text-align:right;white-space:nowrap} .sum td{border:0;padding:3px 6px}
 @media print{body{background:#fff;padding:0}.doc{box-shadow:none;padding:0}.bar{display:none}}
 </style></head><body><div class="bar"><button onclick="print()">🖨️ Drucken / als PDF speichern</button></div><div class="doc">${body}</div></body></html>`;
 
-/** Rechnung als HTML (inv: gespeicherte Rechnung mit data.issuer-Schnappschuss) */
+/** Rechnung als HTML (inv: gespeicherte Rechnung mit issuer-Schnappschuss) – Aufbau wie die bisherigen Smoobu-Rechnungen */
 export function invoiceHtml(inv) {
   const d = inv.data || inv, is = d.issuer || {};
+  const en = d.lang === 'en';
+  const T = en ? { inv: 'Invoice', storno: 'Cancellation invoice', date: 'Issue date', period: 'Service period', host: 'Host', to: 'Invoice recipient', desc: 'Description', qty: 'Qty.',
+      price: 'Price', vat: 'VAT', total: 'Total', base: 'Base', rate: 'Rate', amount: 'Amount', sum: 'Sum', incl: 'Included VAT', net: 'Total net', pay: 'Total to pay',
+      method: 'Method of payment', notes: 'Payment notes', due: 'Due date', hints: 'Notes', ref: 'Cancels invoice', small: 'According to § 19 UStG (German VAT act) no VAT is charged (small business).' }
+    : { inv: 'Rechnung', storno: 'Stornorechnung', date: 'Rechnungsdatum', period: 'Leistungszeitraum', host: 'Gastgeber', to: 'Rechnungsempfänger', desc: 'Beschreibung', qty: 'Menge',
+      price: 'Preis', vat: 'USt', total: 'Gesamt', base: 'Netto', rate: 'Satz', amount: 'Betrag', sum: 'Summe', incl: 'Enthaltene USt', net: 'Gesamt netto', pay: 'Zu zahlen',
+      method: 'Zahlungsart', notes: 'Zahlungshinweis', due: 'Fällig am', hints: 'Hinweise', ref: 'Storno zur Rechnung', small: 'Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).' };
   const t = invoiceTotals(d.lines);
-  const small = t.gross <= 250;
   const storno = inv.status === 'storno';
+  const taxId = is.vatId ? `USt-IdNr.: ${esc(is.vatId)}` : is.taxNo ? `St.-Nr.: ${esc(is.taxNo)}` : '';
   const body = `
-  <div class="row"><div class="small">${esc(is.name)} · ${esc((is.address || '').replace(/\n/g, ' · '))}</div></div>
-  <div class="row" style="margin-top:18px"><div style="white-space:pre-line">${esc(d.recipient)}</div>
-    <div class="small" style="text-align:right">Rechnungsnummer: <b>${esc(inv.number)}</b><br>Rechnungsdatum: ${esc(deDate(d.date))}<br>
-      Leistungszeitraum: ${esc(deDate(d.arrival))} – ${esc(deDate(d.departure))}${d.bookingRef ? `<br>Buchung: ${esc(d.bookingRef)}` : ''}</div></div>
-  <h1>${storno ? 'Stornorechnung' : 'Rechnung'}</h1>${inv.cancelled ? '<span class="stamp">STORNIERT</span>' : ''}
-  ${storno && d.refNumber ? `<p>Storno zur Rechnung ${esc(d.refNumber)}</p>` : ''}
-  <table><tr><th>Leistung</th><th class="n">USt</th><th class="n">Betrag (brutto)</th></tr>
-  ${(d.lines || []).map((l) => `<tr><td style="white-space:pre-line">${esc(l.text)}</td><td class="n">${Number(l.vat) || 0} %</td><td class="n">${euro(l.gross)}</td></tr>`).join('')}</table>
-  <table class="sum">${t.rates.map((r) => `<tr><td>Netto ${r.rate} %</td><td class="n">${euro(r.net)}</td></tr><tr><td>${is.smallBusiness ? 'Umsatzsteuer' : `Umsatzsteuer ${r.rate} %`}</td><td class="n">${euro(r.vat)}</td></tr>`).join('')}
-  <tr class="total"><td>Gesamtbetrag</td><td class="n">${euro(t.gross)}</td></tr></table>
-  ${is.smallBusiness ? '<p>Gemäß § 19 UStG wird keine Umsatzsteuer berechnet (Kleinunternehmerregelung).</p>' : ''}
-  ${d.payment ? `<p style="white-space:pre-line">${esc(d.payment)}</p>` : ''}
-  ${d.note ? `<p style="white-space:pre-line">${esc(d.note)}</p>` : ''}
-  <p class="small" style="margin-top:28px;white-space:pre-line">${esc(is.name)}\n${esc(is.address)}\n${is.taxNo ? `Steuernummer: ${esc(is.taxNo)}` : ''}${is.vatId ? `${is.taxNo ? ' · ' : ''}USt-IdNr.: ${esc(is.vatId)}` : ''}${is.bank ? `\n${esc(is.bank)}` : ''}${is.footer ? `\n${esc(is.footer)}` : ''}${small ? '' : ''}</p>`;
-  return page(`Rechnung ${inv.number}`, body);
+  <div class="row"><div><h1 style="margin-top:0">${storno ? T.storno : T.inv}</h1><div style="font-size:18px;font-weight:700">${esc(inv.number)}</div></div>
+    <div class="small" style="text-align:right">${T.date}: ${esc(deDate(d.date))}<br>${T.period}: ${esc(deDate(d.arrival))} – ${esc(deDate(d.departure))}${d.bookingRef ? `<br>${en ? 'Booking' : 'Buchung'}: ${esc(d.bookingRef)}` : ''}</div></div>
+  ${inv.cancelled ? '<p><span class="stamp">STORNIERT</span></p>' : ''}${storno && d.refNumber ? `<p>${T.ref} ${esc(d.refNumber)}</p>` : ''}
+  <div class="row" style="margin-top:22px">
+    <div><div class="small">${T.host}</div><b>${esc(is.name)}</b><br><span style="white-space:pre-line">${esc(is.address)}</span>${taxId ? `<br>${taxId}` : ''}</div>
+    <div style="min-width:240px"><div class="small">${T.to}</div><div style="white-space:pre-line">${esc(d.recipient)}</div></div></div>
+  <table><tr><th>#</th><th>${T.desc}</th><th class="n">${T.qty}</th><th class="n">${T.price}</th><th class="n">${T.vat}</th><th class="n">${T.total}</th></tr>
+  ${(d.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td style="white-space:pre-line">${esc(l.text)}</td><td class="n">1</td><td class="n">${euro(l.gross)}</td><td class="n">${Number(l.vat) || 0}%</td><td class="n">${euro(l.gross)}</td></tr>`).join('')}</table>
+  <table class="sum"><tr><th>${T.vat}</th><th class="n">${T.base}</th><th class="n">${T.rate}</th><th class="n">${T.amount}</th></tr>
+  ${t.rates.map((r) => `<tr><td>${T.vat}</td><td class="n">${euro(r.net)}</td><td class="n">${r.rate}%</td><td class="n">${euro(r.vat)}</td></tr>`).join('')}</table>
+  <table class="sum"><tr><td>${T.sum}</td><td class="n">${euro(t.gross)}</td></tr><tr><td>${T.incl}</td><td class="n">${euro(t.vat)}</td></tr>
+    ${t.vat ? `<tr><td>${T.net}</td><td class="n">${euro(t.net)}</td></tr>` : ''}<tr class="total"><td>${T.pay}</td><td class="n">${euro(t.gross)}</td></tr></table>
+  ${is.smallBusiness ? `<p>${T.small}</p>` : ''}
+  <div class="row"><div>${d.method ? `<div class="small">${T.method}</div><div>${esc(d.method)}</div>` : ''}
+    ${d.payment ? `<div class="small" style="margin-top:8px">${T.notes}</div><div style="white-space:pre-line">${esc(d.payment)}</div>` : ''}</div>
+    ${d.due && !storno ? `<div style="text-align:right"><div class="small">${T.due}</div><b>${esc(deDate(d.due))}</b><div>${euro(t.gross)}</div></div>` : ''}</div>
+  ${d.note ? `<p style="white-space:pre-line;margin-top:12px">${esc(d.note)}</p>` : ''}
+  <div class="small" style="margin-top:26px"><b>${T.hints}</b><br>${is.bank ? `${esc(is.bank)}<br>` : ''}${is.footer ? esc(is.footer) : ''}</div>`;
+  return page(`${T.inv} ${inv.number}`, body);
 }
 
-/** Wohnungsgeberbestätigung nach § 19 Bundesmeldegesetz */
+/** Personenzeile „Name, Vorname – 01.01.1991“ → { name, birth } */
+export function parsePerson(line) {
+  const t = String(line || '').trim();
+  const m = t.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$/) || t.match(/(\d{4})-(\d{2})-(\d{2})\s*$/);
+  if (!m) return { name: t.replace(/[\s,;–-]+$/, ''), birth: '' };
+  const birth = m[0].includes('-') ? `${m[3]}.${m[2]}.${m[1]}` : `${m[1].padStart(2, '0')}.${m[2].padStart(2, '0')}.${m[3]}`;
+  return { name: t.slice(0, m.index).replace(/[\s,;–(-]+$/, '').trim(), birth };
+}
+/** „Lea und Philipp Strauss“ → { last: 'Strauss', first: 'Lea und Philipp' } */
+export function splitName(full) {
+  const w = String(full || '').trim().split(/\s+/);
+  return w.length > 1 ? { last: w[w.length - 1], first: w.slice(0, -1).join(' ') } : { last: w[0] || '', first: '' };
+}
+
+/** Wohnungsgeberbestätigung nach § 19 BMG – Aufbau wie das Formular der Stadt Braunschweig (32.41-019) */
 export function wgbHtml(doc) {
   const d = doc.data || doc;
+  const persons = (d.persons || (d.names || []).map((n) => parsePerson(n)));
+  const ll = d.landlord || {};
+  const box = (on) => `<span style="display:inline-block;width:14px;height:14px;border:1.5px solid #222;margin-right:8px;text-align:center;line-height:13px;font-size:12px">${on ? '✕' : ''}</span>`;
+  const f = (label, value) => `<tr><th style="width:42%">${label}</th><td style="white-space:pre-line">${esc(value || '')}</td></tr>`;
   const body = `
-  <h1>Wohnungsgeberbestätigung</h1><p class="small">nach § 19 Abs. 3 Bundesmeldegesetz (BMG)</p>
-  <table>
-    <tr><th style="width:38%">Wohnungsgeber (Name, Anschrift)</th><td style="white-space:pre-line">${esc(d.landlord)}</td></tr>
-    ${d.owner ? `<tr><th>Eigentümer (falls nicht Wohnungsgeber)</th><td style="white-space:pre-line">${esc(d.owner)}</td></tr>` : ''}
-    <tr><th>Art des Vorgangs</th><td>Einzug</td></tr>
-    <tr><th>Datum des Einzugs</th><td>${esc(deDate(d.moveIn))}</td></tr>
-    <tr><th>Anschrift der Wohnung</th><td style="white-space:pre-line">${esc(d.address)}</td></tr>
-    <tr><th>Meldepflichtige Person(en)</th><td>${(d.names || []).map((n) => esc(n)).join('<br>')}</td></tr>
-  </table>
-  <p>Ich bestätige mit meiner Unterschrift den Einzug der oben genannten Person(en) in die oben bezeichnete Wohnung.</p>
-  <p class="small">Hinweis: Es ist verboten, eine Wohnanschrift für eine Anmeldung einem Dritten anzubieten oder zur Verfügung zu stellen,
-    obwohl ein tatsächlicher Bezug der Wohnung durch diesen weder stattfindet noch beabsichtigt ist. Ein Verstoß gegen dieses Verbot stellt
-    eine Ordnungswidrigkeit dar und kann mit einer Geldbuße bis zu 50.000 Euro geahndet werden (§ 54 i. V. m. § 19 BMG).</p>
+  <div class="row"><div class="small" style="white-space:pre-line">Absender:\n${esc([ll.first, ll.last].filter(Boolean).join(' '))}\n${esc(ll.street)}\n${esc(ll.city)}</div>
+    <div class="small" style="white-space:pre-line">${esc(d.authority || 'Stadt Braunschweig\nAbt. Bürgerangelegenheiten\nPlatz der Deutschen Einheit 1\n38100 Braunschweig')}</div></div>
+  <h1>Wohnungsgeberbestätigung</h1><p class="small">Wohnungsgeberbescheinigung nach § 19 des Bundesmeldegesetzes (BMG)</p>
+  <h3 style="margin-top:18px">Bestätigung des Einzugs</h3>
+  <p>Hiermit wird der meldepflichtigen Person / den meldepflichtigen Personen ein Einzug in folgende Wohnung bestätigt:</p>
+  <table>${f('Postleitzahl, Ort', `${d.zip || ''} ${d.city || 'Braunschweig'}`.trim())}${f('Straße und Hausnummer mit Zusatz', d.street)}
+    ${f('Stockwerk, Wohnungsnummer bzw. Lagebeschreibung der Wohnung im Haus', d.floor)}${f('Einzugsdatum', deDate(d.moveIn))}</table>
+  <h3>Angaben zur eingezogenen Person / zu den eingezogenen Personen</h3>
+  <table><tr><th style="width:8%">Nr.</th><th>Name, Vorname</th><th style="width:28%">Geburtsdatum</th></tr>
+    ${persons.map((p, i) => `<tr><td>${i + 1}.</td><td>${esc(p.name)}</td><td>${esc(p.birth)}</td></tr>`).join('')}</table>
+  <h3>Angaben der Wohnungsgeberin / des Wohnungsgebers</h3>
+  <table>${f('Name', ll.last)}${f('Vorname', ll.first)}${f('Straße und Hausnummer', ll.street)}${f('Postleitzahl und Ort', ll.city)}</table>
+  <h3>Angaben der Eigentümerin / des Eigentümers</h3>
+  <p>${box(!d.owner)}Die Wohnungsgeberin / der Wohnungsgeber ist gleichzeitig Eigentümerin / Eigentümer der Wohnung.</p>
+  <p>${box(!!d.owner)}Die Wohnungsgeberin / der Wohnungsgeber ist nicht Eigentümerin / Eigentümer der Wohnung.${d.owner ? `<br><span style="white-space:pre-line;margin-left:22px;display:inline-block">Name und Anschrift der Eigentümerin / des Eigentümers: ${esc(d.owner)}</span>` : ''}</p>
+  <h3>Erklärung</h3>
+  <p class="small">Mir ist bekannt, dass es verboten ist, eine Wohnanschrift für eine Anmeldung einem Dritten anzubieten oder zur Verfügung zu stellen,
+    obwohl ein tatsächlicher Bezug der Wohnung durch diesen weder stattfindet noch beabsichtigt ist. Ein Verstoß gegen das Verbot stellt ebenso eine
+    Ordnungswidrigkeit dar wie die Ausstellung dieser Bestätigung ohne dazu als Wohnungsgeberin/Wohnungsgeber oder deren Beauftragte/dessen
+    Beauftragter berechtigt zu sein (§ 54 i. V. m. § 19 BMG).</p>
   <div class="row" style="margin-top:48px"><div>${esc(d.place || 'Braunschweig')}, ${esc(deDate(d.date))}</div>
-    <div style="min-width:260px;border-top:1px solid #222;padding-top:4px;text-align:center">${d.signer ? esc(d.signer) : 'Unterschrift Wohnungsgeber'}</div></div>`;
+    <div style="min-width:280px;border-top:1px solid #222;padding-top:4px;text-align:center" class="small">Unterschrift Wohnungsgeberin/-geber oder beauftragte Person<br><span style="font-size:14px;color:#222">${esc(d.signer || '')}</span></div></div>`;
   return page('Wohnungsgeberbestätigung', body);
 }

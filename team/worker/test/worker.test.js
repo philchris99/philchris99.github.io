@@ -1099,11 +1099,10 @@ test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV;
   const apts = (await call('GET', '/api/invoices', { session: admin })).body.apartments;
   assert.ok(apts.find((a) => a.id === '111'));
   let r = await call('POST', '/api/invoices/settings', { session: admin, body: {
-    format: '{prefix}{jahr}-{nr3}',
     issuers: [{ id: 'a1', name: 'Strauss Vermietung', address: 'Musterweg 1\n38100 Braunschweig', taxNo: '14/123/45678', vat: 7, signer: 'Lea Strauss' }],
-    apts: { 111: { issuer: 'a1', prefix: 'ELB-' } }, next: { 111: 5 } } });
+    apts: { 111: { issuer: 'a1', prefix: 'ELB' } }, next: { ELB: 5 } } });
   assert.equal(r.status, 200);
-  assert.equal(r.body.counters['111'], 5);
+  assert.equal(r.body.series.find((x) => x.prefix === 'ELB').next, 5);
   r = await call('POST', '/api/invoices/draft', { session: admin, body: { booking: '9101' } });
   assert.equal(r.status, 200);
   const d = r.body.invoice;
@@ -1124,7 +1123,8 @@ test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV;
   const html = await page.text();
   assert.match(html, new RegExp(`ELB-${year}-005`));
   assert.match(html, /Firma GmbH/);
-  assert.match(html, /Steuernummer: 14\/123\/45678/);
+  assert.match(html, /St\.-Nr\.: 14\/123\/45678/);
+  assert.match(html, /FeWo Elbblick, \d\d\.\d\d\.\d\d - \d\d\.\d\d\.\d\d/, 'Position wie bisher in Smoobu');
   // Storno: neue Nummer, negative Beträge
   r = await call('POST', `/api/invoices/${d.id}/cancel`, { session: admin });
   assert.equal(r.body.storno.number, `ELB-${year}-006`);
@@ -1138,12 +1138,15 @@ test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV;
   const csv = await (await worker.fetch(new Request('https://team.example/api/invoices.csv', { headers: { Authorization: `Bearer ${admin}` } }), env, { waitUntil() {} })).text();
   assert.match(csv, new RegExp(`ELB-${year}-005`));
   // Wohnungsgeberbestätigung
-  r = await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Anna Schmidt\nMax Schmidt', address: 'Testweg 5, 38100 Braunschweig' } });
+  assert.equal((await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Schmidt, Anna', address: 'Testweg 5, 38100 Braunschweig' } })).status, 400, 'Geburtsdatum Pflicht');
+  r = await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Schmidt, Anna – 01.02.1990\nSchmidt, Max 3.4.2020', address: 'Testweg 5, 38100 Braunschweig', floor: '3. OG rechts' } });
   assert.equal(r.status, 200);
   const w = await (await worker.fetch(new Request(r.body.doc.url.replace(/^https?:\/\/[^/]+/, 'https://team.example')), env, { waitUntil() {} })).text();
   assert.match(w, /Wohnungsgeberbestätigung/);
-  assert.match(w, /Max Schmidt/);
-  assert.match(w, /Strauss Vermietung/);
+  assert.match(w, /Schmidt, Max<\/td><td>03\.04\.2020/);
+  assert.match(w, /3\. OG rechts/);
+  assert.match(w, /38100 Braunschweig/);
+  assert.match(w, /Musterweg 1/);
   assert.equal((await worker.fetch(new Request('https://team.example/dok/aaaaaaaaaaaaaaaaaaaaaaaa'), env, { waitUntil() {} })).status, 404);
 });
 
