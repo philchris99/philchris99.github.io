@@ -1380,13 +1380,40 @@
     return out;
   }
 
-  const dayNo = (iso) => Math.round(Date.parse(iso + 'T00:00:00Z') / 86400000);
+  // Tagesnummer ohne Date-Objekt (schnell – Cloudflare erlaubt nur wenig Rechenzeit); gleiche Zählung wie Date.UTC / 86400000
+  function dayNo(iso) {
+    let y = (iso.charCodeAt(0) - 48) * 1000 + (iso.charCodeAt(1) - 48) * 100 + (iso.charCodeAt(2) - 48) * 10 + (iso.charCodeAt(3) - 48);
+    const m = (iso.charCodeAt(5) - 48) * 10 + (iso.charCodeAt(6) - 48), d = (iso.charCodeAt(8) - 48) * 10 + (iso.charCodeAt(9) - 48);
+    y -= m <= 2 ? 1 : 0;
+    const era = Math.floor(y / 400), yoe = y - era * 400;
+    const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    return era * 146097 + yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy - 719468;
+  }
   /** gleiches Kalenderdatum k Jahre früher (29.02. → 28.02.) */
   function yearsBack(iso, k) {
     const [y, m, d] = iso.split('-').map(Number);
     const last = new Date(Date.UTC(y - k, m, 0)).getUTCDate();
     return `${y - k}-${String(m).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
   }
+
+  /**
+   * Einträge für schnelle Zeitraum-Abfragen vorbereiten (Cloudflare erlaubt nur wenige Millisekunden Rechenzeit):
+   * nach Anreise sortiert; lange Einträge (> 60 Nächte, z. B. lange Sperrzeiten) separat, damit die Suche kurz bleibt.
+   */
+  const LONG = 60;
+  function preparePace(entries) {
+    const all = [];
+    for (const e of entries) {
+      const arr = dayNo(e.arrival), dep = dayNo(e.departure);
+      if (!(dep > arr)) continue;
+      all.push({ apt: e.apartmentId, arr, dep, blocked: !!e.blocked, price: e.price || 0,
+        createdNo: e.created ? dayNo(e.created) : null,
+        cancelledNo: e.cancelled ? (e.cancelled === '0000-00-00' ? -1e9 : dayNo(e.cancelled)) : null, cancelled: !!e.cancelled });
+    }
+    const short = all.filter((x) => x.dep - x.arr <= LONG).sort((a, b) => a.arr - b.arr);
+    return { short, arrs: short.map((x) => x.arr), long: all.filter((x) => x.dep - x.arr > LONG) };
+  }
+  const lowerBound = (arr, v) => { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < v) lo = m + 1; else hi = m; } return lo; };
 
   /**
    * Buchungsstand für den Zeitraum [from, to) wie er am Tag asOf bekannt war (asOf = null → heutiger Endstand).
@@ -1405,24 +1432,40 @@
     // belegt = Buchungen INKL. Blockierungen (erst ab der ersten echten Buchung der Wohnung)
     const used = {};
     let revenue = 0, priced = 0, bookedNights = 0;
-    for (const e of prepared) {
-      if (!cap[e.apartmentId]) continue;
+    const take = (e) => {
+      if (!cap[e.apt]) return;
       if (cut != null) {
-        if (e.createdNo != null && e.createdNo > cut) continue;          // damals noch nicht eingetragen
-        if (e.cancelledNo != null && e.cancelledNo <= cut) continue;    // damals schon storniert
-      } else if (e.cancelled) continue;                                  // Endstand: stornierte zählen nicht
-      const o = Math.min(e.dep, t) - Math.max(e.arr, from0[e.apartmentId]);
-      if (o <= 0) continue;
-      used[e.apartmentId] = (used[e.apartmentId] || 0) + o;
+        if (e.createdNo != null && e.createdNo > cut) return;          // damals noch nicht eingetragen
+        if (e.cancelledNo != null && e.cancelledNo <= cut) return;    // damals schon storniert
+      } else if (e.cancelled) return;                                  // Endstand: stornierte zählen nicht
+      const o = Math.min(e.dep, t) - Math.max(e.arr, from0[e.apt]);
+      if (o <= 0) return;
+      used[e.apt] = (used[e.apt] || 0) + o;
       if (!e.blocked) {
         bookedNights += o;
         if (e.price) { revenue += (e.price * o) / (e.dep - e.arr); priced++; }
       }
-    }
+    };
+    const { short, arrs, long } = prepared;
+    for (let i = lowerBound(arrs, f - LONG), end = lowerBound(arrs, t); i < end; i++) take(short[i]);
+    for (const e of long) take(e);
     let nights = 0;
     for (const id of Object.keys(used)) nights += Math.min(used[id], cap[id]); // Überschneidung Buchung/Sperre nicht doppelt
     return { nights, bookedNights: Math.min(bookedNights, nights), capacity, units, pct: capacity ? Math.round((nights / capacity) * 1000) / 10 : 0,
       bookedPct: capacity ? Math.round((Math.min(bookedNights, nights) / capacity) * 1000) / 10 : 0, revenue: Math.round(revenue), priced };
+  }
+
+  /** Frühwarnung: Zeiträume, die heute mindestens `points` Punkte hinter dem gleichen Buchungsstand des Vorjahres liegen */
+  function paceWarnings(report, points, maxMonths) {
+    const out = [];
+    for (const r of report.rows) {
+      if (r.month && Number(r.key.slice(1)) > (maxMonths == null ? 3 : maxMonths)) continue;
+      const [now, ly] = r.cols;
+      if (!ly || !ly.capacity || !now.capacity) continue;
+      const diff = Math.round((now.pct - ly.pct) * 10) / 10;
+      if (diff <= -points) out.push({ key: r.key, label: r.label, pct: now.pct, prev: ly.pct, diff, prevFinal: ly.final ? ly.final.pct : null });
+    }
+    return out;
   }
 
   /** Pace-Übersicht: Zeilen (nächste 30/60/90 Tage, kommende Monate) × Jahre (heute, −1, −2) */
@@ -1431,9 +1474,7 @@
     const years = opts.years || 2;
     ids = ids.map(String);
     const starts = unitStarts(entries, ids);
-    const prepared = entries.map((e) => ({ ...e, arr: dayNo(e.arrival), dep: dayNo(e.departure),
-      createdNo: e.created ? dayNo(e.created) : null,
-      cancelledNo: e.cancelled ? (e.cancelled === '0000-00-00' ? -1e9 : dayNo(e.cancelled)) : null }));
+    const prepared = preparePace(entries);
     const periods = [
       { key: 'd30', label: 'Nächste 30 Tage', from: today, to: addDays(today, 30) },
       { key: 'd60', label: 'Tag 31–60', from: addDays(today, 30), to: addDays(today, 60) },
@@ -1616,7 +1657,7 @@
     listCleanings, fullyConfirmed, calendar, overdueReason,
     resolveKeys, missingKeys, withdrawPeriod, blockToRelease, releaseBlockDone, nightIndex, occupancy, nightOccupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
-    paceEntries, unitStarts, paceFigures, paceReport, yearsBack,
+    paceEntries, unitStarts, paceFigures, paceReport, yearsBack, paceWarnings,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

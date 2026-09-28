@@ -126,6 +126,7 @@ export async function runSync(env, now = Date.now(), cfg) {
   await geocodeMissing(env, cfg, result.state, now).catch((e) => console.error('Geocoding', e.message));
   await trackOccupancy(env, cfg, result.state, now).catch((e) => console.error('Statistik', e.message));
   await updatePaceDaily(env, cfg, bookings, now).catch((e) => console.error('Pace', e.message));
+  await paceWarnWeekly(env, cfg, now).catch((e) => console.error('Pace-Warnung', e.message));
   await loadApartmentInfo(env, result.state, now).catch((e) => console.error('Wohnungsdetails', e.message));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
@@ -147,6 +148,34 @@ async function updatePaceDaily(env, cfg, bookings, now) {
   stats.pace.day = today;
   await refreshStarts(env, (await loadState(env.DB)).state, stats);
   await saveStats(env.DB, stats);
+}
+
+/** Frühwarnung Buchungstempo prüfen (Stand heute vs. gleicher Stand im Vorjahr) */
+async function paceCheck(env, cfg, now) {
+  const { date: today } = L.localParts(now, cfg.timezone);
+  const { state } = await loadState(env.DB);
+  const entries = await loadPace(env.DB);
+  if (!entries.length) return null;
+  const report = L.paceReport(entries, statsApartments(state).counted.map((a) => a.id), today, { years: 1, months: 4 });
+  return L.paceWarnings(report, (cfg.paceWarn || {}).points || 5, 3);
+}
+const paceWarnText = (w) => `• ${w.label}: ${String(w.pct).replace('.', ',')} % (Vorjahr ${String(w.prev).replace('.', ',')} %, ${String(w.diff).replace('.', ',')} Pkt.)`;
+/** Einmal pro Woche (Standard: montags ab 9 Uhr) – Push an Admin nur, wenn etwas auffällt */
+async function paceWarnWeekly(env, cfg, now) {
+  const pw = cfg.paceWarn || {};
+  const { date: today, time } = L.localParts(now, cfg.timezone);
+  if (new Date(today + 'T12:00:00Z').getUTCDay() !== (pw.weekday ?? 1) || time < (pw.time || '09:00')) return;
+  const stats = await loadStats(env.DB);
+  if (!stats.pace || !stats.pace.full || (stats.pace.warn && stats.pace.warn.day === today)) return;
+  const items = await paceCheck(env, cfg, now);
+  if (!items) return;
+  stats.pace.warn = { day: today, at: new Date(now).toISOString(), items };
+  await saveStats(env.DB, stats);
+  if (!items.length) return;
+  const result = await mutate(env.DB, (st) => ({ state: st, notifications: [{ to: cfg.owner.id, kind: 'pace',
+    title: `Buchungstempo: ${items.length} ${items.length === 1 ? 'Zeitraum' : 'Zeiträume'} hinter Vorjahr`,
+    body: `Gleicher Buchungsstand wie heute vor 1 Jahr, inkl. Blockierungen:\n${items.map(paceWarnText).join('\n')}` }] }), now);
+  await deliverLogged(env, cfg, result.notifications);
 }
 
 /** In der App gespeicherte Zugangscodes je Wohnungs-ID (AES-GCM verschlüsselt in settings.accessCodes) */
@@ -1033,6 +1062,11 @@ async function handleApi(request, env, url, ctx) {
     }
     return json({ count: entries.length, from: body.from, to: body.to });
   }
+  if (path === '/api/pace/warn-check' && request.method === 'POST') {
+    const items = await paceCheck(env, cfg, now);
+    if (!items) return fail('Bitte zuerst die Buchungen laden', 409);
+    return json({ items, points: (cfg.paceWarn || {}).points || 5 });
+  }
   if (path === '/api/pace' && request.method === 'GET') {
     const { date: today } = L.localParts(now, cfg.timezone);
     const { state } = await loadState(env.DB);
@@ -1041,6 +1075,7 @@ async function handleApi(request, env, url, ctx) {
     const stats = await loadStats(env.DB);
     const report = L.paceReport(entries, counted.map((a) => a.id), today);
     return json({ ...report, loaded: (stats.pace && stats.pace.full) || null, updated: (stats.pace && stats.pace.day) || null,
+      warn: { ...(cfg.paceWarn || {}), last: (stats.pace && stats.pace.warn) || null },
       units: counted.map((a) => ({ id: a.id, name: a.name, start: report.starts[a.id] || null })) });
   }
 

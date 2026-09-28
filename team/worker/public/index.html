@@ -1432,6 +1432,21 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return total;
   }
   const euro = (n) => n.toLocaleString('de-DE', { maximumFractionDigits: 0 }) + ' €';
+  let paceCheckResult = null;
+  function paceWarnInfo() {
+    const w = pace.warn || {};
+    const days = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
+    const last = w.last;
+    const res = paceCheckResult ? (paceCheckResult.length
+      ? `<div class="apt-note" style="margin-top:6px">⚠️ Aktuell hinter dem Vorjahr:<br>${paceCheckResult.map((x) => `${esc(x.label)}: ${pctText(x.pct)} (Vorjahr ${pctText(x.prev)}, ${String(x.diff).replace('.', ',')} Pkt.)`).join('<br>')}</div>`
+      : '<p class="meta" style="margin-top:6px">✅ Kein Zeitraum liegt deutlich hinter dem Vorjahr.</p>') : '';
+    return `<div class="panel" style="margin:8px 0">
+      <b>🔔 Frühwarnung</b>
+      <p class="meta" style="margin:4px 0">Jeden ${days[w.weekday ?? 1]} um ${esc(w.time || '09:00')} Uhr eine Push-Nachricht, wenn ein Zeitraum (nächste 30/60/90 Tage oder die kommenden 3 Monate)
+        mindestens <b>${w.points || 5} Punkte</b> hinter dem gleichen Buchungsstand des Vorjahres liegt (inkl. Blockierungen).
+        ${last ? `Zuletzt geprüft ${esc(fmtTime(last.at))}: ${last.items.length ? `<b>${last.items.length} Warnung${last.items.length === 1 ? '' : 'en'}</b>` : 'alles im Plan'}.` : ''}</p>
+      <div class="actions"><button class="small" data-pace-check>Jetzt prüfen</button></div>${res}</div>`;
+  }
   function paceBlock() {
     if (!pace) {
       return `<div class="panel" style="margin-top:14px" id="pace"><div class="eyebrow">📈 Buchungstempo (Pace)</div>
@@ -1450,7 +1465,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <span class="pace-v">${c.capacity ? pctText(c.pct) : '–'}</span></div>
         <div class="pace-sub meta">${c.capacity ? `${c.nights} von ${c.capacity} Nächten · ${c.units} Whg.${c.final ? ` · Endstand ${pctText(c.final.pct)}` : ''}${c.revenue ? ` · ${euro(c.revenue)}${c.final && c.final.revenue ? ` (Ende ${euro(c.final.revenue)})` : ''}` : ''}` : 'damals noch keine Wohnung in Vermietung'}</div>`).join('');
       return `<div class="pace-row">
-        <div class="pace-head"><b>${esc(r.label)}</b>${diff != null ? `<span class="delta ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${pctText(Math.abs(diff)).replace(' %', '')} Pkt. ggü. Vorjahr</span>` : ''}</div>
+        <div class="pace-head"><b>${diff != null && diff <= -((pace.warn || {}).points || 5) ? '⚠️ ' : ''}${esc(r.label)}</b>${diff != null ? `<span class="delta ${diff >= 0 ? 'up' : 'down'}">${diff >= 0 ? '▲' : '▼'} ${pctText(Math.abs(diff)).replace(' %', '')} Pkt. ggü. Vorjahr</span>` : ''}</div>
         ${bars}</div>`;
     }).join('');
     const units = pace.units.slice().sort((a, b) => String(a.start).localeCompare(String(b.start)))
@@ -1458,6 +1473,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     return `<div class="panel" style="margin-top:14px" id="pace"><div class="eyebrow">📈 Buchungstempo (Pace)</div>
       <p class="meta" style="margin:6px 0">Belegung durch <b>Buchungen</b> (ohne Blockierungen), wie sie am gleichen Tag des Jahres bekannt war.
         Wohnungen zählen erst ab ihrer ersten echten Buchung.</p>
+      ${paceWarnInfo()}
       ${legend}${rows}
       <details class="more"><summary>Wohnungen: in Vermietung seit (erste Buchung)</summary><div class="panel scroll"><table>${units}</table></div></details>
       <p class="meta" style="margin-top:8px">${pace.entries} Buchungen gespeichert (ab ${pace.oldest ? fmtLong(pace.oldest) : '–'}), ${pace.withCreated} mit Eintragungsdatum.
@@ -2696,6 +2712,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const text = inviteText(people().find((x) => x.id === d.shareInvite));
         if (navigator.share) await navigator.share({ text }).catch(() => {});
         else await navigator.clipboard.writeText(text).then(() => toast('Einladung kopiert – z. B. in WhatsApp einfügen'), () => prompt('Zum Kopieren:', text));
+      } else if (d.paceCheck !== undefined) {
+        b.disabled = true;
+        paceCheckResult = (await api('/api/pace/warn-check', 'POST')).items;
+        render();
+        document.getElementById('pace').scrollIntoView();
       } else if (d.paceLoad !== undefined) {
         b.disabled = true;
         pace = await api('/api/pace');

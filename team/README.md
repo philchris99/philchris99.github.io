@@ -113,6 +113,9 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   mit ihrem eigenen Code an und kann dann Reinigungen als Leitung bestätigen und einteilen (auch sich selbst), bekommt die
   Nachrichten der Leitung und sieht alle Reinigungen; das Team verwalten kann sie nicht. „👑 Vertretung beenden“ nimmt die
   Rechte wieder weg. Sie bekommt jeweils eine Push-Nachricht.
+- **Frühwarnung Buchungstempo** (Statistik → Buchungstempo): jeden Montag 9 Uhr Push an Admin, wenn ein Zeitraum (nächste 30/60/90 Tage
+  oder die kommenden 3 Monate) mindestens 5 Punkte hinter dem gleichen Buchungsstand des Vorjahres liegt (inkl. Blockierungen);
+  sonst keine Nachricht. „Jetzt prüfen“ jederzeit; betroffene Zeilen mit ⚠️. Einstellbar in `worker/src/config.js` (`paceWarn`).
 - **Handwerker & Aufträge** (Admin → Meldungen): Verzeichnis der Stamm-Handwerker (Name, Gewerk, Firma, Telefon, 2. Telefon z. B.
   Notfall, E-Mail, Notiz) mit 📞 / 💬 WhatsApp / ✉️ E-Mail; Startliste in `worker/src/craftsmen.js` (nur privat), danach in der App änderbar.
   Bei jeder Meldung **„🔧 An Handwerker“**: Handwerker wählen, Zusatz-Info, Gültigkeit → Link mit **Auftrag** (Text + Fotos/Videos der

@@ -715,3 +715,19 @@ test('Buchungstempo (Pace): gleicher Buchungsstand vor 1/2 Jahren; Wohnungen zä
   const raw = [{ id: 7, arrival: '2026-10-01', departure: '2026-10-03', apartment: { id: 5 }, price: '240', 'created-at': '2026-09-01 10:00' }];
   assert.deepEqual(L.paceEntries(raw)[0], { apartmentId: '5', arrival: '2026-10-01', departure: '2026-10-03', blocked: false, created: '2026-09-01', cancelled: null, id: '7', price: 240 });
 });
+
+test('Frühwarnung Buchungstempo: Zeiträume ≥ 5 Punkte hinter dem gleichen Stand des Vorjahres', () => {
+  const e = (id, arrival, departure, created) => ({ id, apartmentId: 'A', arrival, departure, created, blocked: false, cancelled: null, price: null });
+  const entries = [
+    e('s', '2024-01-01', '2024-01-03', '2023-12-01'),            // Start der Wohnung
+    e('ly', '2025-10-01', '2025-10-21', '2025-09-01'),           // Vorjahr: 20 von 30 Nächten schon gebucht
+    e('now', '2026-10-01', '2026-10-06', '2026-09-01'),          // heute: nur 5 Nächte
+  ];
+  const r = L.paceReport(entries, ['A'], '2026-09-28', { years: 1, months: 4 });
+  const w = L.paceWarnings(r, 5, 3);
+  const d30 = w.find((x) => x.key === 'd30');
+  assert.ok(d30, JSON.stringify(w));
+  assert.ok(d30.diff <= -5);
+  assert.ok(w.some((x) => x.key === 'm1' && /Oktober 2026/.test(x.label)));
+  assert.equal(L.paceWarnings(r, 90, 3).length, 0, 'unter der Schwelle keine Warnung');
+});

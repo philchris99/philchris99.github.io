@@ -1066,3 +1066,20 @@ test('Team & Handwerker: „zuletzt genutzt“ bzw. „Link zuletzt geöffnet“
   await call('GET', `/api/guide/${link.id}`);
   assert.ok((await me(admin)).craftsmen.find((c) => c.id === craft.id).lastViewAt, 'Handwerker: Link zuletzt geöffnet');
 });
+
+test('Frühwarnung Buchungstempo: montags ab 9 Uhr höchstens einmal, „Jetzt prüfen“ nur für Admin', async () => {
+  const r = await call('POST', '/api/pace/warn-check', { session: admin });
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.items));
+  const mk = (day, t) => new Date(`${day}T${t}:00+01:00`).getTime();
+  await runSync(env, mk('2099-12-07', '08:55'));
+  assert.equal((await call('GET', '/api/pace', { session: admin })).body.warn.last?.day === '2099-12-07', false, 'vor 9 Uhr nicht');
+  await runSync(env, mk('2099-12-07', '09:05'));
+  const last = (await call('GET', '/api/pace', { session: admin })).body.warn.last;
+  assert.equal(last.day, '2099-12-07');
+  const at = last.at;
+  await runSync(env, mk('2099-12-07', '10:05'));
+  assert.equal((await call('GET', '/api/pace', { session: admin })).body.warn.last.at, at, 'nur einmal pro Tag');
+  const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
+  assert.equal((await call('POST', '/api/pace/warn-check', { session: staffSession })).status, 404);
+});

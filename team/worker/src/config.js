@@ -30,6 +30,8 @@ export default {
     12: { smoobuId: '2726728', name: '#ZWÖLF | BRAUNSCHWEIG HAUPTBAHNHOF', address: 'Berliner Platz 1C, 38102 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-10-zehn' },
     13: { smoobuId: '2911141', name: '#DREIZEHN | BRAUNSCHWEIG CITY', address: 'Juliusstraße 14, 38118 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-13-dreizehn' },
   },
+  // Frühwarnung Buchungstempo: montags 9 Uhr Push an Admin, wenn ein Zeitraum ≥ 5 Punkte hinter dem Vorjahr liegt
+  paceWarn: { points: 5, weekday: 1, time: '09:00' },
   routeCity: 'Braunschweig',   // Ort der Wohnungen – für die Routenplanung (Adressen → Koordinaten über OpenStreetMap)
   maxPeriodDays: 7,            // Zeitraum für eine Reinigung: höchstens so viele Tage nach dem Check-out
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)
