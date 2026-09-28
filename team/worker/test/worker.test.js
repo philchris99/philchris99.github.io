@@ -1147,6 +1147,21 @@ test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV;
   assert.equal((await worker.fetch(new Request('https://team.example/dok/aaaaaaaaaaaaaaaaaaaaaaaa'), env, { waitUntil() {} })).status, 404);
 });
 
+test('Nachrichten, Rechnungen, Gästeanfragen und Dokumente nur für den Admin – nicht für Leitung, Vertretung oder Reinigung', async () => {
+  const cur = await me(admin);
+  const sessions = [];
+  for (const p of [cur.leads[0], cur.staff[0]].filter(Boolean)) sessions.push((await call('POST', '/api/login', { body: { code: p.code } })).body.session);
+  assert.ok(sessions.length >= 2);
+  const routes = [['GET', '/api/inbox'], ['POST', '/api/inbox/poll'], ['POST', '/api/inbox/settings'], ['POST', '/api/inbox/9101/send'], ['POST', '/api/inbox/9101/done'],
+    ['GET', '/api/invoices'], ['POST', '/api/invoices/settings'], ['POST', '/api/invoices/draft'], ['GET', '/api/invoices.csv'], ['POST', '/api/wgb'],
+    ['GET', '/api/inquiries'], ['POST', '/api/inquiries/sync'], ['POST', '/api/inquiries/export']];
+  for (const session of sessions) {
+    for (const [m, path] of routes) assert.equal((await call(m, path, m === 'GET' ? { session } : { session, body: {} })).status, 404, `${m} ${path}`);
+    const view = await call('GET', '/api/me', { session });
+    assert.ok(!('inboxOpen' in view.body) || !view.body.inboxOpen, 'kein Nachrichten-Zähler');
+  }
+});
+
 test('Handwerker-Auftrag aus einer Meldung: Link mit Problem und Fotos, Handwerker meldet „erledigt“ → Push an Admin', async () => {
   const cur = await me(admin);
   assert.ok(cur.craftsmen.length >= 1, 'Stamm-Handwerker vorhanden');
