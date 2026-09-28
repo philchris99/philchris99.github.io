@@ -116,6 +116,20 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Frühwarnung Buchungstempo** (Statistik → Buchungstempo): jeden Montag 9 Uhr Push an Admin, wenn ein Zeitraum (nächste 30/60/90 Tage
   oder die kommenden 3 Monate) mindestens 5 Punkte hinter dem gleichen Buchungsstand des Vorjahres liegt (inkl. Blockierungen);
   sonst keine Nachricht. „Jetzt prüfen“ jederzeit; betroffene Zeilen mit ⚠️. Einstellbar in `worker/src/config.js` (`paceWarn`).
+- **Nachrichten** (Reiter 📨, nur Admin): Gastnachrichten aus Smoobu mit Antwort-Entwurf; nichts geht ohne Freigabe raus.
+  - Abruf alle 5 Min. (4 Buchungen je Lauf, Anreise ≤ 14 Tage bis 7 Tage nach Abreise, laufende Aufenthalte bevorzugt), „Jetzt abrufen“,
+    und sofort, falls Smoobu einen Webhook mit `action` „…message…“ schickt. Push an Admin; dringend bei Problem/Zugang im Aufenthalt.
+  - Kein Vorgang für Abwesenheitsnotizen, Systemmails, Reaktionen und reinen Dank (`worker/src/messages.js`). Smoobu-Automatiknachrichten
+    (gleicher Text in ≥ 3 Buchungen) zählen nicht als Antwort.
+  - Entwurf nach Vorlage (DE/EN, Du-Form) mit Daten aus Buchung und Reinigungsplan: früher Check-in möglich/erst nach Reinigung,
+    später Check-out (nicht bei Anreise am selben Tag), Verlängerung bis zur nächsten Anreise, Gäste-Link aus Smoobu.
+    Danach KI-Entwurf (Workers AI) mit „Standards & Wissen“, Verlauf und früheren echten Antworten zum Thema.
+  - Senden sofort oder geplant über `POST /reservations/{id}/messages/send-message-to-guest`; „[bitte ergänzen]“ blockiert das Senden.
+- **Rechnungen** (Nachrichten → Rechnungen): bis 3 Aussteller (Steuernummer, USt-Satz oder Kleinunternehmer, Bank), Zuordnung je Wohnung,
+  eigener fortlaufender Nummernkreis je Wohnung (`inv_counter`, Format `{prefix}{jahr}-{nr3}`). Entwurf aus der Smoobu-Buchung
+  (Preis, Zeitraum, Gastadresse; Firmenadresse per KI aus den Nachrichten), „Ausstellen“ friert die Rechnung ein, Korrektur per Storno
+  (neue Nummer, negative Beträge). Link `/dok/<token>` (druckbar/PDF), Versand sofort oder am Abreisetag 11 Uhr, CSV-Export.
+- **Wohnungsgeberbestätigung** (§ 19 BMG) aus Namen, Einzugsdatum, Wohnungsanschrift und Aussteller als Wohnungsgeber, Link `/dok/<token>`.
 - **Gästeanfragen** (Statistik → Gästeanfragen, nur Admin): liest die Smoobu-Nachrichten aller Buchungen der letzten 3 Jahre
   (ohne Blockierungen; 8 Buchungen je Aufruf) in D1 (`inq_*`) und ordnet Gastnachrichten per Stichwort (DE/EN/HU) 17 Themen zu
   (`worker/src/inquiries.js`). Top 10 nach Anzahl Buchungen, Zeitpunkt (vor Anreise / im Aufenthalt / nach Abreise), Beispiele mit

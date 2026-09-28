@@ -13,9 +13,14 @@ import {
   loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, recordDelivery, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
   inquiryTodo, saveInquiries, inquiryReport, inquirySample, inquiryExamples, resetInquiries,
+  missingFingerprints, setFingerprints, automatedFingerprints, messagesOf, pastAnswers,
+  getThread, saveThread, listThreads, countThreads, dueThreads, pollTimes, markPolled,
+  getInvoice, invoiceByToken, saveInvoice, deleteInvoiceDraft, listInvoices, dueInvoices, takeInvoiceNumber, invoiceCounters, setInvoiceCounter,
+  saveDoc, docByToken, docsOf,
 } from './store.js';
 import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, maskStrict, categoryOrder, labelOf } from './inquiries.js';
-import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, diagnose } from './smoobu.js';
+import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, sendMessageToGuest, fetchGuest, diagnose } from './smoobu.js';
+import { needsReply, language, topicsOf, templateDraft, aiPrompt, planFacts, fingerprint, invoiceTotals, invoiceNumber, invoiceHtml, wgbHtml, TOPIC_LABELS } from './messages.js';
 import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
@@ -491,6 +496,224 @@ export function apartmentDetails(cfg, state) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Nachrichten an Gäste (Reiter „Nachrichten“): abrufen, Entwurf, Freigabe, Senden über Smoobu
+// ---------------------------------------------------------------------------
+/** Smoobu-Nachrichten → gespeicherte Form (Thema, Zeitpunkt, Fingerabdruck) */
+function buildMsgs(raw, b) {
+  return (raw || []).map((m, i) => {
+    const text = cleanMessage(m.message || m.htmlMessage || m.text || m.body || '');
+    const created = String(m.createdAt || m.created_at || m.date || m.sentAt || '').replace(' ', 'T');
+    const inbound = inboundOf(m);
+    const phase = phaseOf(created, b.arrival, b.departure);
+    const found = inbound ? classify(text) : [];
+    const cats = inbound ? (found.length ? found : ['other']).map((cat) => ({ cat, snippet: snippet(text, cat) })) : [];
+    return { id: String(m.id != null ? m.id : `${b.id}-${i}`), created, inbound, phase, text, cats, fp: inbound === false ? fingerprint(text) : null };
+  }).filter((m) => m.text);
+}
+
+const localIso = (now, cfg) => { const p = L.localParts(now, cfg.timezone); return `${p.date}T${p.time}`; };
+const replyDefaults = (cfg, settings) => ({ checkin: '15:00', checkout: cfg.checkoutTime || '10:00', ...(settings.replies || {}) });
+
+/** Buchungen, deren Nachrichten regelmäßig abgerufen werden: Anreise in ≤ 14 Tagen bis 7 Tage nach Abreise */
+function inboxBookings(state, today) {
+  return Object.values(state.reservations || {}).filter((r) => r.arrival <= L.addDays(today, 14) && r.departure >= L.addDays(today, -7));
+}
+function aptNameOf(state, id) {
+  const t = Object.values(state.tasks || {}).find((x) => x.apartmentId === String(id));
+  const a = (state.apartments || []).find((x) => String(x.id) === String(id));
+  return (a && a.name) || (t && t.apartmentName) || `Wohnung ${id}`;
+}
+
+/**
+ * Vorgang einer Buchung neu bewerten: offene Gastnachrichten seit unserer letzten echten Antwort?
+ * Liefert eine Push-Nachricht für den Admin, wenn etwas Neues kam.
+ */
+async function refreshThread(env, cfg, settings, state, res, now, auto) {
+  const msgs = await messagesOf(env.DB, res.id);
+  let t = await getThread(env.DB, res.id);
+  const isReply = (m) => m.inbound === 0 && (String(m.id).startsWith('app-') || !auto.has(m.fp || ''));
+  const lastReply = [t && t.lastReply, ...msgs.filter(isReply).map((m) => m.created)].filter(Boolean).sort().pop() || '';
+  const since = [lastReply, t && t.doneMark].filter(Boolean).sort().pop() || '';
+  const recent = localIso(now - 7 * 86400000, cfg);
+  const open = msgs.filter((m) => m.inbound === 1 && m.created > since && m.created >= recent && needsReply(m.text));
+  if (!open.length) {
+    if (t && t.status === 'offen') { t.status = 'erledigt'; t.doneBy = lastReply > (t.lastIn || '') ? 'beantwortet' : 'keine Antwort nötig'; t.lastReply = lastReply; await saveThread(env.DB, t, now); }
+    return null;
+  }
+  const newest = open[open.length - 1].created;
+  if (t && t.lastIn === newest && t.status !== 'gesendet') return null; // nichts Neues
+  const today = L.localParts(now, cfg.timezone).date;
+  const phase = today < res.arrival ? 'vorher' : today <= res.departure ? 'während' : 'nachher';
+  const topics = [...new Set(open.flatMap((m) => topicsOf(m.text)))];
+  const lang = language(open.map((m) => m.text));
+  let guestLink = t ? t.guestLink : undefined;
+  if (guestLink === undefined && smoobuCreds(env).key) {
+    const raw = await fetchBooking(smoobuCreds(env), res.id).catch(() => null);
+    guestLink = (raw && (raw['guest-app-url'] || raw.guestAppUrl)) || '';
+  }
+  const plan = planFacts({ apartmentId: String(res.apartmentId), arrival: res.arrival, departure: res.departure, bookingId: String(res.id),
+    tasks: Object.values(state.tasks || {}), reservations: Object.values(state.reservations || {}) });
+  const s = replyDefaults(cfg, settings);
+  const draftTpl = templateDraft({ lang, guest: res.guest, topics, text: open.map((m) => m.text).join('\n'), phase, s, plan, guestLink,
+    arrival: res.arrival, departure: res.departure });
+  const notifiedIn = t && t.notifiedIn;
+  t = { ...(t || {}), booking: String(res.id), apt: String(res.apartmentId), aptName: aptNameOf(state, res.apartmentId), guest: res.guest || '',
+    arrival: res.arrival, departure: res.departure, channel: res.channel || '', status: 'offen', sendAt: null, lastIn: newest, lastReply,
+    topics, lang, phase, plan, guestLink, draftTpl, draft: draftTpl, draftAi: null, draftBy: 'vorlage', edited: false, aiWanted: !!env.AI,
+    openIds: open.map((m) => m.id), notifiedIn: newest, error: null };
+  await saveThread(env.DB, t, now);
+  if (notifiedIn === newest) return null;
+  const urgent = phase === 'während' && topics.some((x) => x === 'problem' || x === 'access');
+  const last = open[open.length - 1].text.replace(/\s+/g, ' ');
+  return { to: cfg.owner.id, kind: urgent ? 'guesturgent' : 'guestmsg', title: `${urgent ? 'Dringend: ' : ''}Gastnachricht ${t.aptName}`,
+    body: `${res.guest || 'Gast'}: ${last.slice(0, 160)}${last.length > 160 ? ' …' : ''}\nThema: ${topics.map((x) => TOPIC_LABELS[x] || x).join(', ') || 'Sonstiges'} · Entwurf liegt bereit` };
+}
+
+/** Nachrichten einer Buchung aus Smoobu holen, speichern und den Vorgang bewerten */
+async function pollBooking(env, cfg, settings, state, res, now, auto) {
+  const raw = await fetchMessages(smoobuCreds(env), res.id);
+  const msgs = buildMsgs(raw, { id: res.id, arrival: res.arrival, departure: res.departure });
+  await saveInquiries(env.DB, String(res.id), String(res.apartmentId), msgs, now);
+  return refreshThread(env, cfg, settings, state, res, now, auto);
+}
+
+/** KI-Entwurf (Workers AI) mit Wissen, Verlauf, Vorlage und früheren echten Antworten */
+async function aiDraftFor(env, cfg, settings, t, auto) {
+  const msgs = await messagesOf(env.DB, t.booking);
+  const examples = [];
+  for (const cat of (t.topics || []).filter((x) => x !== 'wgb').slice(0, 2)) {
+    const list = (await pastAnswers(env.DB, cat, 30)).filter((x) => !auto.has(x.fp || '') && x.a.length >= 15 && x.a.length <= 700);
+    for (const x of list.slice(0, 2)) examples.push({ q: mask(x.q).slice(0, 300), a: mask(x.a).slice(0, 500) });
+  }
+  const details = apartmentDetails(cfg, { tasks: {}, apartments: [{ id: t.apt, name: t.aptName }] })[t.apt] || {};
+  const prompt = aiPrompt({ lang: t.lang, guest: t.guest, apartmentName: t.aptName, address: details.address || '', arrival: t.arrival, departure: t.departure,
+    phase: t.phase, plan: t.plan, guestLink: t.guestLink, s: replyDefaults(cfg, settings), template: t.draftTpl, examples,
+    history: msgs.map((m) => ({ inbound: m.inbound === 1, created: m.created, text: mask(m.text) })) });
+  const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 700, temperature: 0.3 });
+  return String((r && (r.response || r.result)) || '').trim();
+}
+
+/** Nachricht über Smoobu senden und im Verlauf vermerken */
+async function sendThread(env, cfg, t, text, now) {
+  await sendMessageToGuest(smoobuCreds(env), t.booking, 'Apartments Strauss', text);
+  const at = localIso(now, cfg);
+  await saveInquiries(env.DB, t.booking, t.apt, [{ id: `app-${now}`, created: at, inbound: false, phase: t.phase, text, cats: [], fp: fingerprint(text) }], now);
+  Object.assign(t, { status: 'gesendet', sentAt: now, sentText: text, lastReply: at, sendAt: null, error: null });
+  await saveThread(env.DB, t, now);
+}
+
+/** Zeitgesteuert (alle 5 Min.): einige Buchungen abrufen, geplante Nachrichten/Rechnungen senden, KI-Entwürfe */
+export async function runInbox(env, now = Date.now(), cfg) {
+  if (!smoobuCreds(env).key) return { skipped: true };
+  const loaded = cfg ? { cfg, settings: await loadSettings(env.DB) } : await loadConfig(env);
+  cfg = loaded.cfg;
+  const settings = loaded.settings;
+  const { state } = await loadState(env.DB);
+  const today = L.localParts(now, cfg.timezone).date;
+  const out = { polled: 0, sent: 0, invoices: 0, ai: 0, errors: [] };
+  const notes = [];
+  const auto = await automatedFingerprints(env.DB);
+  // 1) Abrufen: am längsten nicht abgerufene zuerst; laufende Aufenthalte und Anreisen in ≤ 2 Tagen doppelt so oft
+  const list = inboxBookings(state, today);
+  const times = await pollTimes(env.DB, list.map((r) => String(r.id)));
+  const hot = (r) => r.arrival <= L.addDays(today, 2) && r.departure >= today;
+  const due = list.map((r) => ({ r, key: (times[r.id] || 0) - (hot(r) ? 15 * 60000 : 0) })).sort((a, b) => a.key - b.key).slice(0, 4).map((x) => x.r);
+  for (const r of due) {
+    try { const n = await pollBooking(env, cfg, settings, state, r, now, auto); if (n) notes.push(n); out.polled++; } catch (e) { out.errors.push(e.message); }
+  }
+  await markPolled(env.DB, due.map((r) => r.id), now);
+  // 2) Geplante Antworten senden
+  for (const t of await dueThreads(env.DB, now, 3)) {
+    try { await sendThread(env, cfg, t, t.draft, now); out.sent++; } catch (e) {
+      t.status = 'offen'; t.error = 'Senden fehlgeschlagen: ' + e.message; t.sendAt = null; await saveThread(env.DB, t, now); out.errors.push(e.message);
+      notes.push({ to: cfg.owner.id, kind: 'guestmsg', title: `Senden fehlgeschlagen: ${t.aptName}`, body: e.message });
+    }
+  }
+  // 3) Geplante Rechnungen senden
+  for (const inv of await dueInvoices(env.DB, now, 2)) {
+    try { await sendInvoiceMessage(env, cfg, inv, now); out.invoices++; } catch (e) { inv.sendAt = null; inv.error = e.message; await saveInvoice(env.DB, inv); out.errors.push(e.message); }
+  }
+  // 4) KI-Entwürfe (höchstens 2 je Lauf)
+  if (env.AI) {
+    for (const t of (await listThreads(env.DB, ['offen'], 20)).filter((x) => x.aiWanted).slice(0, 2)) {
+      try {
+        const text = await aiDraftFor(env, cfg, settings, t, auto);
+        const cur = await getThread(env.DB, t.booking);
+        if (!cur || cur.lastIn !== t.lastIn) continue;
+        cur.aiWanted = false;
+        if (text) { cur.draftAi = text; if (!cur.edited) { cur.draft = text; cur.draftBy = 'ki'; } }
+        await saveThread(env.DB, cur, now); out.ai++;
+      } catch (e) { t.aiWanted = false; t.aiError = e.message; await saveThread(env.DB, t, now); out.errors.push('KI: ' + e.message); }
+    }
+  }
+  if (notes.length) await deliverLogged(env, cfg, notes);
+  return out;
+}
+
+// ---- Rechnungen ----
+const invoiceSettings = (settings) => ({ format: '{prefix}{jahr}-{nr3}', issuers: [], apts: {}, ...(settings.invoice || {}) });
+const docUrl = (cfg, request, token) => `${request ? new URL(request.url).origin : cfg.appUrl}/dok/${token}`;
+function guestAddress(g) {
+  if (!g) return '';
+  const a = g.address || g;
+  const street = a.street || a.addressStreet || '';
+  const city = [a.postalCode || a.zip || a.postcode || '', a.city || a.location || ''].filter(Boolean).join(' ');
+  const country = a.country && !/^(de|deutschland|germany)$/i.test(a.country) ? a.country : '';
+  return [street, city, country].filter(Boolean).join('\n');
+}
+/** Rechnungsentwurf aus der Smoobu-Buchung (Firma aus den Nachrichten per KI, sonst Gast) */
+async function invoiceDraft(env, cfg, settings, state, booking, now) {
+  const creds = smoobuCreds(env);
+  const raw = await fetchBooking(creds, booking);
+  if (!raw) throw new Error('Buchung in Smoobu nicht gefunden');
+  const apt = String((raw.apartment && raw.apartment.id) || raw.apartmentId || '');
+  const inv = invoiceSettings(settings);
+  const map = inv.apts[apt] || {};
+  const issuer = inv.issuers.find((x) => x.id === map.issuer) || null;
+  const guestName = raw['guest-name'] || [raw.firstname, raw.lastname].filter(Boolean).join(' ');
+  let address = '';
+  if (raw.guestId) address = guestAddress(await fetchGuest(creds, raw.guestId).catch(() => null));
+  let recipient = [guestName, address].filter(Boolean).join('\n');
+  if (env.AI) {
+    const msgs = (await messagesOf(env.DB, booking)).filter((m) => m.inbound === 1 && /rechnung|invoice|firma|company|gmbh|ag\b|ltd|ust|vat|adresse|address/i.test(m.text));
+    if (msgs.length) {
+      const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { max_tokens: 200, temperature: 0, messages: [{ role: 'user', content:
+        `Aus diesen Gastnachrichten die gewünschte Rechnungsadresse herauslesen (Firma/Name, ggf. z. Hd., Straße, PLZ Ort, Land falls nicht Deutschland, USt-IdNr. falls genannt). Antworte NUR mit den Adresszeilen, eine je Zeile, ohne weiteren Text. Gibt es keine Rechnungsadresse, antworte genau: KEINE\n\n${msgs.slice(-5).map((m) => m.text.slice(0, 800)).join('\n---\n')}` }] }).catch(() => null);
+      const text = String((r && r.response) || '').trim();
+      if (text && !/^KEINE/i.test(text) && text.length < 400) recipient = text;
+    }
+  }
+  const nights = Math.round((Date.parse(raw.departure) - Date.parse(raw.arrival)) / 86400000);
+  const aptName = (raw.apartment && raw.apartment.name) || aptNameOf(state, apt);
+  const channel = (raw.channel && raw.channel.name) || '';
+  const paid = /^yes|true|1$/i.test(String(raw['price-paid'] ?? ''));
+  const dm = (iso) => iso.split('-').reverse().join('.');
+  const vat = issuer && issuer.smallBusiness ? 0 : Number(issuer && issuer.vat != null ? issuer.vat : 7);
+  return {
+    id: randomId('re', 12), booking: String(booking), apt, status: 'entwurf', created: now,
+    issuerId: issuer ? issuer.id : '', recipient, guest: guestName, arrival: raw.arrival, departure: raw.departure, aptName, channel,
+    bookingRef: String(raw['reference-id'] || booking), date: L.localParts(now, cfg.timezone).date,
+    lines: [{ text: `Übernachtung ${aptName}\n${nights} ${nights === 1 ? 'Nacht' : 'Nächte'} vom ${dm(raw.arrival)} bis ${dm(raw.departure)}`, gross: Number(raw.price) || 0, vat }],
+    payment: paid || /booking|airbnb|expedia|agoda/i.test(channel) ? `Der Betrag wurde bereits${channel ? ` über ${channel}` : ''} bezahlt.` : 'Bitte überweisen Sie den Betrag innerhalb von 14 Tagen auf das unten angegebene Konto.',
+    note: '', lang: /^(de|deu|german)/i.test(String(raw.language || 'de')) ? 'de' : 'en',
+  };
+}
+function invoiceView(inv, cfg, request) {
+  return { ...inv, totals: invoiceTotals(inv.lines), url: inv.token ? docUrl(cfg, request, inv.token) : null };
+}
+async function sendInvoiceMessage(env, cfg, inv, now) {
+  const url = docUrl(cfg, null, inv.token);
+  const de = inv.lang !== 'en';
+  const name = (inv.guest || '').split(/\s+/)[0];
+  const text = de ? `Hallo${name ? ' ' + name : ''},\n\nvielen Dank für deinen Aufenthalt bei Apartments Strauss! Deine Rechnung ${inv.number} findest du hier (zum Speichern als PDF auf „Drucken“ tippen):\n${url}\n\nLiebe Grüße\nLea\nApartments Strauss`
+    : `Hi${name ? ' ' + name : ''},\n\nthank you for staying with Apartments Strauss! You can find your invoice ${inv.number} here (tap “Print” to save it as PDF):\n${url}\n\nBest regards\nLea\nApartments Strauss`;
+  await sendMessageToGuest(smoobuCreds(env), inv.booking, `Rechnung ${inv.number}`, text);
+  inv.sentAt = now; inv.sendAt = null; inv.error = null;
+  await saveInvoice(env.DB, inv);
+  await saveInquiries(env.DB, inv.booking, inv.apt, [{ id: `app-${now}-re`, created: localIso(now, cfg), inbound: false, phase: '', text, cats: [], fp: fingerprint(text) }], now);
+}
+
 async function viewFor(env, cfg, settings, state, user, now) {
   const { date: today, time } = L.localParts(now, cfg.timezone);
   const recipient = user.role === 'owner' ? cfg.owner.id : user.id;
@@ -509,6 +732,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     pushOk: !!(settings.pushOk || {})[user.id], // Push auf diesem Konto eingerichtet (bleibt beim Zurücksetzen)
     hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
     pushQueued: user.role === 'owner' ? await countPushQueue(env.DB).catch(() => 0) : 0,
+    inboxOpen: user.role === 'owner' ? ((await countThreads(env.DB).catch(() => ({}))).offen || 0) : 0,
     openReports: user.role === 'staff' ? [] : L.openReports(state),
     openRequests: user.role === 'owner' ? L.openPeriodRequests(state) : [],
     lang: (settings.lang || {})[user.id] || 'de',
@@ -688,6 +912,18 @@ async function handleApi(request, env, url, ctx) {
   if (hook && request.method === 'POST') {
     if (!env.APP_SECRET || !safeEqual(hook[1], await webhookToken(env))) return fail('Unbekannt', 404);
     const payload = await request.json().catch(() => null);
+    if (payload && /message/i.test(String(payload.action || ''))) { // neue Gastnachricht: diese Buchung gleich abrufen
+      const d = payload.data || {};
+      const rid = String(d.reservationId || d.bookingId || (d.reservation && d.reservation.id) || d.id || '');
+      const { state } = await loadState(env.DB);
+      const res = (state.reservations || {})[rid];
+      if (res) ctx.waitUntil((async () => {
+        const n = await pollBooking(env, cfg, settings, state, res, now, await automatedFingerprints(env.DB));
+        await markPolled(env.DB, [rid], now);
+        if (n) await deliverLogged(env, cfg, [n]);
+      })().catch((e) => console.error('Webhook Nachricht', e.message)));
+      return json({ ok: true });
+    }
     const booking = payload && L.fromSmoobuWebhook(payload);
     if (!booking || (payload.data && payload.data['is-blocked-booking'])) return json({ ok: true, ignored: true });
     const result = await mutate(env.DB, (state) =>
@@ -1080,15 +1316,7 @@ async function handleApi(request, env, url, ctx) {
     for (const b of todo.list) {
       let raw;
       try { raw = await fetchMessages(creds, b.id); } catch (e) { return fail('Smoobu: ' + e.message, 502); }
-      const msgs = (raw || []).map((m, i) => {
-        const text = cleanMessage(m.message || m.htmlMessage || m.text || m.body || '');
-        const created = String(m.createdAt || m.created_at || m.date || m.sentAt || '').replace(' ', 'T');
-        const inbound = inboundOf(m);
-        const phase = phaseOf(created, b.arrival, b.departure);
-        const found = inbound ? classify(text) : [];
-        const cats = inbound ? (found.length ? found : ['other']).map((cat) => ({ cat, snippet: snippet(text, cat) })) : [];
-        return { id: String(m.id != null ? m.id : `${b.id}-${i}`), created, inbound, phase, text, cats };
-      }).filter((m) => m.text);
+      const msgs = buildMsgs(raw, b);
       messages += msgs.length;
       await saveInquiries(env.DB, String(b.id), b.apt, msgs, now);
     }
@@ -1133,6 +1361,213 @@ async function handleApi(request, env, url, ctx) {
       }
     }
     return json({ text: lines.join('\n') });
+  }
+  // ---- Reiter „Nachrichten“ ----
+  if (path === '/api/inbox' && request.method === 'GET') {
+    const view = url.searchParams.get('view') || 'offen';
+    const statuses = view === 'erledigt' ? ['erledigt', 'gesendet'] : view === 'geplant' ? ['geplant'] : ['offen'];
+    const threads = await listThreads(env.DB, statuses, view === 'offen' ? 40 : 30);
+    const auto = await automatedFingerprints(env.DB);
+    const examples = {};
+    const out = [];
+    for (const t of threads) {
+      const msgs = await messagesOf(env.DB, t.booking);
+      const history = msgs.slice(-14).map((m) => ({ id: m.id, created: m.created, inbound: m.inbound === 1,
+        auto: m.inbound === 0 && !String(m.id).startsWith('app-') && auto.has(m.fp || ''), text: m.text.slice(0, 2000) }));
+      if (view === 'offen') {
+        for (const cat of (t.topics || []).filter((x) => x !== 'wgb')) {
+          if (examples[cat]) continue;
+          examples[cat] = (await pastAnswers(env.DB, cat, 30)).filter((x) => !auto.has(x.fp || '') && x.a.length >= 15 && x.a.length <= 900)
+            .slice(0, 3).map((x) => ({ q: x.q.slice(0, 400), a: x.a.slice(0, 900) }));
+        }
+      }
+      out.push({ ...t, history, invoices: (await listInvoices(env.DB, 5, t.booking)).map((i) => invoiceView(i, cfg, request)),
+        docs: (await docsOf(env.DB, t.booking)).map((d) => ({ id: d.id, kind: d.kind, created: d.created, url: docUrl(cfg, request, d.token) })) });
+    }
+    return json({ view, threads: out, counts: await countThreads(env.DB), examples, labels: TOPIC_LABELS, settings: replyDefaults(cfg, settings), ai: !!env.AI });
+  }
+  if (path === '/api/inbox/poll' && request.method === 'POST') {
+    if (!smoobuCreds(env).key) return fail('Smoobu ist nicht verbunden');
+    const body = await readJson();
+    const since = Number(body.since) || now;
+    const { state } = await loadState(env.DB);
+    const today = L.localParts(now, cfg.timezone).date;
+    const list = inboxBookings(state, today);
+    const times = await pollTimes(env.DB, list.map((r) => String(r.id)));
+    const todo = list.filter((r) => !times[r.id] || times[r.id] < since);
+    // ältere ausgehende Nachrichten einmalig mit Fingerabdruck versehen (Automatik erkennen)
+    const miss = await missingFingerprints(env.DB, 400);
+    if (miss.length) await setFingerprints(env.DB, miss.map((m) => ({ id: m.id, fp: fingerprint(m.text) })));
+    const auto = await automatedFingerprints(env.DB);
+    const notes = [];
+    const batch = todo.slice(0, 6);
+    for (const r of batch) {
+      try { const n = await pollBooking(env, cfg, settings, state, r, now, auto); if (n) notes.push(n); } catch (e) { return fail('Smoobu: ' + e.message, 502); }
+    }
+    await markPolled(env.DB, batch.map((r) => r.id), now);
+    if (notes.length) ctx.waitUntil(deliverLogged(env, cfg, notes).catch(() => {}));
+    return json({ done: batch.length, remaining: todo.length - batch.length, total: list.length, fingerprints: miss.length });
+  }
+  if (path === '/api/inbox/settings' && request.method === 'POST') {
+    const body = await readJson();
+    const keys = ['checkin', 'checkout', 'earlyFee', 'lateFee', 'luggage', 'parking', 'wifi', 'cot', 'tips', 'doorTip', 'phone', 'signatureDe', 'signatureEn', 'knowledge'];
+    settings.replies = Object.fromEntries(keys.map((k) => [k, String(body[k] || '').slice(0, k === 'knowledge' ? 12000 : 1500).trim()]).filter(([, v]) => v));
+    await saveSettings(env.DB, settings);
+    return json({ settings: replyDefaults(cfg, settings) });
+  }
+  const ib = path.match(/^\/api\/inbox\/(\w+)\/(draft|send|done|reopen|ai|template)$/);
+  if (ib && request.method === 'POST') {
+    const t = await getThread(env.DB, ib[1]);
+    if (!t) return fail('Vorgang nicht gefunden', 404);
+    const body = await readJson();
+    const text = String(body.text != null ? body.text : t.draft || '').trim().slice(0, 5000);
+    if (ib[2] === 'draft') { t.draft = text; t.edited = true; }
+    else if (ib[2] === 'template') { t.draft = t.draftTpl; t.draftBy = 'vorlage'; t.edited = false; }
+    else if (ib[2] === 'ai') {
+      if (!env.AI) return fail('Cloudflare Workers AI ist nicht eingerichtet', 501);
+      try { t.draftAi = await aiDraftFor(env, cfg, settings, t, await automatedFingerprints(env.DB)); } catch (e) { return fail('KI-Entwurf fehlgeschlagen: ' + e.message, 502); }
+      t.draft = t.draftAi; t.draftBy = 'ki'; t.edited = false; t.aiWanted = false;
+    } else if (ib[2] === 'done') { t.status = 'erledigt'; t.doneBy = 'ohne Antwort'; t.doneMark = localIso(now, cfg); t.sendAt = null; }
+    else if (ib[2] === 'reopen') { t.status = 'offen'; t.doneMark = null; }
+    else if (ib[2] === 'send') {
+      if (!text) return fail('Die Nachricht ist leer');
+      if (/\[(bitte ergänzen|please add)[^\]]*\]/i.test(text)) return fail('Bitte zuerst die Stellen „[bitte ergänzen]“ im Text ausfüllen');
+      t.draft = text;
+      if (body.at) {
+        const at = Number(body.at);
+        if (!at || at < now - 60000) return fail('Zeitpunkt liegt in der Vergangenheit');
+        t.status = 'geplant'; t.sendAt = at;
+      } else {
+        try { await sendThread(env, cfg, t, text, now); } catch (e) { return fail('Senden fehlgeschlagen: ' + e.message, 502); }
+        return json({ thread: t });
+      }
+    }
+    await saveThread(env.DB, t, now);
+    return json({ thread: t });
+  }
+
+  // ---- Rechnungen ----
+  if (path === '/api/invoices' && request.method === 'GET') {
+    const { state } = await loadState(env.DB);
+    return json({ settings: invoiceSettings(settings), counters: await invoiceCounters(env.DB),
+      apartments: apartmentList(state).map((a) => ({ id: a.id, name: a.name })), invoices: (await listInvoices(env.DB, 100)).map((i) => invoiceView(i, cfg, request)) });
+  }
+  if (path === '/api/invoices/settings' && request.method === 'POST') {
+    const body = await readJson();
+    const str = (v, n) => String(v || '').trim().slice(0, n);
+    const issuers = (Array.isArray(body.issuers) ? body.issuers : []).slice(0, 6).map((x, i) => ({
+      id: str(x.id, 20) || `a${i + 1}`, name: str(x.name, 200), address: str(x.address, 400), taxNo: str(x.taxNo, 60), vatId: str(x.vatId, 60),
+      bank: str(x.bank, 300), footer: str(x.footer, 400), smallBusiness: !!x.smallBusiness, vat: x.vat === '' || x.vat == null ? 7 : Number(x.vat) || 0,
+      place: str(x.place, 60), signer: str(x.signer, 100) })).filter((x) => x.name);
+    const apts = {};
+    for (const [id, v] of Object.entries(body.apts || {})) apts[id] = { issuer: str(v.issuer, 20), prefix: str(v.prefix, 30) };
+    settings.invoice = { format: str(body.format, 60) || '{prefix}{jahr}-{nr3}', issuers, apts };
+    await saveSettings(env.DB, settings);
+    const counters = await invoiceCounters(env.DB);
+    for (const [id, v] of Object.entries(body.next || {})) {
+      const n = Math.floor(Number(v));
+      if (n >= 1 && n !== counters[id]) await setInvoiceCounter(env.DB, id, n);
+    }
+    return json({ settings: invoiceSettings(settings), counters: await invoiceCounters(env.DB) });
+  }
+  if (path === '/api/invoices/draft' && request.method === 'POST') {
+    if (!smoobuCreds(env).key) return fail('Smoobu ist nicht verbunden');
+    const body = await readJson();
+    if (!/^\w+$/.test(String(body.booking || ''))) return fail('Buchung fehlt');
+    const existing = (await listInvoices(env.DB, 10, body.booking)).find((i) => i.status === 'entwurf');
+    if (existing) return json({ invoice: invoiceView(existing, cfg, request) });
+    let inv;
+    try { inv = await invoiceDraft(env, cfg, settings, (await loadState(env.DB)).state, String(body.booking), now); } catch (e) { return fail(e.message, 502); }
+    await saveInvoice(env.DB, inv);
+    return json({ invoice: invoiceView(inv, cfg, request) });
+  }
+  if (path === '/api/invoices.csv' && request.method === 'GET') {
+    const list = (await listInvoices(env.DB, 5000)).filter((i) => i.number).reverse();
+    const iss = invoiceSettings(settings).issuers;
+    const q = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const num = (n) => String(n.toFixed(2)).replace('.', ',');
+    const rows = [['Nummer', 'Datum', 'Status', 'Aussteller', 'Wohnung', 'Empfänger', 'Leistung von', 'bis', 'Netto', 'USt', 'Brutto', 'Buchung'].map(q).join(';')];
+    for (const i of list) {
+      const t = invoiceTotals(i.lines);
+      rows.push([i.number, i.date, i.status, (i.issuer || iss.find((x) => x.id === i.issuerId) || {}).name, i.aptName, String(i.recipient || '').split('\n')[0],
+        i.arrival, i.departure, num(t.net), num(t.vat), num(t.gross), i.bookingRef].map(q).join(';'));
+    }
+    return new Response('﻿' + rows.join('\r\n'), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="rechnungen.csv"' } });
+  }
+  const iv = path.match(/^\/api\/invoices\/(\w+)(?:\/(issue|cancel|send|delete))?$/);
+  if (iv && request.method === 'POST') {
+    const inv = await getInvoice(env.DB, iv[1]);
+    if (!inv) return fail('Rechnung nicht gefunden', 404);
+    const body = await readJson();
+    const iset = invoiceSettings(settings);
+    if (!iv[2]) { // Entwurf speichern
+      if (inv.status !== 'entwurf') return fail('Ausgestellte Rechnungen können nicht geändert werden – bitte stornieren');
+      if (body.recipient != null) inv.recipient = String(body.recipient).slice(0, 600);
+      if (body.issuerId != null) inv.issuerId = String(body.issuerId);
+      if (Array.isArray(body.lines)) inv.lines = body.lines.slice(0, 20).map((l) => ({ text: String(l.text || '').slice(0, 500), gross: Math.round((Number(String(l.gross).replace(',', '.')) || 0) * 100) / 100, vat: Number(l.vat) || 0 }));
+      for (const k of ['payment', 'note', 'date', 'lang']) if (body[k] != null) inv[k] = String(body[k]).slice(0, 800);
+      await saveInvoice(env.DB, inv);
+      return json({ invoice: invoiceView(inv, cfg, request) });
+    }
+    if (iv[2] === 'delete') {
+      if (inv.status !== 'entwurf') return fail('Nur Entwürfe können gelöscht werden');
+      await deleteInvoiceDraft(env.DB, inv.id);
+      return json({ ok: true });
+    }
+    if (iv[2] === 'issue') {
+      if (inv.status !== 'entwurf') return fail('Rechnung ist bereits ausgestellt');
+      const issuer = iset.issuers.find((x) => x.id === inv.issuerId);
+      if (!issuer) return fail('Bitte zuerst einen Aussteller wählen (Einstellungen → Rechnungen)');
+      if (!String(inv.recipient || '').trim()) return fail('Empfänger fehlt');
+      if (!invoiceTotals(inv.lines).gross) return fail('Betrag fehlt');
+      const n = await takeInvoiceNumber(env.DB, inv.apt || 'x');
+      inv.date = inv.date || L.localParts(now, cfg.timezone).date;
+      inv.number = invoiceNumber(iset.format, (iset.apts[inv.apt] || {}).prefix || '', n, inv.date);
+      inv.issuer = issuer; inv.status = 'ausgestellt'; inv.token = randomId('', 24); inv.issuedAt = now;
+      await saveInvoice(env.DB, inv);
+      return json({ invoice: invoiceView(inv, cfg, request) });
+    }
+    if (iv[2] === 'cancel') {
+      if (inv.status !== 'ausgestellt') return fail('Nur ausgestellte Rechnungen können storniert werden');
+      const n = await takeInvoiceNumber(env.DB, inv.apt || 'x');
+      const date = L.localParts(now, cfg.timezone).date;
+      const st = { ...inv, id: randomId('re', 12), status: 'storno', created: now, date, refNumber: inv.number, refId: inv.id, sendAt: null, sentAt: null,
+        lines: inv.lines.map((l) => ({ ...l, gross: -l.gross })), number: invoiceNumber(iset.format, (iset.apts[inv.apt] || {}).prefix || '', n, date),
+        token: randomId('', 24), issuedAt: now, payment: '' };
+      await saveInvoice(env.DB, st);
+      inv.cancelled = true; inv.status = 'storniert'; inv.cancelId = st.id; inv.sendAt = null;
+      await saveInvoice(env.DB, inv);
+      return json({ invoice: invoiceView(inv, cfg, request), storno: invoiceView(st, cfg, request) });
+    }
+    if (iv[2] === 'send') {
+      if (!['ausgestellt', 'storno'].includes(inv.status)) return fail('Bitte die Rechnung zuerst ausstellen');
+      if (body.at) { inv.sendAt = Number(body.at); inv.error = null; await saveInvoice(env.DB, inv); return json({ invoice: invoiceView(inv, cfg, request) }); }
+      try { await sendInvoiceMessage(env, cfg, inv, now); } catch (e) { return fail('Senden fehlgeschlagen: ' + e.message, 502); }
+      return json({ invoice: invoiceView(inv, cfg, request) });
+    }
+  }
+
+  // ---- Wohnungsgeberbestätigung ----
+  if (path === '/api/wgb' && request.method === 'POST') {
+    const body = await readJson();
+    const names = (Array.isArray(body.names) ? body.names : String(body.names || '').split('\n')).map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
+    if (!names.length) return fail('Bitte die Namen eintragen');
+    const t = body.booking ? await getThread(env.DB, body.booking) : null;
+    const iset = invoiceSettings(settings);
+    const apt = String(body.apt || (t && t.apt) || '');
+    const issuer = iset.issuers.find((x) => x.id === (iset.apts[apt] || {}).issuer) || iset.issuers[0];
+    const { state } = await loadState(env.DB);
+    const details = apartmentDetails(cfg, state)[apt] || {};
+    const b = builtinFor(aptNameOf(state, apt));
+    const doc = { id: randomId('wg', 12), kind: 'wgb', booking: body.booking ? String(body.booking) : null, token: randomId('', 24), created: now,
+      names, moveIn: /^\d{4}-\d\d-\d\d$/.test(body.moveIn || '') ? body.moveIn : (t && t.arrival) || '',
+      address: String(body.address || details.address || (b && b.address) || '').trim(),
+      landlord: String(body.landlord || (issuer ? `${issuer.name}\n${issuer.address}` : '')).trim(), owner: String(body.owner || '').trim(),
+      place: (issuer && issuer.place) || 'Braunschweig', signer: (issuer && issuer.signer) || '', date: L.localParts(now, cfg.timezone).date };
+    if (!doc.address) return fail('Anschrift der Wohnung fehlt – bitte eintragen');
+    if (!doc.landlord) return fail('Wohnungsgeber fehlt – bitte unter Rechnungen einen Aussteller anlegen oder eintragen');
+    await saveDoc(env.DB, doc);
+    return json({ doc: { id: doc.id, kind: 'wgb', url: docUrl(cfg, request, doc.token) } });
   }
   if (path === '/api/inquiries/ai' && request.method === 'POST') {
     if (!env.AI) return fail('Cloudflare Workers AI ist nicht eingerichtet', 501);
@@ -1464,6 +1899,16 @@ export default {
       const page = await env.ASSETS.fetch(new Request(new URL('/anleitung', url), request));
       return new Response(page.body, { status: page.status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' } });
     }
+    // Rechnungen / Wohnungsgeberbestätigung per Link: /dok/<token>
+    const dok = url.pathname.match(/^\/dok\/([a-z0-9]{24})$/);
+    if (dok && request.method === 'GET') {
+      const headers = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' };
+      const inv = await invoiceByToken(env.DB, dok[1]).catch(() => null);
+      if (inv && inv.number) return new Response(invoiceHtml(inv), { headers });
+      const doc = await docByToken(env.DB, dok[1]).catch(() => null);
+      if (doc && doc.kind === 'wgb') return new Response(wgbHtml(doc), { headers });
+      return new Response('Dokument nicht gefunden', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
     // Fotos der Anleitungen (public/g/…): nur mit gültigem Handwerker-Link (?t=) für diese Wohnung oder als Admin (?a=)
     if (url.pathname.startsWith('/g/')) return guidePhoto(request, env, url);
     // /admin (und andere unbekannte Seiten) → die App selbst
@@ -1473,6 +1918,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runSync(env, event.scheduledTime).then((s) => console.log('Abgleich', JSON.stringify(s))));
+    ctx.waitUntil(runSync(env, event.scheduledTime).then((s) => console.log('Abgleich', JSON.stringify(s)))
+      .then(() => runInbox(env, event.scheduledTime)).then((r) => console.log('Nachrichten', JSON.stringify(r))).catch((e) => console.error('Nachrichten', e)));
   },
 };

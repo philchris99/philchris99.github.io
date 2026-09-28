@@ -327,7 +327,12 @@ async function ensureInquiries(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS inq_done (booking TEXT PRIMARY KEY, at INTEGER NOT NULL, n INTEGER NOT NULL)').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS inq_msgs (id TEXT PRIMARY KEY, booking TEXT NOT NULL, apt TEXT, created TEXT, inbound INTEGER, phase TEXT, text TEXT NOT NULL)').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS inq_cats (msg TEXT NOT NULL, cat TEXT NOT NULL, booking TEXT NOT NULL, phase TEXT, created TEXT, snippet TEXT, PRIMARY KEY (msg, cat))').run();
+  if (!fpReady) { // Fingerabdruck ausgehender Nachrichten (Smoobu-Automatik erkennen) – Spalte nachrüsten
+    await db.prepare('ALTER TABLE inq_msgs ADD COLUMN fp TEXT').run().catch(() => null);
+    fpReady = true;
+  }
 }
+let fpReady = false;
 /** Nächste Buchungen (keine Blockierungen) im Zeitraum, deren Nachrichten noch nicht gelesen wurden */
 export async function inquiryTodo(db, from, to, limit) {
   await ensureInquiries(db);
@@ -341,8 +346,8 @@ export async function saveInquiries(db, booking, apt, msgs, now) {
   await ensureInquiries(db);
   const st = [db.prepare('INSERT OR REPLACE INTO inq_done (booking, at, n) VALUES (?, ?, ?)').bind(booking, now || Date.now(), msgs.length)];
   for (const m of msgs) {
-    st.push(db.prepare('INSERT OR REPLACE INTO inq_msgs (id, booking, apt, created, inbound, phase, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .bind(m.id, booking, apt, m.created, m.inbound == null ? null : m.inbound ? 1 : 0, m.phase, m.text));
+    st.push(db.prepare('INSERT OR REPLACE INTO inq_msgs (id, booking, apt, created, inbound, phase, text, fp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(m.id, booking, apt, m.created, m.inbound == null ? null : m.inbound ? 1 : 0, m.phase, m.text, m.fp || null));
     for (const c of m.cats || []) {
       st.push(db.prepare('INSERT OR REPLACE INTO inq_cats (msg, cat, booking, phase, created, snippet) VALUES (?, ?, ?, ?, ?, ?)')
         .bind(m.id, c.cat, booking, m.phase, m.created, c.snippet));
@@ -381,4 +386,155 @@ export async function inquirySample(db, limit) {
 export async function resetInquiries(db) {
   await ensureInquiries(db);
   await db.batch(['inq_done', 'inq_msgs', 'inq_cats'].map((t) => db.prepare(`DELETE FROM ${t}`)));
+}
+
+/** Ausgehende Nachrichten ohne Fingerabdruck (ältere Einträge) – zum Nachrüsten */
+export async function missingFingerprints(db, limit) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare('SELECT id, text FROM inq_msgs WHERE inbound = 0 AND fp IS NULL LIMIT ?').bind(limit).all();
+  return results || [];
+}
+export async function setFingerprints(db, list) {
+  for (let i = 0; i < list.length; i += 50) {
+    await db.batch(list.slice(i, i + 50).map((x) => db.prepare('UPDATE inq_msgs SET fp = ? WHERE id = ?').bind(x.fp, x.id)));
+  }
+}
+/** Fingerabdrücke, die in mind. 3 Buchungen vorkommen = automatische Smoobu-Nachrichten */
+export async function automatedFingerprints(db) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare("SELECT fp FROM inq_msgs WHERE inbound = 0 AND fp IS NOT NULL AND fp != '' GROUP BY fp HAVING COUNT(DISTINCT booking) >= 3").all();
+  return new Set((results || []).map((r) => r.fp));
+}
+/** Alle Nachrichten einer Buchung (älteste zuerst) */
+export async function messagesOf(db, booking) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare('SELECT id, created, inbound, text, fp FROM inq_msgs WHERE booking = ? ORDER BY created, id').bind(String(booking)).all();
+  return results || [];
+}
+/** Frühere echte Antworten auf Gastnachrichten eines Themas: [{ q, a, fp }] (neueste zuerst) */
+export async function pastAnswers(db, cat, limit) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare(`SELECT m.text AS q,
+      (SELECT o.text FROM inq_msgs o WHERE o.booking = c.booking AND o.inbound = 0 AND o.created > c.created ORDER BY o.created LIMIT 1) AS a,
+      (SELECT o.fp FROM inq_msgs o WHERE o.booking = c.booking AND o.inbound = 0 AND o.created > c.created ORDER BY o.created LIMIT 1) AS fp
+    FROM inq_cats c JOIN inq_msgs m ON m.id = c.msg WHERE c.cat = ? ORDER BY c.created DESC LIMIT ?`).bind(cat, limit).all();
+  return (results || []).filter((r) => r.a);
+}
+
+// ---- Nachrichten-Eingang: ein Vorgang je Buchung (Status, Entwurf, geplanter Versand) ----
+async function ensureInbox(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS inbox (booking TEXT PRIMARY KEY, status TEXT NOT NULL, send_at INTEGER, updated INTEGER NOT NULL, data TEXT NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS inbox_poll (booking TEXT PRIMARY KEY, at INTEGER NOT NULL)').run();
+}
+const threadOf = (r) => (r ? { ...JSON.parse(r.data), booking: r.booking, status: r.status, sendAt: r.send_at, updated: r.updated } : null);
+export async function getThread(db, booking) {
+  await ensureInbox(db);
+  return threadOf(await db.prepare('SELECT * FROM inbox WHERE booking = ?').bind(String(booking)).first());
+}
+export async function saveThread(db, t, now) {
+  await ensureInbox(db);
+  const { booking, status, sendAt, updated, ...data } = t;
+  await db.prepare('INSERT OR REPLACE INTO inbox (booking, status, send_at, updated, data) VALUES (?, ?, ?, ?, ?)')
+    .bind(String(booking), status, sendAt || null, now || Date.now(), JSON.stringify(data)).run();
+}
+export async function listThreads(db, statuses, limit) {
+  await ensureInbox(db);
+  const { results } = await db.prepare(`SELECT * FROM inbox WHERE status IN (${statuses.map(() => '?').join(',')}) ORDER BY updated DESC LIMIT ?`)
+    .bind(...statuses, limit).all();
+  return (results || []).map(threadOf);
+}
+export async function countThreads(db) {
+  await ensureInbox(db);
+  const { results } = await db.prepare('SELECT status, COUNT(*) AS n FROM inbox GROUP BY status').all();
+  return Object.fromEntries((results || []).map((r) => [r.status, r.n]));
+}
+export async function dueThreads(db, now, limit) {
+  await ensureInbox(db);
+  const { results } = await db.prepare("SELECT * FROM inbox WHERE status = 'geplant' AND send_at <= ? ORDER BY send_at LIMIT ?").bind(now, limit).all();
+  return (results || []).map(threadOf);
+}
+/** Buchungen nach „zuletzt abgerufen“ (nie zuerst) */
+export async function pollTimes(db, ids) {
+  await ensureInbox(db);
+  if (!ids.length) return {};
+  const out = {};
+  for (let i = 0; i < ids.length; i += 90) {
+    const part = ids.slice(i, i + 90);
+    const { results } = await db.prepare(`SELECT booking, at FROM inbox_poll WHERE booking IN (${part.map(() => '?').join(',')})`).bind(...part).all();
+    for (const r of results || []) out[r.booking] = r.at;
+  }
+  return out;
+}
+export async function markPolled(db, ids, now) {
+  await ensureInbox(db);
+  if (ids.length) await db.batch(ids.map((id) => db.prepare('INSERT OR REPLACE INTO inbox_poll (booking, at) VALUES (?, ?)').bind(String(id), now)));
+}
+
+// ---- Rechnungen und Dokumente (Wohnungsgeberbestätigung) ----
+async function ensureDocs(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, booking TEXT, apt TEXT, status TEXT NOT NULL, number TEXT UNIQUE, token TEXT UNIQUE, send_at INTEGER, created INTEGER NOT NULL, data TEXT NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS inv_counter (apt TEXT PRIMARY KEY, next INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS docs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, booking TEXT, token TEXT UNIQUE, created INTEGER NOT NULL, data TEXT NOT NULL)').run();
+}
+const invOf = (r) => (r ? { ...JSON.parse(r.data), id: r.id, booking: r.booking, apt: r.apt, status: r.status, number: r.number, token: r.token, sendAt: r.send_at, created: r.created } : null);
+export async function getInvoice(db, id) {
+  await ensureDocs(db);
+  return invOf(await db.prepare('SELECT * FROM invoices WHERE id = ?').bind(id).first());
+}
+export async function invoiceByToken(db, token) {
+  await ensureDocs(db);
+  return invOf(await db.prepare('SELECT * FROM invoices WHERE token = ?').bind(token).first());
+}
+export async function saveInvoice(db, inv) {
+  await ensureDocs(db);
+  const { id, booking, apt, status, number, token, sendAt, created, ...data } = inv;
+  await db.prepare('INSERT OR REPLACE INTO invoices (id, booking, apt, status, number, token, send_at, created, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, booking || null, apt || null, status, number || null, token || null, sendAt || null, created || Date.now(), JSON.stringify(data)).run();
+}
+export async function deleteInvoiceDraft(db, id) {
+  await ensureDocs(db);
+  await db.prepare("DELETE FROM invoices WHERE id = ? AND status = 'entwurf'").bind(id).run();
+}
+export async function listInvoices(db, limit, booking) {
+  await ensureDocs(db);
+  const q = booking ? db.prepare('SELECT * FROM invoices WHERE booking = ? ORDER BY created DESC LIMIT ?').bind(String(booking), limit)
+    : db.prepare('SELECT * FROM invoices ORDER BY created DESC LIMIT ?').bind(limit);
+  return ((await q.all()).results || []).map(invOf);
+}
+export async function dueInvoices(db, now, limit) {
+  await ensureDocs(db);
+  const { results } = await db.prepare("SELECT * FROM invoices WHERE status IN ('ausgestellt', 'storno') AND send_at IS NOT NULL AND send_at <= ? LIMIT ?").bind(now, limit).all();
+  return (results || []).map(invOf);
+}
+/** Nächste freie Nummer je Wohnung (fortlaufend, ohne Lücken) */
+export async function takeInvoiceNumber(db, apt) {
+  await ensureDocs(db);
+  await db.prepare('INSERT OR IGNORE INTO inv_counter (apt, next) VALUES (?, 1)').bind(String(apt)).run();
+  const r = await db.prepare('UPDATE inv_counter SET next = next + 1 WHERE apt = ? RETURNING next').bind(String(apt)).first();
+  return r.next - 1;
+}
+export async function invoiceCounters(db) {
+  await ensureDocs(db);
+  const { results } = await db.prepare('SELECT apt, next FROM inv_counter').all();
+  return Object.fromEntries((results || []).map((r) => [r.apt, r.next]));
+}
+export async function setInvoiceCounter(db, apt, next) {
+  await ensureDocs(db);
+  await db.prepare('INSERT OR REPLACE INTO inv_counter (apt, next) VALUES (?, ?)').bind(String(apt), next).run();
+}
+export async function saveDoc(db, doc) {
+  await ensureDocs(db);
+  const { id, kind, booking, token, created, ...data } = doc;
+  await db.prepare('INSERT OR REPLACE INTO docs (id, kind, booking, token, created, data) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, kind, booking || null, token, created || Date.now(), JSON.stringify(data)).run();
+}
+const docOf = (r) => (r ? { ...JSON.parse(r.data), id: r.id, kind: r.kind, booking: r.booking, token: r.token, created: r.created } : null);
+export async function docByToken(db, token) {
+  await ensureDocs(db);
+  return docOf(await db.prepare('SELECT * FROM docs WHERE token = ?').bind(token).first());
+}
+export async function docsOf(db, booking) {
+  await ensureDocs(db);
+  const { results } = await db.prepare('SELECT * FROM docs WHERE booking = ? ORDER BY created DESC').bind(String(booking)).all();
+  return (results || []).map(docOf);
 }

@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import worker, { runSync } from '../src/index.js';
+import worker, { runSync, runInbox } from '../src/index.js';
 import L from '../../logic/logic.js';
 const ALL = L.DEFAULT_CONFIG.checklist.map((c) => c.id);
 
@@ -31,19 +31,20 @@ class SqliteD1 {
 // --- Nachgebautes Smoobu (HMAC in einer nicht naheliegenden Variante) und ntfy ---
 const HMAC_KEY = 'hmac-key-123';
 const HMAC_SECRET = 'geheim+secret/abc=';
-function smoobuAuthorized(url, headers) {
+function smoobuAuthorized(url, headers, method, body) {
   if (headers['Api-Key'] === 'smoobu-test-key') return true;
   if (headers['X-API-Key'] !== HMAC_KEY) return false;
   const u = new URL(url);
   const query = [...u.searchParams].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('&');
-  const lines = ['GET', u.pathname];
+  const lines = [method || 'GET', u.pathname];
   if (query) lines.push(query);
-  lines.push(headers['X-Timestamp'], headers['X-Nonce'], createHash('sha256').update('').digest('base64'), HMAC_KEY);
+  lines.push(headers['X-Timestamp'], headers['X-Nonce'], createHash('sha256').update(body || '').digest('base64'), HMAC_KEY);
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(headers['X-Timestamp'])) return false;
   return headers['X-Signature'] === createHmac('sha256', HMAC_SECRET).update(lines.join('\n')).digest('base64');
 }
 let smoobuBookings = [];
 let smoobuMessages = {};
+let sentToGuests = [];
 let pushes = [];
 let smoobuCalls = 0;
 const geocodeCalls = [];
@@ -51,7 +52,7 @@ globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.startsWith('https://login.smoobu.com/api/')) {
     smoobuCalls++;
-    if (!smoobuAuthorized(url, init.headers)) {
+    if (!smoobuAuthorized(url, init.headers, init.method, init.body)) {
       return Response.json({ status: 401, title: 'Unauthorized', detail: 'Authentication required' }, { status: 401 });
     }
   }
@@ -61,6 +62,10 @@ globalThis.fetch = async (url, init = {}) => {
     return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
   }
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
+  const sendTo = url.match(/^https:\/\/login\.smoobu\.com\/api\/reservations\/(\d+)\/messages\/send-message-to-guest/);
+  if (sendTo && init.method === 'POST') { sentToGuests.push({ id: sendTo[1], ...JSON.parse(init.body) }); return Response.json({ id: 1 }); }
+  const guest = url.match(/^https:\/\/login\.smoobu\.com\/api\/guests\/(\d+)/);
+  if (guest) return Response.json({ id: 1, address: { street: 'Hauptstr. 1', postalCode: '38100', city: 'Braunschweig', country: 'Deutschland' } });
   const msgs = url.match(/^https:\/\/login\.smoobu\.com\/api\/reservations\/(\d+)\/messages/);
   if (msgs) return Response.json({ page_count: 1, page: 1, messages: smoobuMessages[msgs[1]] || [] });
   if (url.startsWith('https://login.smoobu.com/api/reservations/')) {
@@ -1025,6 +1030,121 @@ test('Gästeanfragen: Nachrichten je Buchung lesen, Themen zählen, nur für Adm
   assert.equal(r.body.done, 0);
   const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
   assert.equal((await call('GET', '/api/inquiries', { session: staffSession })).status, 404);
+});
+
+test('Nachrichten: Gastfrage abrufen, Entwurf, Senden über Smoobu, Planen, Erledigt; Rauschen ohne Vorgang', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const local = (ms) => new Date(ms).toLocaleString('sv-SE', { timeZone: 'Europe/Berlin' }).replace(' ', 'T').slice(0, 16);
+  smoobuBookings = [
+    booking(9101, plus(3), { arrival: plus(1), 'guest-name': 'Anna Schmidt', 'guest-app-url': 'https://guest.smoobu.com/abc', price: 300, guestId: 7 }),
+    booking(9102, plus(4), { arrival: plus(2), 'guest-name': 'Bob Miller', apartment: { id: 222, name: 'Loft Altstadt' } }),
+  ];
+  await runSync(env, Date.now());
+  const auto = 'Hallo X, wir freuen uns auf deinen Besuch! Hier alle Infos zum Check-in';
+  smoobuMessages = {
+    9101: [{ id: 501, type: 1, createdAt: local(Date.now() - 3600000), message: 'Hallo, können wir schon um 12 Uhr einchecken? Und gibt es einen Parkplatz?' }],
+    9102: [{ id: 502, type: 1, createdAt: local(Date.now() - 3600000), message: 'You have tried to reach the AltoVita EMEA team outside of normal working hours.' }],
+  };
+  // gleiche automatische Nachricht in 3 Buchungen → zählt nicht als Antwort
+  for (const id of [701, 702, 703]) smoobuMessages[id] = [{ id: 800 + id, type: 2, createdAt: local(Date.now() - 86400000), message: auto.replace('X', 'Gast' + id) }];
+  pushes = [];
+  let r = await call('POST', '/api/inbox/poll', { session: admin, body: { since: Date.now() } });
+  assert.equal(r.status, 200);
+  while (r.body.remaining) r = await call('POST', '/api/inbox/poll', { session: admin, body: { since: Date.now() - 5000 } });
+  let box = (await call('GET', '/api/inbox', { session: admin })).body;
+  const t = box.threads.find((x) => x.booking === '9101');
+  assert.ok(t, 'Vorgang für die Gastfrage');
+  assert.deepEqual(t.topics.slice().sort(), ['checkin', 'parking']);
+  assert.match(t.draft, /^Hallo Anna,/);
+  assert.match(t.draft, /12:00/);
+  assert.match(t.draft, /guest\.smoobu\.com\/abc/, 'Gäste-Link aus Smoobu');
+  assert.ok(!box.threads.find((x) => x.booking === '9102'), 'Abwesenheitsnotiz braucht keine Antwort');
+  assert.ok(pushes.some((p) => /Gastnachricht/.test(p.title)), 'Push an Admin');
+  assert.equal(box.counts.offen, 1);
+  // Platzhalter verhindert das Senden
+  assert.equal((await call('POST', '/api/inbox/9101/send', { session: admin, body: { text: 'Hallo [bitte ergänzen]' } })).status, 400);
+  sentToGuests = [];
+  r = await call('POST', '/api/inbox/9101/send', { session: admin, body: { text: 'Hallo Anna, gerne ab 12 Uhr!' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.thread.status, 'gesendet');
+  assert.equal(sentToGuests.length, 1);
+  assert.equal(sentToGuests[0].id, '9101');
+  assert.equal(sentToGuests[0].messageBody, 'Hallo Anna, gerne ab 12 Uhr!');
+  // neue Frage → wieder offen
+  smoobuMessages[9101].push({ id: 503, type: 1, createdAt: local(Date.now() + 60000), message: 'Super, und wie ist das WLAN-Passwort?' });
+  await call('POST', '/api/inbox/poll', { session: admin, body: { since: Date.now() + 1 } });
+  box = (await call('GET', '/api/inbox', { session: admin })).body;
+  const t2 = box.threads.find((x) => x.booking === '9101');
+  assert.ok(t2 && t2.topics.includes('wifi'), 'neue Frage öffnet den Vorgang wieder');
+  assert.ok(t2.history.some((m) => !m.inbound && /gerne ab 12 Uhr/.test(m.text)), 'eigene Antwort im Verlauf');
+  // geplant senden → Zeitsteuerung verschickt
+  const at = Date.now() + 1000;
+  r = await call('POST', '/api/inbox/9101/send', { session: admin, body: { text: 'Das WLAN steht im Gäste-Link.', at } });
+  assert.equal(r.body.thread.status, 'geplant');
+  sentToGuests = [];
+  const run = await runInbox(env, at + 1000);
+  assert.equal(run.sent, 1);
+  assert.equal(sentToGuests[0].messageBody, 'Das WLAN steht im Gäste-Link.');
+  assert.equal((await call('GET', '/api/inbox?view=erledigt', { session: admin })).body.threads.find((x) => x.booking === '9101').status, 'gesendet');
+  // erledigt ohne Antwort
+  smoobuMessages[9101].push({ id: 504, type: 1, createdAt: local(Date.now() + 120000), message: 'Wo finde ich die Schlüsselbox?' });
+  await call('POST', '/api/inbox/poll', { session: admin, body: { since: Date.now() + 2 } });
+  r = await call('POST', '/api/inbox/9101/done', { session: admin });
+  assert.equal(r.body.thread.status, 'erledigt');
+  const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
+  assert.equal((await call('GET', '/api/inbox', { session: staffSession })).status, 404);
+});
+
+test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV; Wohnungsgeberbestätigung', async () => {
+  const apts = (await call('GET', '/api/invoices', { session: admin })).body.apartments;
+  assert.ok(apts.find((a) => a.id === '111'));
+  let r = await call('POST', '/api/invoices/settings', { session: admin, body: {
+    format: '{prefix}{jahr}-{nr3}',
+    issuers: [{ id: 'a1', name: 'Strauss Vermietung', address: 'Musterweg 1\n38100 Braunschweig', taxNo: '14/123/45678', vat: 7, signer: 'Lea Strauss' }],
+    apts: { 111: { issuer: 'a1', prefix: 'ELB-' } }, next: { 111: 5 } } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.counters['111'], 5);
+  r = await call('POST', '/api/invoices/draft', { session: admin, body: { booking: '9101' } });
+  assert.equal(r.status, 200);
+  const d = r.body.invoice;
+  assert.equal(d.status, 'entwurf');
+  assert.equal(d.issuerId, 'a1');
+  assert.equal(d.lines[0].gross, 300);
+  assert.match(d.recipient, /Anna Schmidt\nHauptstr\. 1\n38100 Braunschweig/);
+  assert.equal(d.totals.vat, 19.63);
+  r = await call('POST', `/api/invoices/${d.id}`, { session: admin, body: { recipient: 'Firma GmbH\nWeg 2\n12345 Stadt' } });
+  assert.equal(r.body.invoice.recipient, 'Firma GmbH\nWeg 2\n12345 Stadt');
+  r = await call('POST', `/api/invoices/${d.id}/issue`, { session: admin });
+  assert.equal(r.status, 200);
+  const year = new Date().getFullYear();
+  assert.equal(r.body.invoice.number, `ELB-${year}-005`);
+  const url = new URL(r.body.invoice.url);
+  assert.equal((await call('POST', `/api/invoices/${d.id}`, { session: admin, body: { recipient: 'x' } })).status, 400, 'ausgestellt = unveränderlich');
+  const page = await worker.fetch(new Request('https://team.example' + url.pathname), env, { waitUntil() {} });
+  const html = await page.text();
+  assert.match(html, new RegExp(`ELB-${year}-005`));
+  assert.match(html, /Firma GmbH/);
+  assert.match(html, /Steuernummer: 14\/123\/45678/);
+  // Storno: neue Nummer, negative Beträge
+  r = await call('POST', `/api/invoices/${d.id}/cancel`, { session: admin });
+  assert.equal(r.body.storno.number, `ELB-${year}-006`);
+  assert.equal(r.body.storno.totals.gross, -300);
+  assert.equal(r.body.invoice.status, 'storniert');
+  // Versand nach Abreise: geplant → Zeitsteuerung sendet Link
+  sentToGuests = [];
+  await call('POST', `/api/invoices/${r.body.storno.id}/send`, { session: admin, body: { at: Date.now() - 1 } });
+  await runInbox(env, Date.now());
+  assert.ok(sentToGuests.some((m) => m.id === '9101' && /\/dok\/[a-z0-9]{24}/.test(m.messageBody)));
+  const csv = await (await worker.fetch(new Request('https://team.example/api/invoices.csv', { headers: { Authorization: `Bearer ${admin}` } }), env, { waitUntil() {} })).text();
+  assert.match(csv, new RegExp(`ELB-${year}-005`));
+  // Wohnungsgeberbestätigung
+  r = await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Anna Schmidt\nMax Schmidt', address: 'Testweg 5, 38100 Braunschweig' } });
+  assert.equal(r.status, 200);
+  const w = await (await worker.fetch(new Request(r.body.doc.url.replace(/^https?:\/\/[^/]+/, 'https://team.example')), env, { waitUntil() {} })).text();
+  assert.match(w, /Wohnungsgeberbestätigung/);
+  assert.match(w, /Max Schmidt/);
+  assert.match(w, /Strauss Vermietung/);
+  assert.equal((await worker.fetch(new Request('https://team.example/dok/aaaaaaaaaaaaaaaaaaaaaaaa'), env, { waitUntil() {} })).status, 404);
 });
 
 test('Handwerker-Auftrag aus einer Meldung: Link mit Problem und Fotos, Handwerker meldet „erledigt“ → Push an Admin', async () => {

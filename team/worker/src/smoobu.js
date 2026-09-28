@@ -45,14 +45,14 @@ function canonicalQuery(params) {
     .join('&');
 }
 
-export async function signedHeaders(creds, method, path, params, variant) {
+export async function signedHeaders(creds, method, path, params, variant, body) {
   let timestamp = new Date().toISOString();
   if (!variant.millis) timestamp = timestamp.replace(/\.\d{3}Z$/, 'Z');
   const nonce = crypto.randomUUID();
   const query = canonicalQuery(params);
   const lines = [method, (variant.apiPrefix ? '/api' : '') + path];
   if (query || variant.emptyQueryLine) lines.push(query);
-  lines.push(timestamp, nonce, await sha256('', variant.bodyHash), creds.key);
+  lines.push(timestamp, nonce, await sha256(body || '', variant.bodyHash), creds.key);
   return {
     'X-API-Key': creds.key,
     'X-Timestamp': timestamp,
@@ -61,11 +61,12 @@ export async function signedHeaders(creds, method, path, params, variant) {
   };
 }
 
-async function request(creds, path, params, variant) {
-  const auth = creds.secret ? await signedHeaders(creds, 'GET', path, params, variant) : { 'Api-Key': creds.key };
+async function request(creds, path, params, variant, method = 'GET', body = null) {
+  const auth = creds.secret ? await signedHeaders(creds, method, path, params, variant, body) : { 'Api-Key': creds.key };
   const query = new URLSearchParams(params).toString();
   return fetch(`${BASE}${path}${query ? '?' + query : ''}`, {
-    headers: { ...auth, 'Cache-Control': 'no-cache', Accept: 'application/json' },
+    method, body: body || undefined,
+    headers: { ...auth, 'Cache-Control': 'no-cache', Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
   });
 }
 
@@ -82,21 +83,25 @@ export async function detect(creds, report) {
   return null;
 }
 
-async function call(creds, path, params = {}) {
+async function call(creds, path, params = {}, method = 'GET', body = null) {
   if (creds.secret && !detected && !(await detect(creds))) {
     throw new Error('Smoobu lehnt die Anmeldung ab (401) – bitte API-Key und Secret in Cloudflare prüfen');
   }
-  let res = await request(creds, path, params, detected);
+  let res = await request(creds, path, params, detected, method, body);
   if (res.status === 401 && creds.secret) {
     detected = null; // z. B. geänderte Zugangsdaten: einmal neu ermitteln
-    if (await detect(creds)) res = await request(creds, path, params, detected);
+    if (await detect(creds)) res = await request(creds, path, params, detected, method, body);
   }
   if (res.status === 404) return null;
   if (res.status === 401 || res.status === 403) {
     throw new Error(`Smoobu lehnt die Anmeldung ab (${res.status}) – bitte API-Key${creds.secret ? ' und Secret' : ''} in Cloudflare prüfen`);
   }
-  if (!res.ok) throw new Error(`Smoobu antwortet mit ${res.status} auf ${path}`);
-  return res.json();
+  if (!res.ok) {
+    const detail = method !== 'GET' ? await res.text().catch(() => '') : '';
+    throw new Error(`Smoobu antwortet mit ${res.status} auf ${path}${detail ? ': ' + detail.slice(0, 200) : ''}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
 }
 
 // Smoobu liefert die Liste unter „bookings“; zur Sicherheit auch andere Namen akzeptieren.
@@ -163,6 +168,19 @@ export async function fetchMessages(creds, id) {
     if (!list.length || count == null || page >= Number(count)) break;
   }
   return out;
+}
+
+/** Nachricht an den Gast senden (landet im richtigen Kanal: Airbnb, Booking.com, E-Mail) */
+export async function sendMessageToGuest(creds, id, subject, text) {
+  const body = JSON.stringify({ subject: subject || 'Apartments Strauss', messageBody: text });
+  const r = await call(creds, `/reservations/${encodeURIComponent(id)}/messages/send-message-to-guest`, {}, 'POST', body);
+  if (r === null) throw new Error('Buchung in Smoobu nicht gefunden');
+  return r;
+}
+
+/** Gastdaten (Anschrift) – null, wenn nicht vorhanden */
+export function fetchGuest(creds, id) {
+  return call(creds, `/guests/${encodeURIComponent(id)}`);
 }
 
 function shape(label, value) {
