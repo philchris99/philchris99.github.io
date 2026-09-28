@@ -25,6 +25,7 @@ import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
 import DEFAULT_CRAFTSMEN from './craftsmen.js';
+import ISSUERS from './issuers.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -513,7 +514,7 @@ function buildMsgs(raw, b) {
 }
 
 const localIso = (now, cfg) => { const p = L.localParts(now, cfg.timezone); return `${p.date}T${p.time}`; };
-const replyDefaults = (cfg, settings) => ({ checkin: '15:00', checkout: cfg.checkoutTime || '10:00', ...(settings.replies || {}) });
+const replyDefaults = (cfg, settings) => ({ checkin: '15:00', checkout: cfg.checkoutTime || '10:00', phone: ISSUERS.phone || '', ...(settings.replies || {}) });
 
 /** Buchungen, deren Nachrichten regelmäßig abgerufen werden: Anreise in ≤ 14 Tagen bis 7 Tage nach Abreise */
 function inboxBookings(state, today) {
@@ -555,8 +556,9 @@ async function refreshThread(env, cfg, settings, state, res, now, auto) {
   const plan = planFacts({ apartmentId: String(res.apartmentId), arrival: res.arrival, departure: res.departure, bookingId: String(res.id),
     tasks: Object.values(state.tasks || {}), reservations: Object.values(state.reservations || {}) });
   const s = replyDefaults(cfg, settings);
+  const facts = factsFor(res.apartmentId, aptNameOf(state, res.apartmentId));
   const draftTpl = templateDraft({ lang, guest: res.guest, topics, text: open.map((m) => m.text).join('\n'), phase, s, plan, guestLink,
-    arrival: res.arrival, departure: res.departure });
+    arrival: res.arrival, departure: res.departure, facts });
   const notifiedIn = t && t.notifiedIn;
   t = { ...(t || {}), booking: String(res.id), apt: String(res.apartmentId), aptName: aptNameOf(state, res.apartmentId), guest: res.guest || '',
     arrival: res.arrival, departure: res.departure, channel: res.channel || '', status: 'offen', sendAt: null, lastIn: newest, lastReply,
@@ -588,7 +590,7 @@ async function aiDraftFor(env, cfg, settings, t, auto) {
   }
   const details = apartmentDetails(cfg, { tasks: {}, apartments: [{ id: t.apt, name: t.aptName }] })[t.apt] || {};
   const prompt = aiPrompt({ lang: t.lang, guest: t.guest, apartmentName: t.aptName, address: details.address || '', arrival: t.arrival, departure: t.departure,
-    phase: t.phase, plan: t.plan, guestLink: t.guestLink, s: replyDefaults(cfg, settings), template: t.draftTpl, examples,
+    phase: t.phase, plan: t.plan, guestLink: t.guestLink, s: replyDefaults(cfg, settings), template: t.draftTpl, examples, facts: factsFor(t.apt, t.aptName),
     history: msgs.map((m) => ({ inbound: m.inbound === 1, created: m.created, text: mask(m.text) })) });
   const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 700, temperature: 0.3 });
   return String((r && (r.response || r.result)) || '').trim();
@@ -652,7 +654,23 @@ export async function runInbox(env, now = Date.now(), cfg) {
 }
 
 // ---- Rechnungen ----
-const invoiceSettings = (settings) => ({ format: '{prefix}{jahr}-{nr3}', issuers: [], apts: {}, ...(settings.invoice || {}) });
+/** Rechnungs-Einstellungen: gespeicherte Werte, sonst Voreinstellung (Aussteller und Zuordnung aus issuers.js, Präfix = Wohnungsname) */
+function invoiceSettings(settings) {
+  const own = settings.invoice || {};
+  const defApts = {};
+  for (const [num, d] of Object.entries(config.apartmentDetails || {})) {
+    const word = (String(d.name || '').match(/#\s*([A-ZÄÖÜ]+)/) || [])[1];
+    if (d.smoobuId) defApts[d.smoobuId] = { issuer: (ISSUERS.byNumber || {})[num] || '', prefix: word ? word + '-' : '' };
+  }
+  return { format: own.format || '{prefix}{jahr}-{nr3}', issuers: own.issuers && own.issuers.length ? own.issuers : (ISSUERS.issuers || []),
+    apts: { ...defApts, ...(own.apts || {}) } };
+}
+/** Ausstattung einer Wohnung (Betten, Babyausstattung) über Smoobu-ID oder Nummer im Namen */
+function factsFor(aptId, aptName) {
+  const all = config.apartmentDetails || {};
+  const num = Object.keys(all).find((n) => all[n].smoobuId === String(aptId)) || L.apartmentNumber(aptName);
+  return (config.apartmentFacts || {})[num] || null;
+}
 const docUrl = (cfg, request, token) => `${request ? new URL(request.url).origin : cfg.appUrl}/dok/${token}`;
 function guestAddress(g) {
   if (!g) return '';
@@ -1518,6 +1536,8 @@ async function handleApi(request, env, url, ctx) {
       if (inv.status !== 'entwurf') return fail('Rechnung ist bereits ausgestellt');
       const issuer = iset.issuers.find((x) => x.id === inv.issuerId);
       if (!issuer) return fail('Bitte zuerst einen Aussteller wählen (Einstellungen → Rechnungen)');
+      if (!String(issuer.address || '').trim()) return fail(`Anschrift von „${issuer.name}“ fehlt (Pflichtangabe) – bitte unter Nachrichten → Rechnungen eintragen`);
+      if (!issuer.taxNo && !issuer.vatId) return fail(`Steuernummer oder USt-IdNr. von „${issuer.name}“ fehlt (Pflichtangabe)`);
       if (!String(inv.recipient || '').trim()) return fail('Empfänger fehlt');
       if (!invoiceTotals(inv.lines).gross) return fail('Betrag fehlt');
       const n = await takeInvoiceNumber(env.DB, inv.apt || 'x');

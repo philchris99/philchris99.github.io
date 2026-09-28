@@ -129,6 +129,8 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   eigener fortlaufender Nummernkreis je Wohnung (`inv_counter`, Format `{prefix}{jahr}-{nr3}`). Entwurf aus der Smoobu-Buchung
   (Preis, Zeitraum, Gastadresse; Firmenadresse per KI aus den Nachrichten), „Ausstellen“ friert die Rechnung ein, Korrektur per Storno
   (neue Nummer, negative Beträge). Link `/dok/<token>` (druckbar/PDF), Versand sofort oder am Abreisetag 11 Uhr, CSV-Export.
+- Voreinstellung der Aussteller und Zuordnung je Wohnung in `worker/src/issuers.js` (nur privat; öffentliche Kopie leer),
+  Betten/Decken und Babyausstattung je Wohnung in `config.js` (`apartmentFacts`) – fließen in Entwürfe und KI ein.
 - **Wohnungsgeberbestätigung** (§ 19 BMG) aus Namen, Einzugsdatum, Wohnungsanschrift und Aussteller als Wohnungsgeber, Link `/dok/<token>`.
 - **Gästeanfragen** (Statistik → Gästeanfragen, nur Admin): liest die Smoobu-Nachrichten aller Buchungen der letzten 3 Jahre
   (ohne Blockierungen; 8 Buchungen je Aufruf) in D1 (`inq_*`) und ordnet Gastnachrichten per Stichwort (DE/EN/HU) 17 Themen zu

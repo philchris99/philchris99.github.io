@@ -167,7 +167,20 @@ export function templateDraft(ctx) {
       } else x += de ? '[bitte ergänzen]' : '[please add]';
       add(t, x);
     } else if (t === 'guests') {
-      add(t, s.cot || (de ? 'ein Kinderbett stellen wir gerne bereit – [bitte ergänzen].' : 'we are happy to provide a baby cot – [please add].'));
+      const f = ctx.facts || null;
+      const txt = ctx.text || '';
+      const parts = [];
+      if (/baby|kinderbett|reisebett|crib|\bcot\b|hochstuhl|high ?chair|wickel|changing/i.test(txt)) {
+        if (f && f.baby) parts.push(de ? `in der Wohnung gibt es ${f.baby.replace(/, ([^,]+)$/, ' und $1')} – wir stellen alles gerne für euch bereit.`
+          : `the apartment has a baby cot, high chair and changing table – we are happy to set everything up for you.`);
+        else if (f) parts.push(de ? 'leider gibt es in dieser Wohnung kein Babybett. [bitte ergänzen: Alternative, z. B. Reisebett mitbringen]' : 'unfortunately this apartment has no baby cot. [please add: alternative, e.g. bring a travel cot]');
+        else parts.push(s.cot || (de ? 'ein Kinderbett stellen wir gerne bereit – [bitte ergänzen].' : 'we are happy to provide a baby cot – [please add].'));
+      }
+      if (f && f.beds && /\bbett(en)?\b|\bbeds?\b|schlafpl|schlafsofa|sofa ?bed|sleep|\bdecken?\b|duvet|blanket|wie viele personen|how many (people|persons|guests)/i.test(txt)) {
+        parts.push((de ? 'zu den Betten: ' : 'the beds: ') + (de ? f.beds : f.beds.replace(/Schlafzimmer/g, 'bedroom').replace(/Ersatzzimmer/g, 'second room').replace(/Schlafsofa/g, 'sofa bed')
+          .replace(/große Decke/g, 'large duvet').replace(/kleine Decken?/g, (m) => (m.endsWith('n') ? 'small duvets' : 'small duvet'))) + '.');
+      }
+      add(t, parts.map((x, i) => (i ? x.charAt(0).toUpperCase() + x.slice(1) : x)).join('\n') || (de ? 'danke für deine Nachricht – [bitte ergänzen].' : 'thanks for your message – [please add].'));
     } else if (t === 'lost') {
       add(t, de ? 'danke für die Info – wir schauen nach und melden uns bei dir.' : 'thanks for letting us know – we will check and get back to you.');
     } else if (t === 'directions') {
@@ -198,6 +211,8 @@ export function aiPrompt(ctx) {
     ctx.guestLink ? `Gäste-Link mit allen Infos (Anfahrt, Schlüsselbox, WLAN, Parken): ${ctx.guestLink}` : 'Gäste-Link: [Gäste-Link]',
     s.parking ? `Parken: ${s.parking}` : '', s.wifi ? `WLAN: ${s.wifi}` : '', s.luggage ? `Gepäck: ${s.luggage}` : '', s.cot ? `Kinderbett: ${s.cot}` : '',
     s.phone ? `Telefon für Notfälle: ${s.phone}` : '',
+    ctx.facts && ctx.facts.beds ? `Betten/Decken: ${ctx.facts.beds}` : '',
+    ctx.facts ? `Babyausstattung: ${ctx.facts.baby || 'keine (kein Babybett, kein Hochstuhl)'}` : '',
   ].filter(Boolean).join('\n');
   const convo = (ctx.history || []).slice(-10).map((m) => `${m.inbound ? 'GAST' : 'WIR'} (${String(m.created || '').slice(0, 16)}): ${m.text.slice(0, 600)}`).join('\n');
   const examples = (ctx.examples || []).slice(0, 3).map((e, i) => `Beispiel ${i + 1}\nGAST: ${e.q}\nWIR: ${e.a}`).join('\n\n');

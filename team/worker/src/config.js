@@ -30,6 +30,22 @@ export default {
     12: { smoobuId: '2726728', name: '#ZWÖLF | BRAUNSCHWEIG HAUPTBAHNHOF', address: 'Berliner Platz 1C, 38102 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-10-zehn' },
     13: { smoobuId: '2911141', name: '#DREIZEHN | BRAUNSCHWEIG CITY', address: 'Juliusstraße 14, 38118 Braunschweig', url: 'https://www.apartments-strauss.de/apartments-detail/apartment-13-dreizehn' },
   },
+  // Ausstattung je Wohnung (Nummer) – für Antwort-Entwürfe: Betten/Decken und Babyausstattung (Stand 05/2025)
+  apartmentFacts: {
+    1: { beds: 'Schlafzimmer: 140×200 (2 kleine Decken)', baby: '' },
+    2: { beds: 'Schlafzimmer: 160×200 (1 große Decke)', baby: '' },
+    3: { beds: 'Schlafzimmer: 180×200 Boxspring (1 große Decke) · Ersatzzimmer: 140×200 (2 kleine Decken)', baby: 'Babybett, Hochstuhl, Wickeltisch' },
+    4: { beds: 'Schlafzimmer: 160×200 (1 große Decke)', baby: '' },
+    5: { beds: 'Schlafzimmer: 180×200 (1 große Decke) · Ersatzzimmer: 140×200 (2 kleine Decken) · Schlafsofa: 140×200 (2 kleine Decken)', baby: 'Babybett, Hochstuhl, Wickeltisch' },
+    6: { beds: 'Schlafzimmer: 180×200 Boxspring (2 kleine Decken) · Ersatzzimmer: 140×200 (1 kleine Decke)', baby: 'Babybett, Hochstuhl, Wickeltisch' },
+    7: { beds: 'Schlafzimmer: 160×200 (1 große Decke)', baby: '' },
+    8: { beds: 'Schlafzimmer: 160×200 (1 große Decke)', baby: '' },
+    9: { beds: 'Schlafzimmer: 2 × 90×200 (2 kleine Decken) · Ersatzzimmer: 140×200 (2 kleine Decken) · Schlafsofa: 110×180 (1 kleine Decke)', baby: '' },
+    10: { beds: 'Schlafzimmer: 180×200 (1 große Decke)', baby: '' },
+    11: { beds: 'Schlafzimmer: 2 × 90×200 (2 kleine Decken) · Schlafsofa: 90×200 (1 kleine Decke)', baby: '' },
+    12: { beds: 'Schlafzimmer: 180×200 (1 große Decke)', baby: '' },
+    13: { beds: 'Schlafzimmer: 2 × 90×200 (2 kleine Decken) · Ersatzzimmer: 2 × 90×200 (2 kleine Decken)', baby: '' },
+  },
   // Frühwarnung Buchungstempo: montags 9 Uhr Push an Admin, wenn ein Zeitraum ≥ 5 Punkte hinter dem Vorjahr liegt
   paceWarn: { points: 5, weekday: 1, time: '09:00' },
   routeCity: 'Braunschweig',   // Ort der Wohnungen – für die Routenplanung (Adressen → Koordinaten über OpenStreetMap)
