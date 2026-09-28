@@ -1934,7 +1934,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <p class="meta" style="margin-top:10px"><b>Letzter Push-Versand:</b> ${data.pushReport
             ? `${fmtTime(data.pushReport.at)} – ${data.pushReport.sent} zugestellt${data.pushReport.failed ? `, <b style="color:var(--bad)">${data.pushReport.failed} fehlgeschlagen</b>` : ''}
               ${(data.pushReport.errors || []).map((e) => `<br>→ ${esc(e.to)}: ${esc(e.title)} – <span style="color:var(--bad)">${esc(e.error)}</span>`).join('')}`
-            : 'noch keiner'}</p>
+            : 'noch keiner'}${data.pushReport && data.pushReport.resent ? ` · ${data.pushReport.resent} nachgesendet` : ''}</p>
+          ${data.pushQueued ? `<p class="meta" style="margin-top:6px">📬 <b>${data.pushQueued} Nachricht(en) warten</b> – werden alle 5 Minuten automatisch nachgesendet, sobald ntfy wieder annimmt.</p>` : ''}
           <p class="meta" style="margin-top:10px">Push-Versand (ntfy): ${data.hasNtfyToken ? '<b>mit ntfy-Konto (NTFY_TOKEN) ✓</b>'
             : '<b style="color:var(--bad)">ohne ntfy-Konto</b> – bei „429“ bitte NTFY_TOKEN in Cloudflare eintragen'}</p>
           <p class="meta" style="margin-top:10px">Optional – Webhook-Adresse für Smoobu (sofortige Aktualisierung):<br><code id="hook">${esc(data.webhookUrl)}</code> <button class="small" data-copy="hook">Kopieren</button></p>

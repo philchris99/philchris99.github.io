@@ -394,9 +394,30 @@ test('Überfällige Reinigung heute: Erinnerung wird verschickt; Versandfehler w
   } finally {
     globalThis.fetch = realFetch;
   }
-  const report = (await me(admin)).pushReport;
-  assert.ok(report.failed >= 3);
+  const m = await me(admin);
+  const report = m.pushReport;
+  assert.ok(report.failed >= 1);
   assert.match(report.errors[0].error, /429/);
+  assert.ok(m.pushQueued >= 3, 'abgelehnte Nachrichten warten auf Nachsendung');
+  // nächster Lauf: ntfy nimmt wieder an → Warteschlange wird nachgesendet
+  pushes = [];
+  await runSync(env, mk('12', '45'));
+  const after = await me(admin);
+  assert.equal(after.pushQueued, 0);
+  assert.ok(after.pushReport.resent >= 3);
+  assert.ok(pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').length >= 3);
+  // mit ntfy-Konto: Tageskontingent wird erkannt und klar benannt
+  env.NTFY_TOKEN = 'tk_test';
+  globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh'
+    ? new Response(JSON.stringify({ code: 42908, http: 429, error: 'limit reached: daily message quota reached' }), { status: 429 }) : realFetch(url, init));
+  try {
+    await runSync(env, mk('13', '20'));
+  } finally {
+    globalThis.fetch = realFetch;
+    delete env.NTFY_TOKEN;
+  }
+  assert.match((await me(admin)).pushReport.errors[0].error, /Tageskontingent.*nachgesendet.*42908/);
+  await runSync(env, mk('13', '25')); // Warteschlange leeren
   assert.equal((await me(admin)).rules.quietFrom, '22:00');
 });
 

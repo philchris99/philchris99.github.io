@@ -120,6 +120,33 @@ export async function loadPace(db) {
     blocked: !!r.blocked, cancelled: r.cancelled, price: r.price }));
 }
 
+// ---- Push-Warteschlange: von ntfy abgelehnte Nachrichten (429) werden später nachgesendet ----
+async function ensurePushQueue(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS push_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0)').run();
+}
+export async function enqueuePush(db, messages) {
+  await ensurePushQueue(db);
+  const now = Date.now();
+  await db.prepare('DELETE FROM push_queue WHERE created < ? OR tries > 30').bind(now - 2 * 86400000).run(); // alte aufgeben
+  for (const m of messages) {
+    const payload = JSON.stringify({ title: m.title, body: m.body, kind: m.kind });
+    const dup = await db.prepare('SELECT id FROM push_queue WHERE user_id = ? AND payload = ?').bind(m.user.id, payload).first();
+    if (!dup) await db.prepare('INSERT INTO push_queue (user_id, payload, created) VALUES (?, ?, ?)').bind(m.user.id, payload, now).run();
+  }
+}
+export async function takePushQueue(db, max) {
+  await ensurePushQueue(db);
+  const { results } = await db.prepare('SELECT id, user_id, payload FROM push_queue ORDER BY id LIMIT ?').bind(max).all();
+  return (results || []).map((r) => ({ id: r.id, userId: r.user_id, payload: JSON.parse(r.payload) }));
+}
+export async function dropPush(db, id) { await db.prepare('DELETE FROM push_queue WHERE id = ?').bind(id).run(); }
+export async function retryPush(db, id) { await db.prepare('UPDATE push_queue SET tries = tries + 1 WHERE id = ?').bind(id).run(); }
+export async function countPushQueue(db) {
+  await ensurePushQueue(db);
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM push_queue').first();
+  return row ? Number(row.n) : 0;
+}
+
 // ---- Einstellungen (Team) – bleiben beim Zurücksetzen erhalten ---------------
 async function ensureSettings(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)').run();

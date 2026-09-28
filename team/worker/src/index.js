@@ -10,11 +10,11 @@ import {
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
-  loadSettings, saveSettings, upsertPace, loadPace, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
+  loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
-import { deliver, sendPush } from './notify.js';
+import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
 import DEFAULT_CRAFTSMEN from './craftsmen.js';
@@ -111,11 +111,14 @@ export async function runSync(env, now = Date.now(), cfg) {
     return { state, notifications: notifications.concat(deadlines.notifications) };
   }, now);
 
+  // zuerst früher abgelehnte Nachrichten nachsenden (ntfy 429), dann die neuen
+  const flushed = await flushPushQueue(env, cfg).catch((e) => { console.error('Warteschlange', e.message); return { sent: 0, left: 0 }; });
   const delivery = await deliver(env, cfg, result.notifications);
   // Versandergebnis merken, damit Fehler in der Admin-Ansicht sichtbar sind
-  if (delivery.sent || delivery.failed) {
+  if (delivery.sent || delivery.failed || flushed.sent) {
     await mutate(env.DB, (state) => ({ state: { ...state, pushReport: {
-      at: new Date(now).toISOString(), sent: delivery.sent, failed: delivery.failed, errors: delivery.errors.slice(0, 5),
+      at: new Date(now).toISOString(), sent: delivery.sent + flushed.sent, failed: delivery.failed, errors: delivery.errors.slice(0, 5),
+      resent: flushed.sent,
     } }, notifications: [] }), now).catch((e) => console.error(e));
   }
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
@@ -432,6 +435,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
     seenAt: (state.seen || {})[user.id] || null,
     pushOk: !!(settings.pushOk || {})[user.id], // Push auf diesem Konto eingerichtet (bleibt beim Zurücksetzen)
     hasNtfyToken: !!(env.NTFY_TOKEN || '').trim(),
+    pushQueued: user.role === 'owner' ? await countPushQueue(env.DB).catch(() => 0) : 0,
     openReports: user.role === 'staff' ? [] : L.openReports(state),
     openRequests: user.role === 'owner' ? L.openPeriodRequests(state) : [],
     lang: (settings.lang || {})[user.id] || 'de',

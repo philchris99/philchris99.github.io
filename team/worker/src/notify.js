@@ -1,6 +1,7 @@
 // Verschickt Benachrichtigungen als Push über ntfy (App „ntfy“ für iPhone, Android,
 // Mac/Windows über ntfy.sh im Browser). Tippen auf die Nachricht öffnet die App.
 import { allUsers, findUser, topicFor, loginLink } from './auth.js';
+import { enqueuePush, takePushQueue, dropPush, retryPush, countPushQueue } from './store.js';
 
 // 5 = höchste Stufe (Alarm, durchdringend), 4 = hoch, 3 = normal, 2 = leise
 const PRIORITY = { supplies: 3, security: 5, keys: 5, late: 5, reminder2: 5, reminder: 5, overdue: 5, new: 4, assigned: 4, rescheduled: 5, cancelled: 4, report: 4, note: 4, request: 4, period: 4, edited: 3, unassigned: 3, confirmed: 2, done: 2 };
@@ -86,9 +87,15 @@ export async function sendPush(env, user, { title, body, kind }, retries = 2) {
     if (attempt < retries) await wait(1000 * (attempt + 1)); // kurz warten und erneut versuchen
   }
   if (res.status === 429) {
-    throw new Error(token
-      ? 'ntfy.sh meldet „zu viele Nachrichten“ (429) – Tageslimit des ntfy-Kontos erreicht'
-      : 'ntfy.sh meldet „zu viele Nachrichten“ (429) – bitte NTFY_TOKEN in Cloudflare eintragen (siehe Anleitung)');
+    // ntfy nennt den Grund: 42908 = Tageskontingent aufgebraucht, sonst meist „zu viele auf einmal“
+    let info = {};
+    try { info = await res.json(); } catch (e) { /* ohne Details */ }
+    const detail = String(info.error || '').slice(0, 120);
+    const quota = Number(info.code) === 42908 || /quota|daily/i.test(detail);
+    const text = !token ? 'ntfy.sh meldet „zu viele Nachrichten“ (429) – bitte NTFY_TOKEN in Cloudflare eintragen (siehe Anleitung)'
+      : quota ? 'ntfy.sh: Tageskontingent des ntfy-Kontos aufgebraucht – wird automatisch nachgesendet, sobald ntfy wieder annimmt'
+        : 'ntfy.sh: kurzzeitig zu viele Nachrichten auf einmal – wird in wenigen Minuten automatisch nachgesendet';
+    throw Object.assign(new Error(text + (detail ? ` (ntfy: ${detail}${info.code ? ', Code ' + info.code : ''})` : '')), { retry: true, quota });
   }
   if (res.status === 401 || res.status === 403) throw new Error(`ntfy lehnt den Zugang ab (${res.status}) – NTFY_TOKEN prüfen`);
   if (!res.ok) throw new Error(`ntfy antwortet mit ${res.status}`);
@@ -142,11 +149,42 @@ export async function deliver(env, cfg, notifications, budget = 25) {
   const toSend = limit(group(messages), budget)
     .map((m) => ({ ...m, title: localizeTitle(m.title, (cfg.langs || {})[m.user.id]) }));
   const retries = toSend.length <= 8 ? 2 : 0;
-  const results = await Promise.allSettled(toSend.map((m) => sendPush(env, m.user, m, retries)));
   const errors = [];
-  results.forEach((r, i) => {
-    if (r.status === 'rejected') errors.push({ to: toSend[i].user.name, title: toSend[i].title, error: String(r.reason && r.reason.message || r.reason) });
-  });
+  const queue = [];
+  let sent = 0, blocked = false;
+  // nacheinander statt alle gleichzeitig – ntfy lehnt viele gleichzeitige Nachrichten ab
+  for (const m of toSend) {
+    if (blocked) { queue.push(m); continue; }
+    try {
+      await sendPush(env, m.user, m, retries);
+      sent++;
+    } catch (e) {
+      errors.push({ to: m.user.name, title: m.title, error: String(e && e.message || e) });
+      if (e && e.retry) { queue.push(m); blocked = true; } // Rest nicht mehr versuchen, später nachsenden
+    }
+    if (toSend.length > 3) await wait(250);
+  }
+  if (queue.length && env.DB) await enqueuePush(env.DB, queue).catch((e) => console.error('Warteschlange', e.message));
   if (errors.length) console.error(`${errors.length} Push-Nachricht(en) fehlgeschlagen:`, errors[0].error);
-  return { sent: results.length - errors.length, failed: errors.length, errors };
+  return { sent, failed: errors.length, errors, queued: queue.length };
+}
+
+/** Abgelehnte Nachrichten (429) später nachsenden – bei jedem Lauf höchstens `max`, bei erneutem 429 sofort aufhören */
+export async function flushPushQueue(env, cfg, max = 8) {
+  const items = await takePushQueue(env.DB, max);
+  let sent = 0;
+  for (const it of items) {
+    const user = findUser(cfg, it.userId);
+    if (!user) { await dropPush(env.DB, it.id); continue; }
+    try {
+      await sendPush(env, user, it.payload, 0);
+      await dropPush(env.DB, it.id);
+      sent++;
+    } catch (e) {
+      await retryPush(env.DB, it.id);
+      if (e && e.retry) break;
+    }
+    await wait(300);
+  }
+  return { sent, left: await countPushQueue(env.DB) };
 }
