@@ -1720,7 +1720,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${a.location ? `<p class="meta">Lage: ${esc(a.location)}</p>` : ''}
         ${a.hasGuide ? `<p style="margin-top:6px"><b>Für Gäste</b> <span class="meta">(mit Gäste-Code – nur Admin)</span></p>
           <ol style="margin:4px 0 0 20px">${a.original.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : ''}
-        <p style="margin-top:10px"><b>Für Handwerker</b> <span class="meta">(SERVICE-Code ${esc(a.serviceCode || '–')})</span></p>
+        <p style="margin-top:10px"><b>Für Handwerker</b> <span class="meta">(SERVICE-Code ${esc(a.serviceCode || '–')}${a.door ? ` · Türcode ${esc(a.door.code)}` : ''})</span></p>
         <ol style="margin:4px 0 0 20px">${a.steps.map((s) => `<li${s.service ? ' style="font-weight:700"' : ''}>${s.service ? '🔑 ' : ''}${esc(s.text)}</li>`).join('')}</ol>
         <form data-guide-note="${a.no}" style="margin-top:10px"><label class="field">Wo hängt die SERVICE-Box? (leer = Standard)
           <textarea name="text" rows="2" maxlength="500" placeholder="${esc(a.serviceBox)}">${esc(a.ownServiceBox)}</textarea></label>

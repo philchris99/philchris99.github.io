@@ -348,8 +348,8 @@ const guideNo = (name) => L.apartmentNumber(name);
 export function serviceBoxText(no, settings) {
   const own = ((settings && settings.guideNotes) || {})[no];
   if (own) return own;
-  if ([2, 4, 7].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen. Für diese Wohnung bitte die SERVICE-Box OBEN RECHTS verwenden.';
-  if ([8, 10, 12].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen. Für diese Wohnung bitte die SERVICE-Box UNTEN RECHTS verwenden.';
+  if ([2, 4, 7].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür „TR 9“). Für diese Wohnung die SERVICE-Box OBEN RECHTS verwenden (obere Reihe, ganz rechts, Aufschrift „SERVICE“).';
+  if ([8, 10, 12].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür „TR 9“). Für diese Wohnung die SERVICE-Box UNTEN RECHTS verwenden (untere Reihe, ganz rechts, Aufschrift „SERVICE“).';
   return 'Die SERVICE-Schlüsselbox hängt direkt hinter der Gäste-Schlüsselbox.';
 }
 const SERVICE_HOWTO = 'Mit dem SERVICE-Code (oben) öffnen, Schlüssel entnehmen und die Box wieder verschließen. Nach der Arbeit den Schlüssel wieder in die SERVICE-Box legen und verschließen.';
@@ -505,6 +505,7 @@ async function handleApi(request, env, url, ctx) {
     await saveSettings(env.DB, settings);
     return json({ title: guide ? guide.title : link.apartmentName, apartmentName: link.apartmentName, address: details.address || '',
       location: c.description || '', serviceCode: c.service || '', serviceBox: serviceBoxText(no, settings),
+      door: (guide && guide.door) || null,
       steps: serviceSteps(guide, no, settings), photos: (guide ? guide.photos : []).map((p) => ({ url: `/${p.f}?t=${link.id}`, caption: p.c })),
       name: link.name || '', expiresAt: link.expiresAt });
   }
@@ -1013,7 +1014,7 @@ async function handleApi(request, env, url, ctx) {
     return json({ days: GUIDE_DAYS, apartments: apartments.map((a) => { const g = GUIDES[a.no];
       return { id: a.id, name: a.name, no: a.no, title: g ? g.title : a.name, hasGuide: !!g, original: g ? g.original : [],
         steps: serviceSteps(g, a.no, settings), serviceBox: serviceBoxText(a.no, settings), ownServiceBox: ((settings.guideNotes || {})[a.no]) || '',
-        serviceCode: (codes[a.id] || {}).service || '', location: (codes[a.id] || {}).description || '',
+        door: (g && g.door) || null, serviceCode: (codes[a.id] || {}).service || '', location: (codes[a.id] || {}).description || '',
         photos: (g ? g.photos : []).map((p) => ({ url: `/${p.f}?a=${encodeURIComponent(token)}`, caption: p.c })) }; }),
       links: (settings.guideLinks || []).map((l) => guideLinkView(l, now)).reverse() });
   }

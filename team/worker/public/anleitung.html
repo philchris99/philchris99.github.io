@@ -31,6 +31,8 @@ h1 { font-size: 24px; line-height: 1.25; margin-bottom: 4px; }
 .service .label { font-weight: 800; color: var(--warn); letter-spacing: .04em; text-transform: uppercase; font-size: 14px; }
 .service .code { font-size: 44px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; line-height: 1.1; margin: 4px 0; }
 .service p { font-size: 15px; }
+.door .label { font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 14px; color: var(--muted); }
+.door .code { font-size: 36px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; }
 .dont { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--bad-bg); color: var(--bad); font-weight: 700; font-size: 15px; }
 ol { list-style: none; counter-reset: s; margin-top: 4px; }
 ol li { counter-increment: s; position: relative; padding: 10px 0 10px 40px; border-bottom: 1px solid var(--line); }
@@ -79,6 +81,7 @@ ol li.svc::before { background: var(--warn); color: #fff; }
       ${g.location ? `<div class="meta">Lage: ${esc(g.location)}</div>` : ''}
       ${maps ? `<a class="btn" href="${maps}" target="_blank" rel="noopener">🗺️ In Google Maps öffnen</a>` : ''}
     </div>
+    ${g.door ? `<div class="card door"><div class="label">🚪 Zuerst: Türcode</div><div class="code">${esc(g.door.code)}</div><p>${esc(g.door.text)}</p></div>` : ''}
     <div class="card service">
       <div class="label">🔑 Bitte die SERVICE-Schlüsselbox benutzen</div>
       <div class="code">${code ? esc(code) : '–'}</div>
