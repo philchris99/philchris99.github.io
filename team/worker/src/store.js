@@ -95,7 +95,7 @@ export async function loadStats(db) {
 export async function saveStats(db, stats) {
   await ensureStats(db);
   const dates = Object.keys(stats.days).sort();
-  for (const d of dates.slice(0, Math.max(0, dates.length - 800))) delete stats.days[d]; // höchstens ~2 Jahre
+  for (const d of dates.slice(0, Math.max(0, dates.length - 1150))) delete stats.days[d]; // höchstens ~3 Jahre
   await db.prepare('INSERT OR REPLACE INTO stats (id, data) VALUES (1, ?)').bind(JSON.stringify(stats)).run();
 }
 
@@ -120,6 +120,19 @@ export async function loadPace(db) {
     blocked: !!r.blocked, cancelled: r.cancelled, price: r.price }));
 }
 
+/** Zustellstatus im Protokoll vermerken: statuses = { nid: { status: 'versendet'|'wartet'|'fehlgeschlagen', error? } } */
+export async function recordDelivery(db, statuses, now) {
+  if (!statuses || !Object.keys(statuses).length) return;
+  const at = new Date(now || Date.now()).toISOString();
+  await mutate(db, (state) => {
+    for (const e of state.log || []) {
+      const s = e.nid && statuses[e.nid];
+      if (s) { e.status = s.status; e.statusAt = at; if (s.error) e.statusError = s.error; else delete e.statusError; }
+    }
+    return { state, notifications: [] };
+  }, now);
+}
+
 // ---- Push-Warteschlange: von ntfy abgelehnte Nachrichten (429) werden später nachgesendet ----
 async function ensurePushQueue(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS push_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0)').run();
@@ -129,7 +142,7 @@ export async function enqueuePush(db, messages) {
   const now = Date.now();
   await db.prepare('DELETE FROM push_queue WHERE created < ? OR tries > 30').bind(now - 2 * 86400000).run(); // alte aufgeben
   for (const m of messages) {
-    const payload = JSON.stringify({ title: m.title, body: m.body, kind: m.kind });
+    const payload = JSON.stringify({ title: m.title, body: m.body, kind: m.kind, nids: m.nids || [] });
     const dup = await db.prepare('SELECT id FROM push_queue WHERE user_id = ? AND payload = ?').bind(m.user.id, payload).first();
     if (!dup) await db.prepare('INSERT INTO push_queue (user_id, payload, created) VALUES (?, ?, ?)').bind(m.user.id, payload, now).run();
   }
@@ -296,6 +309,8 @@ export async function mutate(db, fn, now) {
     const result = fn(state);
     const next = result.state;
     const at = new Date(now || Date.now()).toISOString();
+    // jede Nachricht bekommt eine Kennung, damit der Zustellstatus später im Protokoll vermerkt werden kann
+    for (const n of result.notifications) if (!n.nid) n.nid = Math.random().toString(36).slice(2, 12);
     next.log = [...result.notifications.map((n) => ({ ...n, at })).reverse(), ...(state.log || [])].slice(0, MAX_LOG);
     const data = JSON.stringify(next);
     const res = version === 0

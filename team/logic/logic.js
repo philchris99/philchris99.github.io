@@ -1294,14 +1294,17 @@
    * eingetragen und noch nicht storniert waren (für die rückwirkende Berechnung). Ohne asOf: aktueller Stand.
    * Buchung zählt vor Sperrzeit (keine Doppelzählung).
    */
-  function occupancy(index, apartmentIds, from, days, asOf) {
-    let booked = 0, blocked = 0;
+  function occupancy(index, apartmentIds, from, days, asOf, starts) {
+    let booked = 0, blocked = 0, capacity = 0;
     const perApartment = {};
     const start = dayNum(from);
     for (const apt of apartmentIds) {
       const byDay = index.get(apt);
       let b = 0, k = 0;
-      for (let i = 0; byDay && i < days; i++) {
+      // starts: Wohnung zählt erst ab ihrer ersten echten Buchung (vorher weder im Nenner noch als belegt)
+      const first = starts ? (starts[apt] ? Math.max(0, dayNum(starts[apt]) - start) : days) : 0;
+      capacity += Math.max(0, days - first);
+      for (let i = first; byDay && i < days; i++) {
         const list = byDay.get(start + i);
         if (!list) continue;
         let isBooked = false, isBlocked = false;
@@ -1314,18 +1317,19 @@
         if (isBooked) b++; else if (isBlocked) k++;
       }
       booked += b; blocked += k;
-      perApartment[apt] = { booked: b, blocked: k, pct: days ? Math.round(((b + k) / days) * 1000) / 10 : 0 };
+      const n = Math.max(0, days - first);
+      perApartment[apt] = { booked: b, blocked: k, nights: n, pct: n ? Math.round(((b + k) / n) * 1000) / 10 : 0 };
     }
-    const capacity = apartmentIds.length * days;
     const pct = (x) => (capacity ? Math.round((x / capacity) * 1000) / 10 : 0);
     return { from, days, capacity, bookedNights: booked, blockedNights: blocked,
       pct: pct(booked + blocked), bookedPct: pct(booked), blockedPct: pct(blocked), perApartment };
   }
 
   /** Tatsächliche Belegung einer Nacht (nach heutigem Stand, Stornos zählen nicht) */
-  function nightOccupancy(index, apartmentIds, day) {
+  function nightOccupancy(index, apartmentIds, day, starts) {
     let booked = 0, blocked = 0;
     const d = dayNum(day);
+    if (starts) apartmentIds = apartmentIds.filter((apt) => starts[apt] && starts[apt] <= day); // erst ab erster Buchung in Vermietung
     for (const apt of apartmentIds) {
       const byDay = index.get(apt);
       const list = ((byDay && byDay.get(d)) || []).filter((e) => !e.cancelled);
@@ -1391,24 +1395,34 @@
   function paceFigures(prepared, ids, starts, from, to, asOf) {
     const f = dayNo(from), t = dayNo(to), cut = asOf ? dayNo(asOf) : null;
     let capacity = 0, units = 0;
+    const cap = {}, from0 = {};
     for (const id of ids) {
       if (!starts[id]) continue;
       const s = Math.max(f, dayNo(starts[id]));
-      if (s < t) { capacity += t - s; units++; }
+      from0[id] = s;
+      if (s < t) { cap[id] = t - s; capacity += t - s; units++; }
     }
-    let nights = 0, revenue = 0, priced = 0;
+    // belegt = Buchungen INKL. Blockierungen (erst ab der ersten echten Buchung der Wohnung)
+    const used = {};
+    let revenue = 0, priced = 0, bookedNights = 0;
     for (const e of prepared) {
-      if (e.blocked || !starts[e.apartmentId]) continue;
+      if (!cap[e.apartmentId]) continue;
       if (cut != null) {
-        if (e.createdNo != null && e.createdNo > cut) continue;          // damals noch nicht gebucht
+        if (e.createdNo != null && e.createdNo > cut) continue;          // damals noch nicht eingetragen
         if (e.cancelledNo != null && e.cancelledNo <= cut) continue;    // damals schon storniert
       } else if (e.cancelled) continue;                                  // Endstand: stornierte zählen nicht
-      const o = Math.min(e.dep, t) - Math.max(e.arr, f);
+      const o = Math.min(e.dep, t) - Math.max(e.arr, from0[e.apartmentId]);
       if (o <= 0) continue;
-      nights += o;
-      if (e.price) { revenue += (e.price * o) / (e.dep - e.arr); priced++; }
+      used[e.apartmentId] = (used[e.apartmentId] || 0) + o;
+      if (!e.blocked) {
+        bookedNights += o;
+        if (e.price) { revenue += (e.price * o) / (e.dep - e.arr); priced++; }
+      }
     }
-    return { nights, capacity, units, pct: capacity ? Math.round((nights / capacity) * 1000) / 10 : 0, revenue: Math.round(revenue), priced };
+    let nights = 0;
+    for (const id of Object.keys(used)) nights += Math.min(used[id], cap[id]); // Überschneidung Buchung/Sperre nicht doppelt
+    return { nights, bookedNights: Math.min(bookedNights, nights), capacity, units, pct: capacity ? Math.round((nights / capacity) * 1000) / 10 : 0,
+      bookedPct: capacity ? Math.round((Math.min(bookedNights, nights) / capacity) * 1000) / 10 : 0, revenue: Math.round(revenue), priced };
   }
 
   /** Pace-Übersicht: Zeilen (nächste 30/60/90 Tage, kommende Monate) × Jahre (heute, −1, −2) */

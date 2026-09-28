@@ -35,7 +35,7 @@ export default {
   showGuestNames: false,   // Gästenamen für Reinigungskräfte ausblenden (Datenschutz)
   showGuestPhone: true,    // Telefonnummer des Gastes (aus Smoobu) als Anruf-Knopf anzeigen
   syncDaysAhead: 365,      // so weit im Voraus werden Buchungen aus Smoobu geholt
-  allowReset: true,        // Testphase: „Alles zurücksetzen“ in der Übersicht (später auf false)
+  allowReset: false,       // Testphase beendet: „Alles zurücksetzen“ abgeschaltet (true = wieder einblenden)
   keepPhotosDays: 45,      // Fotos werden danach automatisch gelöscht
 
   // Pseudo-Empfänger 'owner' aus der Logik → geht an alle Auftraggeber

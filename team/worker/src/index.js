@@ -10,7 +10,7 @@ import {
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
-  loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
+  loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, recordDelivery, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
@@ -114,6 +114,7 @@ export async function runSync(env, now = Date.now(), cfg) {
   // zuerst früher abgelehnte Nachrichten nachsenden (ntfy 429), dann die neuen
   const flushed = await flushPushQueue(env, cfg).catch((e) => { console.error('Warteschlange', e.message); return { sent: 0, left: 0 }; });
   const delivery = await deliver(env, cfg, result.notifications);
+  await recordDelivery(env.DB, { ...(flushed.statuses || {}), ...(delivery.statuses || {}) }, now).catch((e) => console.error('Zustellstatus', e.message));
   // Versandergebnis merken, damit Fehler in der Admin-Ansicht sichtbar sind
   if (delivery.sent || delivery.failed || flushed.sent) {
     await mutate(env.DB, (state) => ({ state: { ...state, pushReport: {
@@ -129,6 +130,13 @@ export async function runSync(env, now = Date.now(), cfg) {
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
 }
 
+/** Senden und das Ergebnis (versendet / wartet / fehlgeschlagen) im Protokoll „Verschickte Nachrichten“ vermerken */
+async function deliverLogged(env, cfg, notifications) {
+  const d = await deliver(env, cfg, notifications);
+  await recordDelivery(env.DB, d.statuses).catch((e) => console.error('Zustellstatus', e.message));
+  return d;
+}
+
 /** Buchungstempo: einmal am Tag die beim Abgleich geholten Buchungen (inkl. Stornos) in den Pace-Speicher übernehmen */
 async function updatePaceDaily(env, cfg, bookings, now) {
   if (!bookings || !bookings.length) return;
@@ -137,6 +145,7 @@ async function updatePaceDaily(env, cfg, bookings, now) {
   if (!stats.pace || !stats.pace.full || stats.pace.day === today) return; // erst nach dem ersten vollständigen Laden
   await upsertPace(env.DB, L.paceEntries(bookings));
   stats.pace.day = today;
+  await refreshStarts(env, (await loadState(env.DB)).state, stats);
   await saveStats(env.DB, stats);
 }
 
@@ -267,15 +276,16 @@ function sizeGroups(settings, perApartment, days) {
   const groups = new Map();
   for (const a of perApartment) {
     const cat = sizeCategory(settings, a.id, a.name);
-    if (!groups.has(cat)) groups.set(cat, { category: cat, apartments: [], booked: 0, blocked: 0 });
+    if (!groups.has(cat)) groups.set(cat, { category: cat, apartments: [], booked: 0, blocked: 0, capacity: 0 });
     const g = groups.get(cat);
     g.apartments.push(a.id);
     g.booked += a.booked;
     g.blocked += a.blocked;
+    g.capacity += a.nights != null ? a.nights : days; // nur Nächte, in denen die Wohnung schon in Vermietung ist
   }
   const pct = (x, n) => (n ? Math.round((x / n) * 1000) / 10 : 0);
   return [...groups.values()].map((g) => ({ ...g, count: g.apartments.length,
-    bookedPct: pct(g.booked, g.apartments.length * days), pct: pct(g.booked + g.blocked, g.apartments.length * days) }))
+    bookedPct: pct(g.booked, g.capacity), pct: pct(g.booked + g.blocked, g.capacity) }))
     .sort((a, b) => b.bookedPct - a.bookedPct);
 }
 
@@ -283,20 +293,37 @@ function sizeGroups(settings, perApartment, days) {
 async function statsView(env, cfg, state, now) {
   const stats = await loadStats(env.DB);
   const settings = await loadSettings(env.DB);
-  const current = currentOccupancy(state, cfg, now);
+  const starts = startsOf(stats);
+  const current = currentOccupancy(state, cfg, now, starts);
   const names = Object.fromEntries(apartmentList(state).map((a) => [a.id, a.name]));
-  const history = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0])).slice(-600).map(([date, v]) => ({ date, ...v }));
+  const allDays = Object.entries(stats.days).sort((a, b) => a[0].localeCompare(b[0]));
+  // Tageswerte der letzten ~15 Monate (für Verlauf inkl. Vorjahreslinie), ältere nur als Monatswerte
+  const history = allDays.slice(-460).map(([date, v]) => ({ date, ...v }));
+  const monthMap = new Map();
+  for (const [date, v] of allDays) {
+    if (!v.actual) continue;
+    const m = date.slice(0, 7);
+    const x = monthMap.get(m) || { month: m, n: 0, pct: 0, bookedPct: 0 };
+    x.n++; x.pct += v.actual.pct; x.bookedPct += v.actual.bookedPct;
+    monthMap.set(m, x);
+  }
+  const months = [...monthMap.values()].map((x) => ({ month: x.month, nights: x.n, pct: Math.round((x.pct / x.n) * 10) / 10, bookedPct: Math.round((x.bookedPct / x.n) * 10) / 10 }));
   const perApartment = Object.entries(current.perApartment).map(([id, v]) => {
     const i = (settings.aptInfo || {})[id] || {};
-    return { id, name: names[id] || id, ...v, bookedPct: STAT_DAYS ? Math.round((v.booked / STAT_DAYS) * 1000) / 10 : 0,
+    return { id, name: names[id] || id, ...v, bookedPct: v.nights ? Math.round((v.booked / v.nights) * 1000) / 10 : 0,
       category: sizeCategory(settings, id, names[id] || ''), ownCategory: ((settings.aptCategory || {})[id] || ''), bedrooms: i.bedrooms ?? null, maxOccupancy: i.maxOccupancy ?? null };
   }).sort((a, b) => L.compareApartments(a.name, b.name));
   // Tatsächliche Belegung: Durchschnitt der letzten 30 Nächte (soweit bekannt)
   const today = L.localParts(now, cfg.timezone).date;
   const last30 = history.filter((h) => h.actual && h.date < today && h.date >= L.addDays(today, -30));
   const avg = (k) => (last30.length ? Math.round((last30.reduce((s, h) => s + h.actual[k], 0) / last30.length) * 10) / 10 : null);
+  // gleiche 30 Nächte im Vorjahr
+  const lyFrom = L.yearsBack(L.addDays(today, -30), 1), lyTo = L.yearsBack(today, 1);
+  const ly30 = allDays.filter(([d, v]) => v.actual && d >= lyFrom && d < lyTo).map(([, v]) => v.actual.pct);
+  const prevYear30 = ly30.length >= 20 ? Math.round((ly30.reduce((s, x) => s + x, 0) / ly30.length) * 10) / 10 : null;
   return { days: STAT_DAYS, current: { ...current, perApartment }, groups: sizeGroups(settings, perApartment, STAT_DAYS),
-    actual30: last30.length ? { pct: avg('pct'), bookedPct: avg('bookedPct'), blockedPct: avg('blockedPct'), nights: last30.length } : null,
+    actual30: last30.length ? { pct: avg('pct'), bookedPct: avg('bookedPct'), blockedPct: avg('blockedPct'), nights: last30.length, prevYear: prevYear30 } : null,
+    months, starts: starts || null,
     apartments: perApartment.length, excluded: statsApartments(state).excluded.map((a) => a.name), history, backfill: stats.backfill || null };
 }
 
@@ -311,19 +338,26 @@ function statsApartments(state) {
   const counted = numbered.length ? numbered : all;
   return { counted, excluded: all.filter((a) => !counted.includes(a)) };
 }
-function currentOccupancy(state, cfg, now) {
+function currentOccupancy(state, cfg, now, starts) {
   const today = L.localParts(now, cfg.timezone).date;
   const ids = statsApartments(state).counted.map((a) => a.id);
-  return L.occupancy(L.nightIndex(L.reservationEntries(state)), ids, today, STAT_DAYS);
+  return L.occupancy(L.nightIndex(L.reservationEntries(state)), ids, today, STAT_DAYS, undefined, starts || undefined);
+}
+/** In Vermietung seit (erste echte Buchung je Wohnung) – beim Laden der Buchungen berechnet und gemerkt */
+const startsOf = (stats) => (stats.pace && stats.pace.starts && Object.keys(stats.pace.starts).length ? stats.pace.starts : null);
+async function refreshStarts(env, state, stats) {
+  const ids = statsApartments(state).counted.map((a) => a.id);
+  stats.pace = { ...(stats.pace || {}), starts: L.unitStarts(await loadPace(env.DB), ids) };
 }
 /** Wert für heute festhalten (jeder Lauf überschreibt den heutigen Wert – am Tagesende steht der letzte Stand) */
 async function trackOccupancy(env, cfg, state, now) {
   if (!state.initialized || !apartmentList(state).length) return;
   const today = L.localParts(now, cfg.timezone).date;
-  const o = currentOccupancy(state, cfg, now);
-  const ids = statsApartments(state).counted.map((a) => a.id);
-  const night = L.nightOccupancy(L.nightIndex(L.reservationEntries(state)), ids, today);
   const stats = await loadStats(env.DB);
+  const starts = startsOf(stats);
+  const o = currentOccupancy(state, cfg, now, starts);
+  const ids = statsApartments(state).counted.map((a) => a.id);
+  const night = L.nightOccupancy(L.nightIndex(L.reservationEntries(state)), ids, today, starts || undefined);
   const prev = stats.days[today];
   const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct };
   const row = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'live', actual };
@@ -379,6 +413,12 @@ function guideLinkState(link, now) {
   return Date.parse(link.expiresAt) <= now ? 'abgelaufen' : 'aktiv';
 }
 /** Handwerker-Verzeichnis (Startliste aus craftsmen.js, danach in den Einstellungen gespeichert) */
+/** Handwerker: wann zuletzt einen Link geöffnet, wie viele Aufträge offen */
+function craftsmanActivity(c, links, now) {
+  const mine = links.filter((l) => l.craftsmanId === c.id);
+  const last = mine.map((l) => l.lastViewAt).filter(Boolean).sort().pop() || null;
+  return { ...c, lastViewAt: last, links: mine.length, openJobs: mine.filter((l) => l.job && !l.job.doneAt && guideLinkState(l, now) === 'aktiv').length };
+}
 const craftsmenOf = (settings) => (Array.isArray(settings.craftsmen) ? settings.craftsmen : DEFAULT_CRAFTSMEN);
 const guideJobView = (l, now) => (l.job ? { linkId: l.id, reportId: l.job.reportId, taskId: l.job.taskId, craftsmanId: l.craftsmanId || null,
   name: l.name || '', createdAt: l.createdAt, doneAt: l.job.doneAt || null, doneNote: l.job.doneNote || '', state: guideLinkState(l, now) } : null);
@@ -390,6 +430,8 @@ const guideLinkView = (l, now) => ({ id: l.id, apartmentId: l.apartmentId, apart
 const cleanPhone = (v) => String(v || '').replace(/[^\d+ ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25);
 const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, ...(p.deputy ? { deputy: true, deputySince: p.deputySince || null } : {}) });
 /** Team-Liste; Codes sieht der Admin für alle, die Leitung für ihre Mitarbeiterinnen. */
+/** Push eingerichtet? (Person hat „Test-Nachricht angekommen“ bestätigt) – nur für Admin/Leitung sichtbar */
+const withPush = (list, settings, show) => (show ? list.map((p) => ({ ...p, pushOkAt: (settings.pushOk || {})[p.id] || null, lastSeenAt: (settings.lastSeen || {})[p.id] || null })) : list);
 async function teamFor(env, list, withCodes) {
   return Promise.all(list.map(async (p) => ({ ...person(p), ...(withCodes ? { code: await decryptCode(env, p.codeEnc), phone: p.phone || '' } : {}) })));
 }
@@ -425,11 +467,11 @@ async function viewFor(env, cfg, settings, state, user, now) {
   const base = {
     user: { id: user.id, name: user.name, role: user.role, ...(user.deputy ? { deputy: true } : {}) }, today, time, now: new Date(now).toISOString(),
     aptDetails: user.role === 'owner' ? apartmentDetails(cfg, state) : {}, // nur Admin
-    ...(user.role === 'owner' ? { craftsmen: craftsmenOf(settings), jobs: (settings.guideLinks || []).map((l) => guideJobView(l, now)).filter(Boolean) } : {}),
+    ...(user.role === 'owner' ? { craftsmen: craftsmenOf(settings).map((c) => craftsmanActivity(c, settings.guideLinks || [], now)), jobs: (settings.guideLinks || []).map((l) => guideJobView(l, now)).filter(Boolean) } : {}),
     startBy: cfg.startBy, finishBy: cfg.finishBy, checkoutTime: cfg.checkoutTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
-    leads: await teamFor(env, cfg.leads.filter((l) => !l.deputy), user.role === 'owner'),
-    staff: await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'),
+    leads: withPush(await teamFor(env, cfg.leads.filter((l) => !l.deputy), user.role === 'owner'), settings, user.role === 'owner'),
+    staff: withPush(await teamFor(env, cfg.staff, user.role === 'owner' || user.role === 'lead'), settings, user.role === 'owner' || user.role === 'lead'),
     // Änderungen der letzten 14 Tage für diese Person (oben „Neuigkeiten“)
     changes: (state.log || []).filter((n) => n.to === recipient && CHANGE_KINDS.includes(n.kind) && n.at >= since).slice(0, 30),
     seenAt: (state.seen || {})[user.id] || null,
@@ -619,13 +661,19 @@ async function handleApi(request, env, url, ctx) {
     if (!booking || (payload.data && payload.data['is-blocked-booking'])) return json({ ok: true, ignored: true });
     const result = await mutate(env.DB, (state) =>
       state.initialized ? withDeadlines(L.applyBooking(state, booking, now, cfg), now, cfg) : { state, notifications: [] }, now);
-    ctx.waitUntil(deliver(env, cfg, result.notifications));
+    ctx.waitUntil(deliverLogged(env, cfg, result.notifications));
     return json({ ok: true });
   }
 
   const user = await authenticate(request, env, cfg);
   if (!user) return fail('Bitte anmelden', 401);
   const role = user.role;
+  // „zuletzt genutzt“ je Person merken (höchstens alle 15 Min. speichern)
+  const seen = (settings.lastSeen || {})[user.id];
+  if (!seen || now - Date.parse(seen) > 15 * 60000) {
+    settings.lastSeen = { ...(settings.lastSeen || {}), [user.id]: new Date(now).toISOString() };
+    await saveSettings(env.DB, settings).catch((e) => console.error('lastSeen', e.message));
+  }
   const view = async (state, extra) => json({ ...(await viewFor(env, cfg, settings, state, user, now)), ...extra });
   /** Änderung speichern, Push verschicken, neue Ansicht zurückgeben */
   const change = async (fn, status = 400) => {
@@ -635,7 +683,7 @@ async function handleApi(request, env, url, ctx) {
     } catch (e) {
       return fail(e.message, status);
     }
-    ctx.waitUntil(deliver(env, cfg, result.notifications));
+    ctx.waitUntil(deliverLogged(env, cfg, result.notifications));
     return view(result.state);
   };
 
@@ -764,7 +812,7 @@ async function handleApi(request, env, url, ctx) {
       const reportId = 'r' + crypto.randomUUID().slice(0, 12);
       const result = await mutate(env.DB, (st) =>
         L.addReport(st, taskId, user, { id: reportId, text: String(form.get('text') || ''), photos: photoIds, final: form.get('final') === '1' }, now, cfg), now);
-      ctx.waitUntil(deliver(env, cfg, result.notifications));
+      ctx.waitUntil(deliverLogged(env, cfg, result.notifications));
       return view(result.state);
     } catch (e) {
       await deletePhotos(env.DB, photoIds).catch(() => {});
@@ -980,6 +1028,7 @@ async function handleApi(request, env, url, ctx) {
       const stats = await loadStats(env.DB);
       const { date: today } = L.localParts(now, cfg.timezone);
       stats.pace = { ...(stats.pace || {}), full: new Date(now).toISOString(), day: today };
+      await refreshStarts(env, (await loadState(env.DB)).state, stats);
       await saveStats(env.DB, stats);
     }
     return json({ count: entries.length, from: body.from, to: body.to });
@@ -995,9 +1044,9 @@ async function handleApi(request, env, url, ctx) {
       units: counted.map((a) => ({ id: a.id, name: a.name, start: report.starts[a.id] || null })) });
   }
 
+  // Rückwirkend berechnen (bis 3 Jahre, je Aufruf max. 62 Tage): aus dem gespeicherten Buchungsbestand (Pace),
+  // belegt = Buchungen inkl. Blockierungen, Wohnungen erst ab ihrer ersten echten Buchung im Nenner
   if (path === '/api/stats/backfill' && request.method === 'POST') {
-    const creds = smoobuCreds(env);
-    if (!creds.key) return fail('Smoobu ist nicht verbunden');
     const { date: today } = L.localParts(now, cfg.timezone);
     const body = await readJson();
     const isDay = (x) => /^\d{4}-\d{2}-\d{2}$/.test(x || '');
@@ -1006,34 +1055,29 @@ async function handleApi(request, env, url, ctx) {
     let from = isDay(body.from) ? body.from : L.addDays(to, -(Math.min(62, Math.max(1, Number(body.days) || 60)) - 1));
     if (from < L.addDays(to, -61)) from = L.addDays(to, -61);
     if (from > to) return fail('Zeitraum ungültig');
-    let raw;
-    const fetchInfo = {};
-    try {
-      // Abreise ab „from“ (sonst keine Nacht im Zeitraum); lange Aufenthalte bis ~7 Monate nach dem Zeitraum berücksichtigt
-      raw = await fetchBookings(creds, from, L.addDays(to, STAT_DAYS + 210), fetchInfo);
-    } catch (e) {
-      return fail('Smoobu: ' + e.message, 502);
-    }
+    const all = await loadPace(env.DB);
+    if (!all.length) return fail('Bitte zuerst die Buchungen laden (Statistik → Buchungstempo → „Buchungen aus Smoobu laden“)', 409);
     const { state } = await loadState(env.DB);
     const ids = statsApartments(state).counted.map((a) => a.id);
-    const index = L.nightIndex(L.smoobuEntries(raw));
     const stats = await loadStats(env.DB);
+    if (!startsOf(stats)) await refreshStarts(env, state, stats);
+    const starts = startsOf(stats) || {};
+    // nur Einträge, die den Zeitraum (+30 Nächte Vorausblick) berühren – spart Rechenzeit
+    const last = L.addDays(to, STAT_DAYS + 1);
+    const index = L.nightIndex(all.filter((e) => e.departure > from && e.arrival < last));
     let added = 0;
     for (let d = from; d <= to; d = L.addDays(d, 1)) {
-      // tatsächliche Belegung der Nacht: immer aus dem heutigen (endgültigen) Stand
-      const night = L.nightOccupancy(index, ids, d);
-      const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct };
-      if (stats.days[d] && stats.days[d].source === 'live') { stats.days[d].actual = actual; continue; } // Vorausblick: echte Tageswerte haben Vorrang
-      const o = L.occupancy(index, ids, d, STAT_DAYS, d);
-      stats.days[d] = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: ids.length, source: 'rückwirkend', actual };
+      const night = L.nightOccupancy(index, ids, d, starts);
+      const actual = { pct: night.pct, bookedPct: night.bookedPct, blockedPct: night.blockedPct, units: night.apartments };
+      if (stats.days[d] && stats.days[d].source === 'live') { stats.days[d].actual = actual; continue; } // echte Tageswerte haben Vorrang
+      const o = L.occupancy(index, ids, d, STAT_DAYS, d, starts);
+      stats.days[d] = { pct: o.pct, bookedPct: o.bookedPct, blockedPct: o.blockedPct, apartments: night.apartments, source: 'rückwirkend', actual };
       added++;
     }
-    const withCreated = raw.filter((r) => r && (r['created-at'] || r.createdAt || r.created_at)).length;
     const prev = stats.backfill || {};
-    stats.backfill = { at: new Date(now).toISOString(), oldest: prev.oldest && prev.oldest < from ? prev.oldest : from,
-      bookings: raw.length, withCreated, apartments: ids.length, pages: fetchInfo.pages, total: fetchInfo.total, from, to };
+    stats.backfill = { at: new Date(now).toISOString(), oldest: prev.oldest && prev.oldest < from ? prev.oldest : from, bookings: all.length, from, to };
     await saveStats(env.DB, stats);
-    if (body.quiet) return json({ backfilled: added, from, to, bookings: raw.length });
+    if (body.quiet) return json({ backfilled: added, from, to });
     return view((await loadState(env.DB)).state, { backfilled: added, from, to });
   }
 
@@ -1237,6 +1281,21 @@ async function handleApi(request, env, url, ctx) {
     if (!smoobuCreds(env).key) return fail('SMOOBU_API_KEY fehlt – bitte in Cloudflare als „Secret“ eintragen', 400);
     const today = L.localParts(now, cfg.timezone).date;
     return json({ results: await diagnose(smoobuCreds(env), L.addDays(today, -1), L.addDays(today, cfg.syncDaysAhead)) });
+  }
+
+  // Push-Versand von Hand auslösen (wie der automatische Lauf, aber ohne Smoobu-Abgleich):
+  // Warteschlange nachsenden, Fristen/Erinnerungen prüfen und senden
+  if (path === '/api/push/run' && request.method === 'POST') {
+    const flushed = await flushPushQueue(env, cfg, 25).catch((e) => ({ sent: 0, left: 0, error: e.message }));
+    const result = await mutate(env.DB, (st) => L.checkDeadlines(st, now, cfg), now);
+    const delivery = await deliver(env, cfg, result.notifications);
+    await recordDelivery(env.DB, { ...(flushed.statuses || {}), ...(delivery.statuses || {}) }, now).catch((e) => console.error('Zustellstatus', e.message));
+    const pushReport = { at: new Date(now).toISOString(), sent: delivery.sent + flushed.sent, failed: delivery.failed,
+      errors: delivery.errors.slice(0, 5), resent: flushed.sent, manual: true };
+    await mutate(env.DB, (st) => ({ state: { ...st, pushReport }, notifications: [] }), now).catch((e) => console.error(e));
+    const summary = { resent: flushed.sent, sent: delivery.sent, failed: delivery.failed, queued: delivery.queued || 0,
+      left: await countPushQueue(env.DB).catch(() => 0), error: (delivery.errors[0] || {}).error || null };
+    return view((await loadState(env.DB)).state, { pushRun: summary });
   }
 
   if (path === '/api/sync' && request.method === 'POST') {

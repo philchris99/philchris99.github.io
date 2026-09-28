@@ -122,7 +122,7 @@ export function group(messages) {
     if (list.length > 8) lines.push(`… und ${list.length - 8} weitere`);
     const kind = remind ? (list.some((m) => m.kind === 'reminder2') ? 'reminder2' : list[0].kind) : list[0].kind;
     const title = remind ? `${list.length} Reinigungen brauchen Aufmerksamkeit` : `${list.length} ${GROUP_TITLES[list[0].kind]}`;
-    out.push({ ...list[0], kind, title, body: lines.join('\n') });
+    out.push({ ...list[0], kind, title, body: lines.join('\n'), nids: list.flatMap((m) => m.nids || []) });
   }
   return out;
 }
@@ -139,6 +139,7 @@ export function limit(messages, budget) {
     ...list[0],
     kind: list.some((m) => PRIORITY[m.kind] === 5) ? 'reminder2' : list[0].kind,
     title: `${list.length} Hinweise zu Reinigungen`,
+    nids: list.flatMap((m) => m.nids || []),
     body: list.slice(0, 10).map((m) => `• ${m.title}: ${m.body.split('\n')[0]}`).join('\n'),
   });
 }
@@ -150,34 +151,40 @@ export function limit(messages, budget) {
  */
 export async function deliver(env, cfg, notifications, budget = 25) {
   const messages = [];
-  for (const n of notifications) for (const user of expand(cfg, n.to)) messages.push({ ...n, user });
+  for (const n of notifications) for (const user of expand(cfg, n.to)) messages.push({ ...n, user, nids: n.nid ? [n.nid] : [] });
   const toSend = limit(group(messages), budget)
     .map((m) => ({ ...m, title: localizeTitle(m.title, (cfg.langs || {})[m.user.id]) }));
   const retries = toSend.length <= 8 ? 2 : 0;
   const errors = [];
   const queue = [];
+  const statuses = {};
+  const mark = (m, status, error) => { for (const id of m.nids || []) statuses[id] = { status, ...(error ? { error } : {}) }; };
   let sent = 0, blocked = false;
   // nacheinander statt alle gleichzeitig – ntfy lehnt viele gleichzeitige Nachrichten ab
   for (const m of toSend) {
-    if (blocked) { queue.push(m); continue; }
+    if (blocked) { queue.push(m); mark(m, 'wartet'); continue; }
     try {
       await sendPush(env, m.user, m, retries);
       sent++;
+      mark(m, 'versendet');
     } catch (e) {
-      errors.push({ to: m.user.name, title: m.title, error: String(e && e.message || e) });
-      if (e && e.retry) { queue.push(m); blocked = true; } // Rest nicht mehr versuchen, später nachsenden
+      const error = String(e && e.message || e);
+      errors.push({ to: m.user.name, title: m.title, error });
+      if (e && e.retry) { queue.push(m); blocked = true; mark(m, 'wartet', error); } // Rest nicht mehr versuchen, später nachsenden
+      else mark(m, 'fehlgeschlagen', error);
     }
     if (toSend.length > 3) await wait(250);
   }
   if (queue.length && env.DB) await enqueuePush(env.DB, queue).catch((e) => console.error('Warteschlange', e.message));
   if (errors.length) console.error(`${errors.length} Push-Nachricht(en) fehlgeschlagen:`, errors[0].error);
-  return { sent, failed: errors.length, errors, queued: queue.length };
+  return { sent, failed: errors.length, errors, queued: queue.length, statuses };
 }
 
 /** Abgelehnte Nachrichten (429) später nachsenden – bei jedem Lauf höchstens `max`, bei erneutem 429 sofort aufhören */
 export async function flushPushQueue(env, cfg, max = 8) {
   const items = await takePushQueue(env.DB, max);
   let sent = 0;
+  const statuses = {};
   for (const it of items) {
     const user = findUser(cfg, it.userId);
     if (!user) { await dropPush(env.DB, it.id); continue; }
@@ -185,11 +192,12 @@ export async function flushPushQueue(env, cfg, max = 8) {
       await sendPush(env, user, it.payload, 0);
       await dropPush(env.DB, it.id);
       sent++;
+      for (const id of it.payload.nids || []) statuses[id] = { status: 'versendet' };
     } catch (e) {
       await retryPush(env.DB, it.id);
       if (e && e.retry) break;
     }
     await wait(300);
   }
-  return { sent, left: await countPushQueue(env.DB) };
+  return { sent, left: await countPushQueue(env.DB), statuses };
 }

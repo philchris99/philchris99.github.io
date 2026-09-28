@@ -24,7 +24,7 @@ nächsten Schritt (✅ Annehmen → ▶️ Reinigung starten → 🏁 Fertig mel
 **Aufbau (Admin)**: Seiten **Reinigungen** (Hauptseite: Handlungsbedarf, Anträge, Heute, Routen, Morgen, 14 Tage, Später,
 manuelle Reinigung) · **Kalender** · **Meldungen** (offene Meldungen, Einkaufsliste) · **Statistik** · **Team** (Reinigungsteam
 mit Anmeldecodes, gesperrte Anmeldungen) · **Einstellungen** (Zugangscodes, Admin-Code, Push, verschickte Nachrichten,
-System & Smoobu, Testphase). Leitung: Reinigungen · Kalender · Team & Meldungen. Abschnitte ohne Inhalt werden nicht angezeigt.
+System & Smoobu). Leitung: Reinigungen · Kalender · Team & Meldungen. Abschnitte ohne Inhalt werden nicht angezeigt.
 
 **Rollen** (genau **eine** Reinigungsleitung)
 - **Admin** (Apartments Strauss): alles sehen, manuelle Reinigungen anlegen/verschieben/absagen, Hinweise + Fotos an Reinigungen,
@@ -89,9 +89,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   nachträglichen Änderungen in Smoobu. Zwei Kennzahlen getrennt: **Tatsächliche Belegung** je Nacht (rückblickend, Ø letzte 30 Nächte,
   aus dem endgültigen Buchungsstand) und den **Vorausblick** – Kern-KPI **Auslastung der nächsten 30 Nächte inkl. Blockierungen** (gebuchte + blockierte Nächte ÷
   Wohnungen × 30), Veränderung ggü. vor 7/30 Tagen, Verlauf als Diagramm (Tooltip), je Wohnung, Tabelle. Wird bei jedem
-  Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“): holt die Buchungen der letzten
-  Monate aus Smoobu (bis 1,5 Jahre, in Abschnitten zu 60 Tagen wegen der Rechenzeit-Grenze) und rechnet mit dem
-  Eintragungsdatum (`created-at`) je Tag nach, was damals schon gebucht/blockiert war;
+  Abgleich für den heutigen Tag festgehalten. **Rückwirkend** („Rückwirkend berechnen“, **3 Jahre**): rechnet aus dem
+  gespeicherten Buchungsbestand (lädt ihn beim ersten Mal aus Smoobu) mit dem Eintragungsdatum (`created-at`) je Tag nach,
+  was damals schon gebucht/blockiert war. **Belegung = Buchungen inkl. Blockierungen.** **Nenner:** jede Wohnung zählt erst ab
+  ihrer ersten echten Buchung (vorher weder frei noch belegt, Blockierungen davor zählen nicht). **Vorjahresvergleich:**
+  Ø letzte 30 Nächte ggü. Vorjahr, „Belegung je Monat“ (aktuell / Vorjahr / vor 2 Jahren, Ø 12 Monate);
   stornierte Buchungen zählen bis zum Storno (Änderungsdatum), Einträge ohne Eintragungsdatum (z. B. Sperrzeiten) zählen als
   schon vorhanden. Echte Tageswerte des Vorausblicks werden nie überschrieben; die tatsächliche Belegung wird immer neu berechnet
 - **Auswertung nach Wohnungsgröße** (Statistik): Auslastung der nächsten 30 Nächte je Größe – Balken = gebucht (Nachfrage),
@@ -164,7 +166,7 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Push einrichten**: Schritt-für-Schritt-Anleitung mit direktem Link zu ntfy im App Store / bei Google Play; oben nur, solange
   das jeweilige Benutzerkonto „Test-Nachricht angekommen“ noch nicht bestätigt hat (gilt geräteübergreifend), sonst unten
 - **Anmeldecodes** sind in der Team-Liste jederzeit sichtbar (Admin: alle, Leitung: ihre Mitarbeiterinnen), verschlüsselt gespeichert
-- Testphase: „Alles zurücksetzen“ (Team bleibt). Danach `allowReset: false` in `worker/src/config.js`.
+- Testphase beendet: „Alles zurücksetzen“ ist abgeschaltet (`allowReset: false` in `worker/src/config.js`; nur bei Bedarf wieder auf `true`).
 
 ## Design / Logo
 

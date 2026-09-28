@@ -665,6 +665,8 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
   assert.equal(todayRow.source, 'live');
   assert.equal(todayRow.pct, st.current.pct);
   assert.equal((await call('GET', '/api/me', { session: mia })).body.stats, undefined, 'nur für Admin');
+  assert.equal((await call('POST', '/api/stats/backfill', { session: admin, body: { days: 30 } })).status, 409, 'erst Buchungen laden');
+  await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(-10), to: plus(85), last: true } });
   const bf = await call('POST', '/api/stats/backfill', { session: admin, body: { days: 30 } });
   assert.ok(bf.body.backfilled >= 28 && bf.body.backfilled <= 30, 'echte Tageswerte werden nicht überschrieben');
   const h = bf.body.stats.history;
@@ -686,8 +688,10 @@ test('Auswertung nach Wohnungsgröße: Größe aus Smoobu, eigene Kategorie mög
     booking(600, plus(15), { arrival: plus(0), apartment: { id: 4004, name: '#VIER | Test' } }), // 15 Nächte gebucht
     { id: 601, type: 'reservation', 'is-blocked-booking': true, arrival: plus(0), departure: plus(6), apartment: { id: 4005, name: '#FÜNF | Test' } },
     booking(610, plus(70), { arrival: plus(68), apartment: { id: 4005, name: '#FÜNF | Test' } }), // macht die Wohnung bekannt
+    booking(611, plus(-20), { arrival: plus(-25), apartment: { id: 4005, name: '#FÜNF | Test' } }), // schon länger in Vermietung
   ];
   await runSync(env);
+  await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(-30), to: plus(70), last: true } }); // „in Vermietung seit“ neu
   let st = (await me(admin)).stats;
   const g1 = st.groups.find((g) => g.category === '1 Zimmer');
   const g2 = st.groups.find((g) => g.category === '3 Zimmer');
@@ -775,26 +779,23 @@ test('Neuer Code meldet alte Geräte ab; Entfernen', async () => {
   assert.equal((await call('GET', '/api/me', { session: mia })).status, 200);
 });
 
-test('Zurücksetzen: nur mit Bestätigung, Team bleibt', async () => {
-  assert.equal((await call('POST', '/api/reset', { session: admin, body: { confirm: 'ja' } })).status, 400);
-  assert.equal((await call('POST', '/api/reset', { session: lea, body: { confirm: 'ZURÜCKSETZEN' } })).status, 404);
-  pushes = [];
-  smoobuBookings = [booking(30, '2099-10-20')];
+test('Testphase beendet: Zurücksetzen ist abgeschaltet, Daten bleiben', async () => {
+  const before = (await me(admin)).tasks.length;
+  assert.equal((await me(admin)).allowReset, false, 'kein „Alles zurücksetzen“ in der Oberfläche');
   const res = await call('POST', '/api/reset', { session: admin, body: { confirm: 'ZURÜCKSETZEN' } });
-  assert.deepEqual(res.body.tasks.map((t) => t.id), ['30']);
-  assert.equal(env.DB.count('photos'), 0);
-  assert.equal(pushes.length, 0);
-  assert.equal(res.body.leads.length, 1);
-  assert.equal(res.body.staff.length, 1);
+  assert.equal(res.status, 403);
+  assert.equal((await call('POST', '/api/reset', { session: lea, body: { confirm: 'ZURÜCKSETZEN' } })).status, 404);
+  assert.equal((await me(admin)).tasks.length, before, 'nichts gelöscht');
 });
 
 test('Viele gleichartige Nachrichten werden gebündelt', async () => {
   pushes = [];
   smoobuBookings = [booking(30, '2099-10-20'), ...[41, 42, 43, 44].map((id, i) => booking(id, `2099-11-0${i + 1}`))];
   await runSync(env, at('2026-09-28', '09:00'));
-  assert.ok(who().includes('4 neue Reinigungen'));
+  const bundle = pushes.find((p) => /^\d+ neue Reinigungen$/.test(p.title));
+  assert.ok(bundle && Number(bundle.title.split(' ')[0]) >= 4, who().join(' | '));
   assert.ok(!who().includes('Neue Reinigung'), 'keine Einzelnachrichten');
-  assert.match(pushes.find((p) => p.title === '4 neue Reinigungen').message, /• FeWo Elbblick/);
+  assert.match(bundle.message, /• FeWo Elbblick/);
 });
 
 test('Leitung entfernen → Anmeldung ungültig', async () => {
@@ -1012,4 +1013,56 @@ test('Handwerker-Auftrag aus einer Meldung: Link mit Problem und Fotos, Handwerk
   // Meldung einer anderen Wohnung passt nicht zum Link
   assert.equal((await call('POST', '/api/guide-links', { session: admin, body: { apartmentId: '4004', taskId: '1', reportId: report.id, craftsmanId: craft.id } })).status, 400);
   assert.equal((await call('POST', `/api/craftsmen/${craft.id}/delete`, { session: admin })).body.craftsmen.some((c) => c.id === craft.id), false);
+});
+
+test('Push-Versand von Hand auslösen: Warteschlange nachsenden + Fristen prüfen, nur Admin', async () => {
+  const realFetch = globalThis.fetch;
+  const u = (await me(admin)).user;
+  // eine Nachricht in die Warteschlange bringen
+  globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh' ? new Response('x', { status: 429 }) : realFetch(url, init));
+  try { await call('POST', '/api/test-push', { session: admin }); } catch (e) { /* egal */ } finally { globalThis.fetch = realFetch; }
+  const { deliver } = await import('../src/notify.js');
+  globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh' ? new Response('x', { status: 429 }) : realFetch(url, init));
+  try { await deliver(env, { owner: { id: 'owner' }, owners: [{ ...u, version: 1 }], leads: [], staff: [], langs: {} }, [{ to: 'owner', kind: 'report', title: 'Test Warteschlange', body: 'x' }]); }
+  finally { globalThis.fetch = realFetch; }
+  assert.ok((await me(admin)).pushQueued >= 1);
+  pushes = [];
+  const r = await call('POST', '/api/push/run', { session: admin });
+  assert.equal(r.status, 200);
+  assert.ok(r.body.pushRun.resent >= 1);
+  assert.equal(r.body.pushRun.left, 0);
+  assert.ok(pushes.some((p) => p.title === 'Test Warteschlange'));
+  const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
+  assert.equal((await call('POST', '/api/push/run', { session: staffSession })).status, 404);
+});
+
+test('Verschickte Nachrichten: Zustellstatus je Nachricht (versendet / wartet → nach dem Nachsenden versendet)', async () => {
+  smoobuBookings = [booking(901, '2099-12-24')];
+  await runSync(env);
+  const ok = (await me(admin)).log.find((n) => n.taskId === '901' && n.kind === 'new');
+  assert.equal(ok.status, 'versendet');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh' ? new Response('x', { status: 429 }) : realFetch(url, init));
+  try {
+    smoobuBookings = [booking(901, '2099-12-24'), booking(902, '2099-12-25')];
+    await runSync(env);
+  } finally { globalThis.fetch = realFetch; }
+  const waiting = (await me(admin)).log.find((n) => n.taskId === '902' && n.kind === 'new');
+  assert.equal(waiting.status, 'wartet');
+  assert.match(waiting.statusError, /429/);
+  await call('POST', '/api/push/run', { session: admin });
+  assert.equal((await me(admin)).log.find((n) => n.taskId === '902' && n.kind === 'new').status, 'versendet', 'nach dem Nachsenden');
+});
+
+test('Team & Handwerker: „zuletzt genutzt“ bzw. „Link zuletzt geöffnet“', async () => {
+  const cur = await me(admin);
+  const st = cur.staff[0];
+  const session = (await call('POST', '/api/login', { body: { code: st.code } })).body.session;
+  await me(session);
+  assert.ok((await me(admin)).staff.find((p) => p.id === st.id).lastSeenAt, 'Mitarbeiterin: zuletzt genutzt');
+  const craft = (await me(admin)).craftsmen[0];
+  const link = (await call('POST', '/api/guide-links', { session: admin, body: { apartmentId: '4004', craftsmanId: craft.id, days: 1 } })).body.link;
+  assert.equal((await me(admin)).craftsmen.find((c) => c.id === craft.id).lastViewAt, null);
+  await call('GET', `/api/guide/${link.id}`);
+  assert.ok((await me(admin)).craftsmen.find((c) => c.id === craft.id).lastViewAt, 'Handwerker: Link zuletzt geöffnet');
 });

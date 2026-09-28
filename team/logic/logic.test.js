@@ -692,15 +692,16 @@ test('Buchungstempo (Pace): gleicher Buchungsstand vor 1/2 Jahren; Wohnungen zä
     e('a4', 'A', '2025-10-10', '2025-10-15', '2025-10-01'),                  // Vorjahr: erst später gebucht → nur Endstand
     e('a5', 'A', '2025-10-20', '2025-10-25', '2025-09-01', { cancelled: '2025-09-20' }), // vor dem Stichtag storniert
     e('b1', 'B', '2025-06-01', '2025-06-05', '2025-05-01'),                  // B erst ab Juni 2025 in Vermietung
-    e('b2', 'B', '2026-10-05', '2026-10-10', '2026-09-27', { blocked: true }), // Blockierung zählt nicht als Buchung
+    e('b2', 'B', '2026-10-05', '2026-10-10', '2026-09-27', { blocked: true }), // Blockierung zählt als belegt (5 Nächte)
   ];
   assert.deepEqual(L.unitStarts(entries, ['A', 'B']), { A: '2024-01-10', B: '2025-06-01' });
   const r = L.paceReport(entries, ['A', 'B'], '2026-09-28', { months: 2 });
   const d30 = r.rows.find((x) => x.key === 'd30');
   const [now, ly, ly2] = d30.cols;
-  assert.equal(now.nights, 10);
+  assert.equal(now.nights, 15, '10 gebucht + 5 blockiert');
+  assert.equal(now.bookedNights, 10);
   assert.equal(now.capacity, 60, '2 Wohnungen × 30 Nächte');
-  assert.equal(now.pct, 16.7);
+  assert.equal(now.pct, 25);
   assert.equal(now.revenue, 1000);
   assert.equal(ly.asOf, '2025-09-28');
   assert.equal(ly.nights, 5, 'nur was am 28.09.2025 schon gebucht war');
