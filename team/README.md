@@ -110,6 +110,14 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   mit ihrem eigenen Code an und kann dann Reinigungen als Leitung bestätigen und einteilen (auch sich selbst), bekommt die
   Nachrichten der Leitung und sieht alle Reinigungen; das Team verwalten kann sie nicht. „👑 Vertretung beenden“ nimmt die
   Rechte wieder weg. Sie bekommt jeweils eine Push-Nachricht.
+- **Anfahrt & Handwerker-Links** (Admin → Einstellungen „📖 Anfahrt & Handwerker-Links“ oder im Wohnungs-Fenster „🔗 Handwerker-Link“):
+  Masteransicht je Wohnung mit Gäste-Anleitung (inkl. Gäste-Code), Handwerker-Fassung und Fotos. „Link erstellen“ für **eine** Wohnung
+  mit Ablauf (1/3/7/14/30 Tage, optional Name) → `…/anleitung/<link>`: ohne Anmeldung, nur diese Wohnung, **SERVICE-Code**
+  groß hervorgehoben („Bitte die SERVICE-Schlüsselbox benutzen“, nie der Gäste-Code), Adresse mit Google Maps, Wegbeschreibung, Fotos.
+  Per WhatsApp senden, sperren, Aufrufe werden gezählt. Lage der SERVICE-Box: Standard „direkt hinter der Gäste-Box“, Berliner Platz
+  oben rechts (#ZWEI/#VIER/#SIEBEN) bzw. unten rechts (#ACHT/#ZEHN/#ZWÖLF) – je Wohnung änderbar. Texte in `worker/src/guides.js`
+  (nur privat), Fotos unter `worker/public/g/` (zufällige Namen, nur mit gültigem Link oder als Admin abrufbar; Fotos mit Gäste-Code
+  sind nicht übernommen). #DREIZEHN fehlt in der Vorlage (Link zeigt dann Adresse, Lage und SERVICE-Box).
 - **Wohnungs-Details** (nur Admin): Wohnungsnamen (ⓘ) bei der Reinigung oder links im Kalender antippen → öffentlicher Name, Adresse und
   Link zur Website mit „📋 Link kopieren“ / „🌐 Öffnen“ (`apartmentDetails` in `worker/src/config.js`)
 - **Hinweis zur Wohnung** („📌“, Admin): individueller Übergabe-Hinweis je Wohnung, steht bei jeder Reinigung dieser Wohnung

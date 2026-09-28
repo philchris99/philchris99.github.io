@@ -8,8 +8,14 @@ keep_vars = true
 [assets]
 directory = "./public"
 binding = "ASSETS"
+# Fotos der Anfahrts-Anleitungen nur über den Worker (Link oder Admin prüfen)
+run_worker_first = ["/g/*"]
 
 # Alle 5 Minuten: Buchungen aus Smoobu holen, Fristen prüfen (überfällig ab 12 bzw. 15 Uhr)
+# KI von Cloudflare (Workers AI) für den Baustellenassistenten: Sprachnotizen → Punkte, Grundriss lesen
+
+
+
 [triggers]
 crons = ["*/5 * * * *"]
 

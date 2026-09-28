@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Anfahrt &amp; Zugang – Apartments Strauss</title>
+<link rel="icon" type="image/png" href="/icon-512.png">
+<style>
+:root {
+  --brand: #2E2E2C; --brand-ink: #FFFFFF; --accent: #7C8B6B; --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #F6F4F0; --card: #FFFFFF; --text: #242422; --muted: #6E6A64; --line: #E4DFD7;
+  --warn: #B85C00; --warn-bg: #FFF1E0; --bad: #B03535; --bad-bg: #FBE6E6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --brand: #ECE8E1; --brand-ink: #1B1B1A; --accent: #A6B594; --bg: #151514; --card: #1F1F1D; --text: #EDEAE4; --muted: #A39E96;
+    --line: #34332F; --warn: #FFB566; --warn-bg: #3A2A14; --bad: #F08C8C; --bad-bg: #3D1D1D; }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 16px/1.5 var(--sans); padding: 0 16px 40px; }
+main { max-width: 640px; margin: 0 auto; }
+header { display: flex; align-items: center; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+header img { height: 40px; }
+@media (prefers-color-scheme: dark) { header img { filter: invert(1); } }
+header small { display: block; color: var(--muted); font-size: 13px; }
+h1 { font-size: 24px; line-height: 1.25; margin-bottom: 4px; }
+.meta { color: var(--muted); font-size: 14px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-top: 14px; }
+.service { border: 3px solid var(--warn); background: var(--warn-bg); }
+.service .label { font-weight: 800; color: var(--warn); letter-spacing: .04em; text-transform: uppercase; font-size: 14px; }
+.service .code { font-size: 44px; font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; line-height: 1.1; margin: 4px 0; }
+.service p { font-size: 15px; }
+.dont { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--bad-bg); color: var(--bad); font-weight: 700; font-size: 15px; }
+ol { list-style: none; counter-reset: s; margin-top: 4px; }
+ol li { counter-increment: s; position: relative; padding: 10px 0 10px 40px; border-bottom: 1px solid var(--line); }
+ol li:last-child { border-bottom: 0; }
+ol li::before { content: counter(s); position: absolute; left: 0; top: 9px; width: 28px; height: 28px; border-radius: 99px; background: var(--brand); color: var(--brand-ink);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+ol li.svc { background: var(--warn-bg); border-radius: 10px; margin: 4px 0; padding-right: 8px; font-weight: 600; }
+ol li.svc::before { background: var(--warn); color: #fff; }
+.btn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); text-decoration: none; font-weight: 600; margin-top: 8px; }
+.photos { display: grid; gap: 12px; margin-top: 8px; }
+.photos figure { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.photos img { width: 100%; display: block; max-height: 70vh; object-fit: contain; background: #000; }
+.photos figcaption { padding: 8px 12px; font-size: 14px; }
+.error { text-align: center; padding: 40px 10px; }
+.error b { display: block; font-size: 20px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/logo.png" alt="Apartments Strauss"><div><b>Anfahrt &amp; Zugang</b><small>für Handwerker &amp; Dienstleister</small></div></header>
+  <div id="app"><p class="meta">Wird geladen …</p></div>
+</main>
+<script>
+(async () => {
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const app = document.getElementById('app');
+  const token = location.pathname.split('/').pop();
+  let g;
+  try {
+    const res = await fetch('/api/guide/' + encodeURIComponent(token), { cache: 'no-store' });
+    g = await res.json();
+    if (!res.ok) throw new Error(g.error || 'Fehler');
+  } catch (e) {
+    app.innerHTML = `<div class="card error"><b>🔒 Nicht verfügbar</b><p>${esc(e.message === 'Failed to fetch' ? 'Keine Verbindung – bitte später erneut öffnen.' : e.message)}</p></div>`;
+    return;
+  }
+  const until = new Date(g.expiresAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const maps = g.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.address)}` : '';
+  const code = String(g.serviceCode || '');
+  app.innerHTML = `
+    <h1>${esc(g.title)}</h1>
+    <p class="meta">${g.name ? `Für ${esc(g.name)} · ` : ''}Link gültig bis ${esc(until)} Uhr</p>
+    <div class="card">
+      ${g.address ? `<div><b>📍 ${esc(g.address)}</b></div>` : ''}
+      ${g.location ? `<div class="meta">Lage: ${esc(g.location)}</div>` : ''}
+      ${maps ? `<a class="btn" href="${maps}" target="_blank" rel="noopener">🗺️ In Google Maps öffnen</a>` : ''}
+    </div>
+    <div class="card service">
+      <div class="label">🔑 Bitte die SERVICE-Schlüsselbox benutzen</div>
+      <div class="code">${code ? esc(code) : '–'}</div>
+      <p>${esc(g.serviceBox)}</p>
+      <div class="dont">⛔ Bitte NICHT die Gäste-Schlüsselbox öffnen – die Schlüssel dort sind für die Gäste.</div>
+    </div>
+    <div class="card"><b>So kommen Sie zur Wohnung</b>
+      <ol>${g.steps.map((s) => `<li class="${s.service ? 'svc' : ''}">${s.service ? '🔑 ' : ''}${esc(s.text)}</li>`).join('')}</ol>
+    </div>
+    ${g.photos.length ? `<div class="photos">${g.photos.map((p) => `<figure><img src="${esc(p.url)}" alt="${esc(p.caption)}" loading="lazy"><figcaption>${esc(p.caption)}</figcaption></figure>`).join('')}</div>` : ''}
+    <p class="meta" style="margin-top:16px">Fragen? Bitte bei Apartments Strauss melden. Diesen Link bitte nicht weitergeben.</p>`;
+})();
+</script>
+</body>
+</html>

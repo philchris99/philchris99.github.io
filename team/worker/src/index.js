@@ -16,6 +16,7 @@ import {
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
 import { deliver, sendPush } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
+import GUIDES from './guides.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -338,6 +339,32 @@ function apartmentList(state) {
     .sort((a, b) => L.compareApartments(a.name, b.name)); // #EINS … #DREIZEHN in Zahlenfolge
 }
 
+// ---------------------------------------------------------------------------
+// Anfahrts-Anleitungen & Handwerker-Links (nur Admin legt an; Handwerker sehen nur ihre freigegebene Wohnung)
+// ---------------------------------------------------------------------------
+const GUIDE_DAYS = [1, 3, 7, 14, 30];
+const guideNo = (name) => L.apartmentNumber(name);
+/** Wo die SERVICE-Schlüsselbox hängt (vom Admin je Wohnung änderbar) */
+export function serviceBoxText(no, settings) {
+  const own = ((settings && settings.guideNotes) || {})[no];
+  if (own) return own;
+  if ([2, 4, 7].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen. Für diese Wohnung bitte die SERVICE-Box OBEN RECHTS verwenden.';
+  if ([8, 10, 12].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen. Für diese Wohnung bitte die SERVICE-Box UNTEN RECHTS verwenden.';
+  return 'Die SERVICE-Schlüsselbox hängt direkt hinter der Gäste-Schlüsselbox.';
+}
+const SERVICE_HOWTO = 'Mit dem SERVICE-Code (oben) öffnen, Schlüssel entnehmen und die Box wieder verschließen. Nach der Arbeit den Schlüssel wieder in die SERVICE-Box legen und verschließen.';
+/** Anleitung für Handwerker: Schritte mit SERVICE-Box statt Gäste-Box */
+function serviceSteps(guide, no, settings) {
+  return (guide ? guide.service : ['{SERVICE}']).map((text) => text === '{SERVICE}'
+    ? { text: `${serviceBoxText(no, settings)} ${SERVICE_HOWTO}`, service: true } : { text });
+}
+function guideLinkState(link, now) {
+  if (link.revoked) return 'gesperrt';
+  return Date.parse(link.expiresAt) <= now ? 'abgelaufen' : 'aktiv';
+}
+const guideLinkView = (l, now) => ({ id: l.id, apartmentId: l.apartmentId, apartmentName: l.apartmentName, name: l.name || '',
+  createdAt: l.createdAt, expiresAt: l.expiresAt, views: l.views || 0, lastViewAt: l.lastViewAt || null, state: guideLinkState(l, now) });
+
 /** Telefonnummer (für WhatsApp-Einladung): nur Ziffern, +, Leerzeichen */
 const cleanPhone = (v) => String(v || '').replace(/[^\d+ ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25);
 const person = (p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, ...(p.deputy ? { deputy: true, deputySince: p.deputySince || null } : {}) });
@@ -460,6 +487,27 @@ async function handleApi(request, env, url, ctx) {
     const t = typeof at === 'number' ? at : Date.parse(at || '');
     return Number.isFinite(t) && t <= now && t >= now - 12 * 3600000 ? t : now;
   };
+
+  // ---- Handwerker-Link: Anleitung für genau eine Wohnung (ohne Anmeldung, nur mit gültigem Link) ----
+  const guideReq = path.match(/^\/api\/guide\/([a-z0-9]{16,40})$/);
+  if (guideReq && request.method === 'GET') {
+    const link = (settings.guideLinks || []).find((l) => l.id === guideReq[1]);
+    if (!link) return fail('Dieser Link ist ungültig.', 404);
+    const st = guideLinkState(link, now);
+    if (st !== 'aktiv') return fail(st === 'abgelaufen' ? 'Dieser Link ist abgelaufen – bitte bei Apartments Strauss einen neuen anfordern.' : 'Dieser Link wurde gesperrt – bitte bei Apartments Strauss melden.', 410);
+    const no = link.no;
+    const guide = GUIDES[no];
+    const codes = await loadAccessCodes(env, settings, [{ id: link.apartmentId, name: link.apartmentName }]);
+    const c = codes[link.apartmentId] || {};
+    const details = (config.apartmentDetails || {})[no] || {};
+    link.views = (link.views || 0) + 1;
+    link.lastViewAt = new Date(now).toISOString();
+    await saveSettings(env.DB, settings);
+    return json({ title: guide ? guide.title : link.apartmentName, apartmentName: link.apartmentName, address: details.address || '',
+      location: c.description || '', serviceCode: c.service || '', serviceBox: serviceBoxText(no, settings),
+      steps: serviceSteps(guide, no, settings), photos: (guide ? guide.photos : []).map((p) => ({ url: `/${p.f}?t=${link.id}`, caption: p.c })),
+      name: link.name || '', expiresAt: link.expiresAt });
+  }
 
   // ---- Anmeldung mit 6-stelligem Code (Admin, Leitung, Mitarbeiterin) ----
   // Stand der Sperre für dieses Gerät/diese Adresse – die Anmeldeseite zeigt ohne Versuche gar kein Eingabefeld
@@ -956,6 +1004,52 @@ async function handleApi(request, env, url, ctx) {
   }
 
   // Zugangscodes verwalten (verschlüsselt in der Datenbank, nie im Programmcode)
+  // Anleitungen (Masteransicht, mit Gäste-Anleitung) – nur Admin, auf Abruf
+  if (path === '/api/guides' && request.method === 'GET') {
+    const { state } = await loadState(env.DB);
+    const apartments = apartmentList(state).map((a) => ({ ...a, no: guideNo(a.name) })).filter((a) => a.no);
+    const codes = await loadAccessCodes(env, settings, apartments);
+    const token = (request.headers.get('Authorization') || '').slice(7);
+    return json({ days: GUIDE_DAYS, apartments: apartments.map((a) => { const g = GUIDES[a.no];
+      return { id: a.id, name: a.name, no: a.no, title: g ? g.title : a.name, hasGuide: !!g, original: g ? g.original : [],
+        steps: serviceSteps(g, a.no, settings), serviceBox: serviceBoxText(a.no, settings), ownServiceBox: ((settings.guideNotes || {})[a.no]) || '',
+        serviceCode: (codes[a.id] || {}).service || '', location: (codes[a.id] || {}).description || '',
+        photos: (g ? g.photos : []).map((p) => ({ url: `/${p.f}?a=${encodeURIComponent(token)}`, caption: p.c })) }; }),
+      links: (settings.guideLinks || []).map((l) => guideLinkView(l, now)).reverse() });
+  }
+  if (path === '/api/guide-links' && request.method === 'POST') {
+    const body = await readJson();
+    const { state } = await loadState(env.DB);
+    const apt = apartmentList(state).find((a) => a.id === String(body.apartmentId || ''));
+    if (!apt || !guideNo(apt.name)) return fail('Bitte eine Wohnung auswählen');
+    const days = GUIDE_DAYS.includes(Number(body.days)) ? Number(body.days) : 7;
+    const link = { id: randomId('', 24), apartmentId: apt.id, apartmentName: apt.name, no: guideNo(apt.name), name: String(body.name || '').trim().slice(0, 60),
+      createdAt: new Date(now).toISOString(), expiresAt: new Date(now + days * 86400000).toISOString(), views: 0 };
+    // abgelaufene/gesperrte Links nach 60 Tagen aufräumen
+    settings.guideLinks = (settings.guideLinks || []).filter((l) => guideLinkState(l, now) === 'aktiv' || now - Date.parse(l.expiresAt) < 60 * 86400000);
+    settings.guideLinks.push(link);
+    await saveSettings(env.DB, settings);
+    return json({ link: guideLinkView(link, now), url: `${new URL(request.url).origin}/anleitung/${link.id}` });
+  }
+  const revokeGuide = path.match(/^\/api\/guide-links\/([a-z0-9]+)\/revoke$/);
+  if (revokeGuide && request.method === 'POST') {
+    const link = (settings.guideLinks || []).find((l) => l.id === revokeGuide[1]);
+    if (!link) return fail('Link nicht gefunden', 404);
+    link.revoked = new Date(now).toISOString();
+    await saveSettings(env.DB, settings);
+    return json({ ok: true });
+  }
+  if (path === '/api/guide-note' && request.method === 'POST') {
+    const body = await readJson();
+    const no = Number(body.no);
+    if (!(no >= 1 && no <= 99)) return fail('Wohnung unbekannt');
+    settings.guideNotes = settings.guideNotes || {};
+    const text = String(body.text || '').trim().slice(0, 500);
+    if (text) settings.guideNotes[no] = text; else delete settings.guideNotes[no];
+    await saveSettings(env.DB, settings);
+    return json({ ok: true, serviceBox: serviceBoxText(no, settings) });
+  }
+
   if (path === '/api/access-codes' && request.method === 'GET') {
     const { state } = await loadState(env.DB);
     const apartments = apartmentList(state);
@@ -1040,6 +1134,25 @@ async function handleApi(request, env, url, ctx) {
   return fail('Nicht gefunden', 404);
 }
 
+async function guidePhoto(request, env, url) {
+  const file = url.pathname.slice(1);
+  const denied = () => new Response('Nicht erlaubt', { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  if (request.method !== 'GET' || !/^g\/[a-f0-9]{24}\.jpg$/.test(file)) return denied();
+  const { cfg, settings } = await loadConfig(env);
+  const token = url.searchParams.get('t');
+  let ok = false;
+  if (token) {
+    const link = (settings.guideLinks || []).find((l) => l.id === token);
+    ok = !!link && guideLinkState(link, Date.now()) === 'aktiv' && ((GUIDES[link.no] || {}).photos || []).some((p) => p.f === file);
+  } else {
+    const user = await authenticate(request, env, cfg);
+    ok = !!user && user.role === 'owner';
+  }
+  if (!ok) return denied();
+  const res = await env.ASSETS.fetch(new Request(new URL('/' + file, url)));
+  return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=3600' } });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -1051,6 +1164,13 @@ export default {
         return fail('Serverfehler: ' + e.message, 500);
       }
     }
+    // Handwerker-Anleitung: /anleitung/<link> → public/anleitung.html (Daten holt die Seite über /api/guide/<link>)
+    if (/^\/anleitung\/[a-z0-9]{16,40}$/.test(url.pathname) && request.method === 'GET') {
+      const page = await env.ASSETS.fetch(new Request(new URL('/anleitung', url), request));
+      return new Response(page.body, { status: page.status, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', 'Referrer-Policy': 'no-referrer' } });
+    }
+    // Fotos der Anleitungen (public/g/…): nur mit gültigem Handwerker-Link (?t=) für diese Wohnung oder als Admin (?a=)
+    if (url.pathname.startsWith('/g/')) return guidePhoto(request, env, url);
     // /admin (und andere unbekannte Seiten) → die App selbst
     const res = await env.ASSETS.fetch(request);
     if (res.status === 404 && request.method === 'GET') return env.ASSETS.fetch(new Request(new URL('/', url), request));

@@ -457,6 +457,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let doneTask = null;           // Reinigung mit offenem „Beenden“-Formular (Checkliste, Schlüssel)
   const shownCodes = {};         // abgerufene Zugangscodes je Reinigung (nur im Speicher, verschwinden automatisch)
   let codeEditor = null;         // Admin: Zugangscodes bearbeiten
+  let guides = null;             // Admin: Anfahrts-Anleitungen + Handwerker-Links (auf Abruf geladen)
+  let guideResult = null;        // zuletzt erstellter Handwerker-Link
+  let guidePre = '';             // vorausgewählte Wohnung (aus „Wohnung“-Fenster)
   let supplyTask = null;
   let moveTask = null;           // Admin: Reinigung auf anderen Tag legen
   let aptNoteTask = null;        // Admin: Übergabe-Notiz der Wohnung bearbeiten         // Reinigung mit offenem „Knapp melden“-Formular
@@ -1054,7 +1057,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <dt>Details</dt><dd><span id="apt-url" class="apt-url">${esc(d.url)}</span></dd>
       </dl>
       <div class="actions"><button type="button" class="primary" data-copy="apt-url">📋 Link kopieren</button>
-        <a class="btn" href="${esc(d.url)}" target="_blank" rel="noopener">🌐 Öffnen</a></div>`);
+        <a class="btn" href="${esc(d.url)}" target="_blank" rel="noopener">🌐 Öffnen</a>
+        <button type="button" class="go" data-guide-for="${esc(id)}">🔗 Handwerker-Link (Anfahrt)</button></div>`);
   }
   function taskCard(t, opts) {
     opts = opts || {};
@@ -1678,6 +1682,56 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${sectionIf(locks.length, 'sperren', 'Gesperrte Anmeldungen', locks.length + ' Adresse(n)', locksBlock(locks))}`;
   }
 
+  // ---- Admin: Anfahrts-Anleitungen (Masteransicht) und Handwerker-Links -------------
+  const guideUntil = (iso) => new Date(iso).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  function guideShareText(l, url) {
+    return `Hallo${l.name ? ' ' + l.name : ''}! Hier Anfahrt und Zugang für ${l.apartmentName}:\n👉 ${url}\n`
+      + `Bitte die SERVICE-Schlüsselbox benutzen – Code und Weg stehen im Link (gültig bis ${guideUntil(l.expiresAt)} Uhr).\nViele Grüße, Apartments Strauss`;
+  }
+  const guideUrl = (id) => `${location.origin}/anleitung/${id}`;
+  function guidesHtml() {
+    if (!guides) {
+      return `<p class="meta">Wegbeschreibung je Wohnung mit Fotos. Für Handwerker erstellen Sie einen Link für <b>eine</b> Wohnung mit Ablaufdatum –
+        der Handwerker sieht nur diese Wohnung und den <b>SERVICE-Code</b> (nie den Gäste-Code).</p>
+        <div class="actions"><button class="primary" data-guides-load>Anleitungen &amp; Links öffnen</button></div>`;
+    }
+    const apts = guides.apartments;
+    const res = guideResult ? `<div class="codebox" style="margin-top:10px"><div class="eyebrow">Link für ${esc(guideResult.link.apartmentName)}${guideResult.link.name ? ' · ' + esc(guideResult.link.name) : ''}</div>
+        <p style="word-break:break-all;margin:6px 0"><span id="guide-url">${esc(guideResult.url)}</span></p>
+        <p class="meta">Gültig bis ${esc(guideUntil(guideResult.link.expiresAt))} Uhr</p>
+        <div class="actions"><button type="button" class="go" data-guide-wa="${esc(guideResult.link.id)}">💬 Per WhatsApp senden</button>
+          <button type="button" class="small" data-copy="guide-url">📋 Kopieren</button><a class="btn" href="${esc(guideResult.url)}" target="_blank" rel="noopener">👁️ Ansehen</a></div></div>` : '';
+    const form = `<form class="panel" id="guide-link-form">
+        <b>🔗 Handwerker-Link erstellen</b>
+        <div class="form-grid" style="margin-top:8px">
+          <label class="field">Wohnung<select name="apartmentId" required>
+            <option value="">Wohnung wählen …</option>
+            ${apts.map((a) => `<option value="${esc(a.id)}" ${a.id === guidePre ? 'selected' : ''}>${esc(a.name)}${a.hasGuide ? '' : ' (ohne Wegbeschreibung)'}</option>`).join('')}</select></label>
+          <label class="field">Gültig<select name="days">${guides.days.map((d) => `<option value="${d}" ${d === 7 ? 'selected' : ''}>${d === 1 ? '1 Tag' : d + ' Tage'}</option>`).join('')}</select></label>
+          <label class="field">Für (freiwillig)<input name="name" maxlength="60" placeholder="z. B. Elektriker Müller"></label>
+          <button class="primary" type="submit">Link erstellen</button>
+        </div>${res}</form>`;
+    const links = guides.links.length ? `<table class="bars" style="margin-top:8px">${guides.links.map((l) => `<tr>
+        <td><b>${esc(l.apartmentName)}</b>${l.name ? `<div class="meta">${esc(l.name)}</div>` : ''}
+          <div class="meta">${l.state === 'aktiv' ? `gültig bis ${esc(guideUntil(l.expiresAt))}` : `<span style="color:var(--bad)">${esc(l.state)}</span>`} · ${l.views}× geöffnet${l.lastViewAt ? ', zuletzt ' + esc(fmtTime(l.lastViewAt)) : ''}</div></td>
+        <td style="text-align:right">${l.state === 'aktiv' ? `<button class="small" data-guide-wa="${esc(l.id)}">💬</button> <button class="small danger" data-guide-revoke="${esc(l.id)}">Sperren</button>` : ''}</td></tr>`).join('')}</table>`
+      : '<p class="empty">Noch keine Links erstellt.</p>';
+    const master = apts.map((a) => `<details class="more"><summary>${esc(a.title)}${a.hasGuide ? '' : ' <span class="meta">(keine Wegbeschreibung in der Vorlage)</span>'}</summary><div class="panel">
+        ${a.location ? `<p class="meta">Lage: ${esc(a.location)}</p>` : ''}
+        ${a.hasGuide ? `<p style="margin-top:6px"><b>Für Gäste</b> <span class="meta">(mit Gäste-Code – nur Admin)</span></p>
+          <ol style="margin:4px 0 0 20px">${a.original.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : ''}
+        <p style="margin-top:10px"><b>Für Handwerker</b> <span class="meta">(SERVICE-Code ${esc(a.serviceCode || '–')})</span></p>
+        <ol style="margin:4px 0 0 20px">${a.steps.map((s) => `<li${s.service ? ' style="font-weight:700"' : ''}>${s.service ? '🔑 ' : ''}${esc(s.text)}</li>`).join('')}</ol>
+        <form data-guide-note="${a.no}" style="margin-top:10px"><label class="field">Wo hängt die SERVICE-Box? (leer = Standard)
+          <textarea name="text" rows="2" maxlength="500" placeholder="${esc(a.serviceBox)}">${esc(a.ownServiceBox)}</textarea></label>
+          <div class="actions"><button class="small" type="submit">Speichern</button>
+            <button class="small go" type="button" data-guide-for="${esc(a.id)}">🔗 Link für diese Wohnung</button></div></form>
+        ${a.photos.length ? `<div class="thumbs" style="margin-top:10px">${a.photos.map((p) => `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.caption)}"><img src="${esc(p.url)}" alt="${esc(p.caption)}" loading="lazy" style="width:96px;height:96px;object-fit:cover;border-radius:8px"></a>`).join(' ')}</div>` : ''}
+      </div></details>`).join('');
+    return form + `<h3 style="margin:14px 0 6px;font-size:16px">Erstellte Links</h3>${links}`
+      + `<h3 style="margin:16px 0 6px;font-size:16px">Anleitungen je Wohnung</h3>${master}`;
+  }
+
   function ownerSettingsPage() {
     const apartments = data.apartments || [];
     const ownerCode = `<form class="panel" id="owner-code">
@@ -1689,6 +1743,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <p class="meta" style="margin-top:6px">Nicht erlaubt: 123456, 111111 usw. Notzugang ohne Code: <b>/admin</b> mit Passwort.</p>
       </form>`;
     return `<div class="greeting"><h1>Einstellungen</h1><p class="meta">Zugangscodes, Admin-Code, Nachrichten und System</p></div>
+      ${section('guides', '📖 Anfahrt &amp; Handwerker-Links', 'Anleitung je Wohnung', guidesHtml())}
       ${section('codes', 'Zugangscodes der Wohnungen', 'verschlüsselt gespeichert', codeEditorHtml())}
       ${section('owner-code-sec', 'Mein Admin-Code', '', ownerCode)}
       ${pushDone() ? pushSetup() : section('push-sec', 'Push-Nachrichten', 'noch nicht eingerichtet', pushGuide(false))}
@@ -2030,6 +2085,17 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         update(next);
         const t = next.tasks.find((x) => x.id === form.dataset.moveForm);
         toast(t && t.needsBlock ? `Verschoben – Team informiert. Bitte in Smoobu blockieren: ${fmt(t.needsBlock.from)} – ${fmt(t.needsBlock.to)}` : 'Verschoben – das Team wurde informiert');
+      } else if (form.id === 'guide-link-form') {
+        guideResult = await api('/api/guide-links', 'POST', { apartmentId: form.elements.apartmentId.value, days: Number(form.elements.days.value), name: form.elements.name.value });
+        guides = await api('/api/guides');
+        render();
+        document.getElementById('guides').scrollIntoView();
+        toast('Link erstellt');
+      } else if (form.dataset.guideNote) {
+        await api('/api/guide-note', 'POST', { no: Number(form.dataset.guideNote), text: form.elements.text.value });
+        guides = await api('/api/guides');
+        render();
+        toast('Gespeichert – gilt auch für bereits verschickte Links');
       } else if (form.dataset.aptNoteForm) {
         update(await api('/api/apt-notes', 'POST', { apartmentId: form.dataset.aptNoteForm, text: form.elements.text.value }));
         aptNoteTask = null;
@@ -2267,6 +2333,25 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         shownCodes[d.codes] = await api(`/api/tasks/${encodeURIComponent(d.codes)}/codes`, 'POST');
         render();
         setTimeout(() => { if (shownCodes[d.codes]) { delete shownCodes[d.codes]; render(); } }, 3 * 60 * 1000);
+      } else if (d.guidesLoad !== undefined) {
+        guides = await api('/api/guides');
+        render();
+        document.getElementById('guides').scrollIntoView();
+      } else if (d.guideFor) {
+        closeModal();
+        guidePre = d.guideFor; guideResult = null;
+        if (!guides) guides = await api('/api/guides');
+        await goPage('einstellungen', 'guide-link-form');
+      } else if (d.guideRevoke) {
+        if (!armed(b, 'Link sperren? Nochmal tippen')) return;
+        await api(`/api/guide-links/${d.guideRevoke}/revoke`, 'POST');
+        if (guideResult && guideResult.link.id === d.guideRevoke) guideResult = null;
+        guides = await api('/api/guides');
+        render();
+        toast('Link gesperrt – funktioniert ab sofort nicht mehr');
+      } else if (d.guideWa) {
+        const l = (guideResult && guideResult.link.id === d.guideWa) ? guideResult.link : guides.links.find((x) => x.id === d.guideWa);
+        window.open(`https://wa.me/?text=${encodeURIComponent(guideShareText(l, guideUrl(l.id)))}`, '_blank');
       } else if (d.codeEditor !== undefined) {
         codeEditor = await api('/api/access-codes');
         render();

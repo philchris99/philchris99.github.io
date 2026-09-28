@@ -645,9 +645,10 @@ test('Statistik: Auslastung nächste 30 Tage täglich festgehalten, rückwirkend
   const bf = await call('POST', '/api/stats/backfill', { session: admin, body: { days: 30 } });
   assert.ok(bf.body.backfilled >= 28 && bf.body.backfilled <= 30, 'echte Tageswerte werden nicht überschrieben');
   const h = bf.body.stats.history;
-  const d5 = h.find((x) => x.date === plus(-5));   // vor 5 Tagen: Buchung schon eingetragen, Sperre noch nicht
+  // vor 3–9 Tagen: Buchung schon eingetragen, Sperre noch nicht (Tage mit echtem Wert aus anderen Tests überspringen)
+  const d5 = h.find((x) => x.date >= plus(-9) && x.date <= plus(-3) && x.source === 'rückwirkend');
   const d25 = h.find((x) => x.date === plus(-25)); // vor 25 Tagen: noch nichts eingetragen
-  assert.equal(d5.source, 'rückwirkend');
+  assert.ok(d5, 'rückwirkend berechneter Tag vorhanden');
   assert.ok(d5.bookedPct > 0 && d5.blockedPct === 0);
   assert.equal(d25.pct, 0);
   assert.equal(h.find((x) => x.date === today).source, 'live', 'heutiger echter Wert bleibt');
@@ -884,4 +885,51 @@ test('Buchung in Smoobu verlängert: beim Abgleich Absage des alten Termins + ne
   assert.equal(t.date, '2099-12-13');
   assert.equal(t.prevDate, '2099-12-10');
   assert.ok(lead, 'Leitung vorhanden');
+});
+
+test('Anfahrts-Anleitung: Admin sieht alles, Handwerker-Link zeigt nur eine Wohnung mit SERVICE-Code (nie Gäste-Code), Ablauf und Sperren', async () => {
+  smoobuBookings = [booking(601, '2099-12-20', { apartment: { id: 4004, name: '#VIER | Test' } })];
+  await runSync(env);
+  const staff = (await me(admin)).staff[0];
+  const g = (await call('GET', '/api/guides', { session: admin })).body;
+  const vier = g.apartments.find((a) => a.id === '4004');
+  assert.ok(vier.hasGuide);
+  // Codes nicht ausschreiben (öffentliche Kopie!) – aus den fest hinterlegten Daten nehmen
+  const { builtinFor } = await import('../src/index.js');
+  const builtin = builtinFor('#VIER | Test') || {};
+  const guestDigits = String(builtin.guest || '').replace(/\D/g, '');
+  if (guestDigits) assert.ok(vier.original.join(' ').includes(guestDigits), 'Admin sieht die Gäste-Anleitung');
+  assert.match(vier.steps.find((s) => s.service).text, /OBEN RECHTS/);
+  // Link erstellen
+  const created = await call('POST', '/api/guide-links', { session: admin, body: { apartmentId: '4004', days: 7, name: 'Elektriker' } });
+  assert.equal(created.status, 200);
+  const id = created.body.link.id;
+  assert.match(created.body.url, new RegExp(`/anleitung/${id}$`));
+  // Handwerker ruft ohne Anmeldung ab
+  const view = await call('GET', `/api/guide/${id}`);
+  assert.equal(view.status, 200);
+  if (guestDigits) assert.ok(!JSON.stringify(view.body).includes(guestDigits), 'kein Gäste-Code');
+  assert.equal(view.body.serviceCode, builtin.service || '');
+  assert.match(view.body.serviceBox, /OBEN RECHTS/);
+  assert.ok(view.body.photos.length > 0 && view.body.photos.every((p) => p.url.endsWith(`?t=${id}`)));
+  assert.equal(view.body.name, 'Elektriker');
+  // Fotos: nur mit gültigem Link bzw. als Admin
+  const photo = view.body.photos[0].url.split('?')[0];
+  assert.notEqual((await call('GET', `${photo}?t=${id}`)).status, 403);
+  assert.equal((await call('GET', `${photo}?t=falsch12345678901234`)).status, 403);
+  assert.equal((await call('GET', photo)).status, 403);
+  assert.notEqual((await call('GET', `${photo}?a=${encodeURIComponent(admin)}`)).status, 403);
+  // Mitarbeiterinnen dürfen die Masteransicht nicht sehen
+  const staffSession = (await call('POST', '/api/login', { body: { code: staff.code } })).body.session;
+  assert.equal((await call('GET', '/api/guides', { session: staffSession })).status, 404);
+  assert.equal((await call('POST', '/api/guide-links', { session: staffSession, body: { apartmentId: '4004' } })).status, 404);
+  // Hinweis zur SERVICE-Box ändern → wirkt sofort im Link
+  await call('POST', '/api/guide-note', { session: admin, body: { no: 4, text: 'Service-Box im Keller links' } });
+  assert.equal((await call('GET', `/api/guide/${id}`)).body.serviceBox, 'Service-Box im Keller links');
+  assert.equal((await call('GET', '/api/guides', { session: admin })).body.links.find((l) => l.id === id).views, 2);
+  // Sperren
+  await call('POST', `/api/guide-links/${id}/revoke`, { session: admin });
+  assert.equal((await call('GET', `/api/guide/${id}`)).status, 410);
+  assert.equal((await call('GET', `${photo}?t=${id}`)).status, 403);
+  assert.equal((await call('GET', '/api/guide/unbekannt1234567890')).status, 404);
 });
