@@ -24,6 +24,7 @@ class SqliteD1 {
     };
     return stmt;
   }
+  async batch(stmts) { const out = []; for (const st of stmts) out.push(await st.run()); return out; }
   count(table) { return this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; }
 }
 
@@ -932,4 +933,24 @@ test('Anfahrts-Anleitung: Admin sieht alles, Handwerker-Link zeigt nur eine Wohn
   assert.equal((await call('GET', `/api/guide/${id}`)).status, 410);
   assert.equal((await call('GET', `${photo}?t=${id}`)).status, 403);
   assert.equal((await call('GET', '/api/guide/unbekannt1234567890')).status, 404);
+});
+
+test('Buchungstempo: Buchungen abschnittsweise laden, Auswertung nur für Admin, tägliche Aktualisierung erst nach vollem Laden', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(801, plus(12), { arrival: plus(5), apartment: { id: 4004, name: '#VIER | Test' }, 'created-at': plus(-3) + ' 10:00', price: 700 }),
+    booking(802, plus(-360), { arrival: plus(-365), apartment: { id: 4004, name: '#VIER | Test' }, 'created-at': plus(-400) + ' 10:00' }),
+  ];
+  assert.equal((await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(-10), to: plus(400) } })).status, 400, 'max. ~100 Tage je Abschnitt');
+  const r = await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(0), to: plus(90), last: true } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.count, 2);
+  const p = (await call('GET', '/api/pace', { session: admin })).body;
+  assert.ok(p.loaded);
+  assert.ok(p.entries >= 2);
+  const vier = p.units.find((u) => u.id === '4004');
+  assert.equal(vier.start, plus(-365), 'erste echte Buchung = in Vermietung seit');
+  assert.ok(p.rows.find((x) => x.key === 'd30').cols[0].nights >= 7);
+  const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
+  assert.equal((await call('GET', '/api/pace', { session: staffSession })).status, 404);
 });

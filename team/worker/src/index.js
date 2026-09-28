@@ -10,7 +10,7 @@ import {
 import {
   loadState, mutate, savePhoto, getPhoto, deletePhotos, pruneOldPhotos, resetAll,
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
-  loadSettings, saveSettings, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
+  loadSettings, saveSettings, upsertPace, loadPace, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
 } from './store.js';
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
@@ -120,8 +120,20 @@ export async function runSync(env, now = Date.now(), cfg) {
   await pruneOldPhotos(env.DB, now - cfg.keepPhotosDays * 86400000).catch((e) => console.error(e));
   await geocodeMissing(env, cfg, result.state, now).catch((e) => console.error('Geocoding', e.message));
   await trackOccupancy(env, cfg, result.state, now).catch((e) => console.error('Statistik', e.message));
+  await updatePaceDaily(env, cfg, bookings, now).catch((e) => console.error('Pace', e.message));
   await loadApartmentInfo(env, result.state, now).catch((e) => console.error('Wohnungsdetails', e.message));
   return { bookings: bookings ? bookings.length : 0, notifications: result.notifications.length, ...delivery, syncError };
+}
+
+/** Buchungstempo: einmal am Tag die beim Abgleich geholten Buchungen (inkl. Stornos) in den Pace-Speicher übernehmen */
+async function updatePaceDaily(env, cfg, bookings, now) {
+  if (!bookings || !bookings.length) return;
+  const { date: today } = L.localParts(now, cfg.timezone);
+  const stats = await loadStats(env.DB);
+  if (!stats.pace || !stats.pace.full || stats.pace.day === today) return; // erst nach dem ersten vollständigen Laden
+  await upsertPace(env.DB, L.paceEntries(bookings));
+  stats.pace.day = today;
+  await saveStats(env.DB, stats);
 }
 
 /** In der App gespeicherte Zugangscodes je Wohnungs-ID (AES-GCM verschlüsselt in settings.accessCodes) */
@@ -917,6 +929,36 @@ async function handleApi(request, env, url, ctx) {
 
   // Statistik rückwirkend berechnen – in Abschnitten (max. 62 Tage je Aufruf, wegen Rechenzeit-Grenze von Cloudflare).
   // Die App ruft das nacheinander für bis zu 1,5 Jahre auf. Buchungen mit Eintragungs-/Stornodatum aus Smoobu.
+  // Buchungstempo (Pace): Buchungen abschnittsweise aus Smoobu laden (Abreise von–bis, max. ~100 Tage je Aufruf)
+  if (path === '/api/pace/sync' && request.method === 'POST') {
+    const creds = smoobuCreds(env);
+    if (!creds.key) return fail('Smoobu ist nicht verbunden');
+    const body = await readJson();
+    const isDay = (x) => /^\d{4}-\d{2}-\d{2}$/.test(x || '');
+    if (!isDay(body.from) || !isDay(body.to) || body.from > body.to || L.addDays(body.from, 100) < body.to) return fail('Zeitraum ungültig');
+    let raw;
+    try { raw = await fetchBookings(creds, body.from, body.to); } catch (e) { return fail('Smoobu: ' + e.message, 502); }
+    const entries = L.paceEntries(raw);
+    await upsertPace(env.DB, entries);
+    if (body.last) {
+      const stats = await loadStats(env.DB);
+      const { date: today } = L.localParts(now, cfg.timezone);
+      stats.pace = { ...(stats.pace || {}), full: new Date(now).toISOString(), day: today };
+      await saveStats(env.DB, stats);
+    }
+    return json({ count: entries.length, from: body.from, to: body.to });
+  }
+  if (path === '/api/pace' && request.method === 'GET') {
+    const { date: today } = L.localParts(now, cfg.timezone);
+    const { state } = await loadState(env.DB);
+    const counted = statsApartments(state).counted;
+    const entries = await loadPace(env.DB);
+    const stats = await loadStats(env.DB);
+    const report = L.paceReport(entries, counted.map((a) => a.id), today);
+    return json({ ...report, loaded: (stats.pace && stats.pace.full) || null, updated: (stats.pace && stats.pace.day) || null,
+      units: counted.map((a) => ({ id: a.id, name: a.name, start: report.starts[a.id] || null })) });
+  }
+
   if (path === '/api/stats/backfill' && request.method === 'POST') {
     const creds = smoobuCreds(env);
     if (!creds.key) return fail('Smoobu ist nicht verbunden');

@@ -676,3 +676,36 @@ test('Sperrzeiten (Blockierungen) erzeugen nie eine Reinigung – egal wie viele
   assert.equal(Object.values(res.state.reservations).filter((r) => r.blocked).length, blocks.length, 'nur im Kalender');
   assert.equal(L.fromSmoobuBooking(blocks[0]), null);
 });
+
+test('Buchungstempo (Pace): gleicher Buchungsstand vor 1/2 Jahren; Wohnungen zählen erst ab ihrer ersten echten Buchung', () => {
+  const e = (id, apt, arrival, departure, created, extra) => ({ id, apartmentId: apt, arrival, departure, created, blocked: false, cancelled: null, price: null, ...extra });
+  const entries = [
+    e('b0', 'A', '2023-03-01', '2024-01-01', '2023-02-01', { blocked: true }), // Sperrzeit vor dem Start → zählt nicht
+    e('a1', 'A', '2024-01-10', '2024-01-12', '2024-01-01'),                  // erste Buchung A → Start
+    e('a2', 'A', '2026-10-01', '2026-10-11', '2026-09-01', { price: 1000 }),  // heute schon gebucht (10 Nächte)
+    e('a3', 'A', '2025-10-01', '2025-10-06', '2025-09-01'),                  // Vorjahr: am 28.09.2025 bekannt
+    e('a4', 'A', '2025-10-10', '2025-10-15', '2025-10-01'),                  // Vorjahr: erst später gebucht → nur Endstand
+    e('a5', 'A', '2025-10-20', '2025-10-25', '2025-09-01', { cancelled: '2025-09-20' }), // vor dem Stichtag storniert
+    e('b1', 'B', '2025-06-01', '2025-06-05', '2025-05-01'),                  // B erst ab Juni 2025 in Vermietung
+    e('b2', 'B', '2026-10-05', '2026-10-10', '2026-09-27', { blocked: true }), // Blockierung zählt nicht als Buchung
+  ];
+  assert.deepEqual(L.unitStarts(entries, ['A', 'B']), { A: '2024-01-10', B: '2025-06-01' });
+  const r = L.paceReport(entries, ['A', 'B'], '2026-09-28', { months: 2 });
+  const d30 = r.rows.find((x) => x.key === 'd30');
+  const [now, ly, ly2] = d30.cols;
+  assert.equal(now.nights, 10);
+  assert.equal(now.capacity, 60, '2 Wohnungen × 30 Nächte');
+  assert.equal(now.pct, 16.7);
+  assert.equal(now.revenue, 1000);
+  assert.equal(ly.asOf, '2025-09-28');
+  assert.equal(ly.nights, 5, 'nur was am 28.09.2025 schon gebucht war');
+  assert.equal(ly.final.nights, 10, 'Endstand inkl. später gebuchter');
+  assert.equal(ly.units, 2);
+  assert.equal(ly2.units, 1, 'vor 2 Jahren war B noch nicht in Vermietung');
+  assert.equal(ly2.capacity, 30);
+  const oct = r.rows.find((x) => x.key === 'm1');
+  assert.match(oct.label, /Oktober 2026/);
+  assert.equal(L.yearsBack('2028-02-29', 1), '2027-02-28');
+  const raw = [{ id: 7, arrival: '2026-10-01', departure: '2026-10-03', apartment: { id: 5 }, price: '240', 'created-at': '2026-09-01 10:00' }];
+  assert.deepEqual(L.paceEntries(raw)[0], { apartmentId: '5', arrival: '2026-10-01', departure: '2026-10-03', blocked: false, created: '2026-09-01', cancelled: null, id: '7', price: 240 });
+});

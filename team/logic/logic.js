@@ -1346,6 +1346,98 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Buchungstempo (Pace): Buchungsstand heute vs. gleicher Stand vor 1 / 2 Jahren
+  // ---------------------------------------------------------------------------
+
+  /** Smoobu-Rohdaten → Pace-Einträge (mit ID und Gesamtpreis) */
+  function paceEntries(raw) {
+    const list = (raw || []).filter((r) => r && r.id != null && r.arrival && r.departure);
+    return smoobuEntries(list).map((e, i) => {
+      const p = Number(list[i].price);
+      return { ...e, id: String(list[i].id), price: Number.isFinite(p) && p > 0 ? p : null };
+    });
+  }
+
+  /** Erste echte (nicht blockierte, nicht stornierte) Buchung je Wohnung = ab dann zählt sie mit */
+  function unitStarts(entries, ids) {
+    const want = new Set(ids.map(String));
+    const out = {};
+    for (const e of entries) {
+      if (!want.has(e.apartmentId) || e.blocked || e.cancelled) continue;
+      if (!out[e.apartmentId] || e.arrival < out[e.apartmentId]) out[e.apartmentId] = e.arrival;
+    }
+    return out;
+  }
+
+  const dayNo = (iso) => Math.round(Date.parse(iso + 'T00:00:00Z') / 86400000);
+  /** gleiches Kalenderdatum k Jahre früher (29.02. → 28.02.) */
+  function yearsBack(iso, k) {
+    const [y, m, d] = iso.split('-').map(Number);
+    const last = new Date(Date.UTC(y - k, m, 0)).getUTCDate();
+    return `${y - k}-${String(m).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+  }
+
+  /**
+   * Buchungsstand für den Zeitraum [from, to) wie er am Tag asOf bekannt war (asOf = null → heutiger Endstand).
+   * Kapazität: nur Wohnungen ab ihrer ersten echten Buchung (Sperrzeiten davor = noch nicht in Vermietung).
+   */
+  function paceFigures(prepared, ids, starts, from, to, asOf) {
+    const f = dayNo(from), t = dayNo(to), cut = asOf ? dayNo(asOf) : null;
+    let capacity = 0, units = 0;
+    for (const id of ids) {
+      if (!starts[id]) continue;
+      const s = Math.max(f, dayNo(starts[id]));
+      if (s < t) { capacity += t - s; units++; }
+    }
+    let nights = 0, revenue = 0, priced = 0;
+    for (const e of prepared) {
+      if (e.blocked || !starts[e.apartmentId]) continue;
+      if (cut != null) {
+        if (e.createdNo != null && e.createdNo > cut) continue;          // damals noch nicht gebucht
+        if (e.cancelledNo != null && e.cancelledNo <= cut) continue;    // damals schon storniert
+      } else if (e.cancelled) continue;                                  // Endstand: stornierte zählen nicht
+      const o = Math.min(e.dep, t) - Math.max(e.arr, f);
+      if (o <= 0) continue;
+      nights += o;
+      if (e.price) { revenue += (e.price * o) / (e.dep - e.arr); priced++; }
+    }
+    return { nights, capacity, units, pct: capacity ? Math.round((nights / capacity) * 1000) / 10 : 0, revenue: Math.round(revenue), priced };
+  }
+
+  /** Pace-Übersicht: Zeilen (nächste 30/60/90 Tage, kommende Monate) × Jahre (heute, −1, −2) */
+  function paceReport(entries, ids, today, opts) {
+    opts = opts || {};
+    const years = opts.years || 2;
+    ids = ids.map(String);
+    const starts = unitStarts(entries, ids);
+    const prepared = entries.map((e) => ({ ...e, arr: dayNo(e.arrival), dep: dayNo(e.departure),
+      createdNo: e.created ? dayNo(e.created) : null,
+      cancelledNo: e.cancelled ? (e.cancelled === '0000-00-00' ? -1e9 : dayNo(e.cancelled)) : null }));
+    const periods = [
+      { key: 'd30', label: 'Nächste 30 Tage', from: today, to: addDays(today, 30) },
+      { key: 'd60', label: 'Tag 31–60', from: addDays(today, 30), to: addDays(today, 60) },
+      { key: 'd90', label: 'Tag 61–90', from: addDays(today, 60), to: addDays(today, 90) },
+    ];
+    const [y, m] = today.split('-').map(Number);
+    for (let i = 0; i < (opts.months || 4); i++) {
+      const s = new Date(Date.UTC(y, m - 1 + i, 1)), e = new Date(Date.UTC(y, m + i, 1));
+      periods.push({ key: 'm' + i, month: true, label: s.toLocaleDateString('de-DE', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+        from: s.toISOString().slice(0, 10), to: e.toISOString().slice(0, 10) });
+    }
+    const rows = periods.map((p) => {
+      const cols = [];
+      for (let k = 0; k <= years; k++) {
+        const from = k ? yearsBack(p.from, k) : p.from, to = k ? yearsBack(p.to, k) : p.to, asOf = k ? yearsBack(today, k) : today;
+        const now = paceFigures(prepared, ids, starts, from, to, asOf);
+        cols.push({ k, from, to, asOf, ...now, final: k ? paceFigures(prepared, ids, starts, from, to, null) : null });
+      }
+      return { ...p, cols };
+    });
+    return { today, rows, starts, withCreated: entries.filter((e) => e.created).length, entries: entries.length,
+      oldest: entries.reduce((a, e) => (!a || e.arrival < a ? e.arrival : a), null) };
+  }
+
+  // ---------------------------------------------------------------------------
   // Empfohlene Route je Tag
   // ---------------------------------------------------------------------------
 
@@ -1503,6 +1595,7 @@
     listCleanings, fullyConfirmed, calendar, overdueReason,
     resolveKeys, missingKeys, withdrawPeriod, blockToRelease, releaseBlockDone, nightIndex, occupancy, nightOccupancy, reservationEntries, smoobuEntries, planRoute, distanceKm, moveCleaning, needsBlock, apartmentNumber, compareApartments, reportSupplies, resolveSupplies, shoppingList, mayViewCodes, logCodeAccess, nextBooking, guestsText,
     requestPeriod, decidePeriod, setPeriod, openPeriodRequests, lastDay, nextArrival,
+    paceEntries, unitStarts, paceFigures, paceReport, yearsBack,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

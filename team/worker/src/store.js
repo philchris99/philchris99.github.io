@@ -99,6 +99,27 @@ export async function saveStats(db, stats) {
   await db.prepare('INSERT OR REPLACE INTO stats (id, data) VALUES (1, ?)').bind(JSON.stringify(stats)).run();
 }
 
+// ---- Buchungstempo (Pace): alle Buchungen kompakt (Eintragungs-/Stornodatum, Preis) ----
+async function ensurePace(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS pace (id TEXT PRIMARY KEY, apt TEXT NOT NULL, arrival TEXT NOT NULL, departure TEXT NOT NULL, created TEXT, blocked INTEGER NOT NULL, cancelled TEXT, price REAL)').run();
+}
+/** Einträge speichern/aktualisieren (in Paketen – D1 mag keine riesigen Batches) */
+export async function upsertPace(db, entries) {
+  await ensurePace(db);
+  const sql = 'INSERT OR REPLACE INTO pace (id, apt, arrival, departure, created, blocked, cancelled, price) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+  for (let i = 0; i < entries.length; i += 50) {
+    await db.batch(entries.slice(i, i + 50).map((e) => db.prepare(sql)
+      .bind(e.id, e.apartmentId, e.arrival, e.departure, e.created, e.blocked ? 1 : 0, e.cancelled, e.price)));
+  }
+  return entries.length;
+}
+export async function loadPace(db) {
+  await ensurePace(db);
+  const { results } = await db.prepare('SELECT id, apt, arrival, departure, created, blocked, cancelled, price FROM pace').all();
+  return (results || []).map((r) => ({ id: r.id, apartmentId: r.apt, arrival: r.arrival, departure: r.departure, created: r.created,
+    blocked: !!r.blocked, cancelled: r.cancelled, price: r.price }));
+}
+
 // ---- Einstellungen (Team) – bleiben beim Zurücksetzen erhalten ---------------
 async function ensureSettings(db) {
   await db.prepare('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY, data TEXT NOT NULL)').run();
