@@ -43,6 +43,7 @@ function smoobuAuthorized(url, headers) {
   return headers['X-Signature'] === createHmac('sha256', HMAC_SECRET).update(lines.join('\n')).digest('base64');
 }
 let smoobuBookings = [];
+let smoobuMessages = {};
 let pushes = [];
 let smoobuCalls = 0;
 const geocodeCalls = [];
@@ -60,6 +61,8 @@ globalThis.fetch = async (url, init = {}) => {
     return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
   }
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
+  const msgs = url.match(/^https:\/\/login\.smoobu\.com\/api\/reservations\/(\d+)\/messages/);
+  if (msgs) return Response.json({ page_count: 1, page: 1, messages: smoobuMessages[msgs[1]] || [] });
   if (url.startsWith('https://login.smoobu.com/api/reservations/')) {
     const b = smoobuBookings.find((x) => String(x.id) === url.split('/').pop());
     return b ? Response.json(b) : new Response('not found', { status: 404 });
@@ -976,6 +979,48 @@ test('Buchungstempo: Buchungen abschnittsweise laden, Auswertung nur für Admin,
   assert.ok(p.rows.find((x) => x.key === 'd30').cols[0].nights >= 7);
   const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
   assert.equal((await call('GET', '/api/pace', { session: staffSession })).status, 404);
+});
+
+test('Gästeanfragen: Nachrichten je Buchung lesen, Themen zählen, nur für Admin', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  smoobuBookings = [
+    booking(901, plus(-200), { arrival: plus(-203), apartment: { id: 4004, name: '#VIER | Test' }, 'created-at': plus(-230) + ' 10:00' }),
+    booking(902, plus(-100), { arrival: plus(-102), apartment: { id: 4004, name: '#VIER | Test' }, 'created-at': plus(-130) + ' 10:00' }),
+    booking(903, plus(-50), { arrival: plus(-52), apartment: { id: 4004, name: '#VIER | Test' }, 'is-blocked-booking': true }),
+  ];
+  smoobuMessages = {
+    901: [{ id: 1, type: 1, createdAt: plus(-205) + ' 09:00:00', message: 'Hallo, können wir schon um 12 Uhr einchecken? Gibt es einen Parkplatz? Tel. +49 170 1234567' },
+      { id: 2, type: 2, createdAt: plus(-205) + ' 10:00:00', message: 'Gerne, ab 12 Uhr ist die Wohnung fertig.' },
+      { id: 3, type: 1, createdAt: plus(-205) + ' 11:00:00', message: 'Danke!' }],
+    902: [{ id: 4, type: 1, createdAt: plus(-101) + ' 20:00:00', message: '<p>Das WLAN funktioniert nicht</p><p>&gt; alte Nachricht</p>' },
+      { id: 5, type: 1, createdAt: plus(-104) + ' 20:00:00', message: 'Where can we park the car?' }],
+    903: [{ id: 6, type: 1, createdAt: plus(-53), message: 'Blockierung – darf nicht gelesen werden' }],
+  };
+  await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(-210), to: plus(-111) } });
+  await call('POST', '/api/pace/sync', { session: admin, body: { from: plus(-110), to: plus(-11), last: true } });
+  let r = await call('POST', '/api/inquiries/sync', { session: admin, body: { reset: true } });
+  assert.equal(r.status, 200);
+  while (r.body.remaining) r = await call('POST', '/api/inquiries/sync', { session: admin, body: {} });
+  const rep = (await call('GET', '/api/inquiries', { session: admin })).body;
+  const t = Object.fromEntries(rep.topics.map((x) => [x.id, x]));
+  assert.equal(t.parking.bookings, 2, 'Parken in 2 Buchungen');
+  assert.equal(t.parking.msgs, 2);
+  assert.equal(t.checkin.bookings, 1);
+  assert.equal(t.checkin.phases.vorher, 1);
+  assert.equal(t.wifi.phases['während'], 1);
+  assert.ok(t.problem, 'Defekt erkannt');
+  assert.equal(t.thanks.msgs, 1);
+  assert.ok(t.thanks.noise);
+  assert.equal(rep.outbound, 1);
+  assert.ok(!JSON.stringify(rep).includes('1234567'), 'Telefonnummer im Beispiel unkenntlich');
+  assert.ok(!JSON.stringify(rep).includes('Blockierung'), 'Blockierungen werden nicht gelesen');
+  assert.ok(!JSON.stringify(rep).includes('alte Nachricht'), 'Zitate abgeschnitten');
+  assert.equal(rep.topics[0].id, 'parking', 'sortiert nach Buchungen');
+  // erneuter Abruf liest nichts doppelt
+  r = await call('POST', '/api/inquiries/sync', { session: admin, body: {} });
+  assert.equal(r.body.done, 0);
+  const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
+  assert.equal((await call('GET', '/api/inquiries', { session: staffSession })).status, 404);
 });
 
 test('Handwerker-Auftrag aus einer Meldung: Link mit Problem und Fotos, Handwerker meldet „erledigt“ → Push an Admin', async () => {

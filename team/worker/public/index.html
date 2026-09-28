@@ -1481,6 +1481,52 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <div class="actions"><button class="small" data-pace-sync>${pace.loaded ? 'Alle Buchungen neu laden' : 'Buchungen aus Smoobu laden (bis 6 Jahre)'}</button></div></div>`;
   }
 
+  // Gästeanfragen: häufigste Themen in den Smoobu-Nachrichten (Grundlage für automatische Antworten)
+  let inq = null, inqAi = null;
+  async function inquirySyncAll(b, reset) {
+    let r = await api('/api/inquiries/sync', 'POST', { reset: !!reset });
+    let done = r.done, total = done + r.remaining;
+    while (r.remaining > 0) {
+      if (b) b.textContent = `Lese Nachrichten … ${done} von ${total} Buchungen`;
+      r = await api('/api/inquiries/sync', 'POST', {});
+      done += r.done;
+      if (!r.done) break;
+    }
+    return done;
+  }
+  function inquiryBlock() {
+    const head = `<div class="eyebrow">💬 Gästeanfragen</div>
+      <p class="meta" style="margin:6px 0">Welche Fragen stellen Gäste am häufigsten? Grundlage sind die Nachrichten aller Buchungen der letzten 3 Jahre in Smoobu
+        (ohne Blockierungen) – als Vorbereitung für automatische Antworten.</p>`;
+    if (!inq) return `<div class="panel" style="margin-top:14px" id="inq">${head}
+      <div class="actions"><button class="primary" data-inq-load>Auswertung anzeigen</button></div></div>`;
+    const top = inq.topics.filter((t) => !t.noise);
+    const max = Math.max(1, ...top.map((t) => t.bookings));
+    const pct = (n) => (inq.asking ? Math.round((n / inq.asking) * 100) : 0);
+    const when = (p) => ['vorher', 'während', 'nachher'].filter((k) => p[k]).map((k) => `${k === 'vorher' ? 'vor Anreise' : k === 'während' ? 'im Aufenthalt' : 'nach Abreise'} ${p[k]}`).join(' · ');
+    const row = (t, i) => `<div class="pace-row">
+        <div class="pace-head"><b>${i != null ? `${i + 1}. ` : ''}${esc(t.label)}</b><span class="meta">${t.bookings} Buchungen${inq.asking ? ` (${pct(t.bookings)} %)` : ''} · ${t.msgs} Nachr.</span></div>
+        ${i != null ? `<div style="height:8px;background:var(--line);border-radius:4px;margin:6px 0 2px"><div style="height:100%;width:${Math.max((t.bookings / max) * 100, 1)}%;background:var(--accent);border-radius:4px"></div></div>` : ''}
+        <div class="meta" style="font-size:13px">${esc(when(t.phases))}</div>
+        ${t.examples.length ? `<details class="more"><summary>Beispiele</summary>${t.examples.map((e) => `<p class="meta" style="margin:4px 0">„${esc(e)}“</p>`).join('')}</details>` : ''}</div>`;
+    const rest = inq.topics.filter((t) => t.noise);
+    return `<div class="panel" style="margin-top:14px" id="inq">${head}
+      ${inq.bookings ? `<p style="margin:6px 0"><b>${inq.bookings} Buchungen</b> gelesen · ${inq.asking} davon mit Nachrichten vom Gast ·
+        ${inq.inbound} Gast- und ${inq.outbound} eigene Nachrichten${inq.unknown ? ` · ${inq.unknown} ohne Richtung` : ''}</p>
+        ${top.length ? `<p class="meta">Top 10 nach Anzahl Buchungen, in denen das Thema vorkommt (eine Nachricht kann mehrere Themen haben):</p>
+          ${top.slice(0, 10).map(row).join('')}
+          ${top.length > 10 ? `<details class="more"><summary>Weitere Themen (${top.length - 10})</summary>${top.slice(10).map((t) => row(t)).join('')}</details>` : ''}` : '<p class="meta">Noch keine Gastnachrichten erkannt.</p>'}
+        ${rest.map((t) => row(t)).join('')}
+        <div class="panel" style="margin:10px 0"><b>🤖 KI-Zusammenfassung</b>
+          <p class="meta" style="margin:4px 0">Liest eine Zufallsstichprobe von 80 Gastnachrichten (Telefon, E-Mail, Links entfernt) und fasst die 10 häufigsten Anliegen zusammen – findet auch Themen, die die Stichwörter nicht kennen.</p>
+          ${inqAi ? `<p style="white-space:pre-line;margin-top:6px">${esc(inqAi.text)}</p><p class="meta">Stichprobe: ${inqAi.sample} Nachrichten</p>` : ''}
+          <div class="actions"><button class="small" data-inq-ai>${inqAi ? 'Neue Stichprobe' : 'Zusammenfassen'}</button></div></div>
+        <p class="meta">Älteste Nachricht ${inq.oldest ? fmtLong(inq.oldest.slice(0, 10)) : '–'} · zuletzt gelesen ${inq.updated ? fmtTime(new Date(inq.updated).toISOString()) : '–'}</p>
+        <div class="actions"><button class="small" data-inq-sync>Neue Buchungen nachladen</button><button class="small" data-inq-reset>Alles neu lesen</button></div>`
+      : `<p class="meta">Noch keine Nachrichten gelesen. Das dauert je nach Anzahl der Buchungen einige Minuten – die Seite bitte so lange offen lassen.</p>
+        <div class="actions"><button class="primary" data-inq-sync>Nachrichten aus Smoobu lesen</button></div>`}</div>`;
+  }
+
   // Monatsübersicht: tatsächliche Belegung (inkl. Blockierungen) je Monat – dieses Jahr vs. Vorjahr vs. vor 2 Jahren
   function monthsBlock(st) {
     const byMonth = Object.fromEntries((st.months || []).map((m) => [m.month, m]));
@@ -1590,7 +1636,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <p class="meta">Jeder Punkt = an diesem Tag schon bekannte Belegung der folgenden ${st.days} Nächte.${hist.some((h) => h.source === 'rückwirkend') ? ' Gestrichelt = rückwirkend aus dem Buchungsdatum berechnet.' : ''}</p>`
         : '<p class="meta" style="margin-top:8px">Der Verlauf füllt sich ab heute täglich automatisch.</p>'}
     </div>`;
-    return `${rangeBar}${actualPanel}${monthsBlock(st)}${forwardPanel}${paceBlock()}${heatmapBlock(hist)}
+    return `${rangeBar}${actualPanel}${monthsBlock(st)}${forwardPanel}${paceBlock()}${inquiryBlock()}${heatmapBlock(hist)}
       <div class="panel" style="margin-top:14px">
         <p class="meta">Berechnet mit <b>${st.apartments} Wohnungen</b> (#EINS–#DREIZEHN).${(st.excluded || []).length ? ` Nicht mitgezählt: ${st.excluded.map(esc).join(', ')}.` : ''}
           ${st.backfill ? ` Rückwirkend berechnet ${fmtTime(st.backfill.at)}${st.backfill.oldest ? ` ab ${fmt(st.backfill.oldest)}` : ''}.` : ''}</p>
@@ -2729,6 +2775,25 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         document.getElementById('pace').scrollIntoView();
         toast(`${total} Buchungen geladen`);
+      } else if (d.inqLoad !== undefined) {
+        b.disabled = true;
+        inq = await api('/api/inquiries');
+        render();
+        document.getElementById('inq').scrollIntoView();
+      } else if (d.inqSync !== undefined || d.inqReset !== undefined) {
+        if (d.inqReset !== undefined && !armed(b, 'Wirklich alles neu lesen? Nochmal tippen')) return;
+        b.disabled = true;
+        if (!data.stats.starts) await paceSyncAll(b);
+        const n = await inquirySyncAll(b, d.inqReset !== undefined);
+        inq = await api('/api/inquiries');
+        render();
+        document.getElementById('inq').scrollIntoView();
+        toast(`Nachrichten von ${n} Buchungen gelesen`);
+      } else if (d.inqAi !== undefined) {
+        b.disabled = true; b.textContent = 'KI liest …';
+        inqAi = await api('/api/inquiries/ai', 'POST', {});
+        render();
+        document.getElementById('inq').scrollIntoView();
       } else if (d.heatMode) {
         heatMode = d.heatMode;
         try { localStorage.setItem('heat-mode', heatMode); } catch (e) { /* egal */ }

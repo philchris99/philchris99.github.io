@@ -320,3 +320,56 @@ export async function mutate(db, fn, now) {
   }
   throw new Error('Speichern fehlgeschlagen, bitte erneut versuchen');
 }
+
+// ---- Gästeanfragen: Nachrichten aus Smoobu für die Themen-Auswertung ----
+async function ensureInquiries(db) {
+  await ensurePace(db);
+  await db.prepare('CREATE TABLE IF NOT EXISTS inq_done (booking TEXT PRIMARY KEY, at INTEGER NOT NULL, n INTEGER NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS inq_msgs (id TEXT PRIMARY KEY, booking TEXT NOT NULL, apt TEXT, created TEXT, inbound INTEGER, phase TEXT, text TEXT NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS inq_cats (msg TEXT NOT NULL, cat TEXT NOT NULL, booking TEXT NOT NULL, phase TEXT, created TEXT, snippet TEXT, PRIMARY KEY (msg, cat))').run();
+}
+/** Nächste Buchungen (keine Blockierungen) im Zeitraum, deren Nachrichten noch nicht gelesen wurden */
+export async function inquiryTodo(db, from, to, limit) {
+  await ensureInquiries(db);
+  const where = 'FROM pace WHERE blocked = 0 AND arrival >= ? AND arrival <= ? AND id NOT IN (SELECT booking FROM inq_done)';
+  const { results } = await db.prepare(`SELECT id, apt, arrival, departure ${where} ORDER BY arrival DESC LIMIT ?`).bind(from, to, limit).all();
+  const left = await db.prepare(`SELECT COUNT(*) AS n ${where}`).bind(from, to).first();
+  return { list: results || [], remaining: Number(left ? left.n : 0) };
+}
+/** Nachrichten einer Buchung speichern: msgs = [{ id, created, inbound, phase, text, cats: [{ cat, snippet }] }] */
+export async function saveInquiries(db, booking, apt, msgs, now) {
+  await ensureInquiries(db);
+  const st = [db.prepare('INSERT OR REPLACE INTO inq_done (booking, at, n) VALUES (?, ?, ?)').bind(booking, now || Date.now(), msgs.length)];
+  for (const m of msgs) {
+    st.push(db.prepare('INSERT OR REPLACE INTO inq_msgs (id, booking, apt, created, inbound, phase, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind(m.id, booking, apt, m.created, m.inbound == null ? null : m.inbound ? 1 : 0, m.phase, m.text));
+    for (const c of m.cats || []) {
+      st.push(db.prepare('INSERT OR REPLACE INTO inq_cats (msg, cat, booking, phase, created, snippet) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(m.id, c.cat, booking, m.phase, m.created, c.snippet));
+    }
+  }
+  for (let i = 0; i < st.length; i += 50) await db.batch(st.slice(i, i + 50));
+}
+/** Auswertung: Themen mit Anzahl Nachrichten/Buchungen, Zeitpunkt und bis zu 3 Beispielen */
+export async function inquiryReport(db) {
+  await ensureInquiries(db);
+  const q = (sql) => db.prepare(sql).all().then((r) => r.results || []);
+  const [totals, dirs, cats, phases, examples] = await Promise.all([
+    db.prepare('SELECT (SELECT COUNT(*) FROM inq_done) AS bookings, (SELECT COUNT(*) FROM inq_done WHERE n > 0) AS withMsgs, (SELECT COUNT(DISTINCT booking) FROM inq_msgs WHERE inbound = 1) AS asking, (SELECT MIN(created) FROM inq_msgs) AS oldest, (SELECT MAX(at) FROM inq_done) AS updated').first(),
+    q('SELECT inbound, COUNT(*) AS n FROM inq_msgs GROUP BY inbound'),
+    q('SELECT cat, COUNT(*) AS msgs, COUNT(DISTINCT booking) AS bookings FROM inq_cats GROUP BY cat'),
+    q('SELECT cat, phase, COUNT(*) AS n FROM inq_cats GROUP BY cat, phase'),
+    q('SELECT cat, snippet FROM (SELECT cat, snippet, ROW_NUMBER() OVER (PARTITION BY cat ORDER BY created DESC) AS rn FROM inq_cats) WHERE rn <= 3'),
+  ]);
+  return { totals: totals || {}, dirs, cats, phases, examples };
+}
+/** Stichprobe von Gastnachrichten (für die KI-Zusammenfassung) */
+export async function inquirySample(db, limit) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare('SELECT text FROM inq_msgs WHERE inbound = 1 AND length(text) > 15 ORDER BY RANDOM() LIMIT ?').bind(limit).all();
+  return (results || []).map((r) => r.text);
+}
+export async function resetInquiries(db) {
+  await ensureInquiries(db);
+  await db.batch(['inq_done', 'inq_msgs', 'inq_cats'].map((t) => db.prepare(`DELETE FROM ${t}`)));
+}

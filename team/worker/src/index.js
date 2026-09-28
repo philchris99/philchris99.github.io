@@ -12,8 +12,10 @@ import {
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
   loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, recordDelivery, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
+  inquiryTodo, saveInquiries, inquiryReport, inquirySample, resetInquiries,
 } from './store.js';
-import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, diagnose } from './smoobu.js';
+import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, categoryOrder, labelOf } from './inquiries.js';
+import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, diagnose } from './smoobu.js';
 import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
@@ -1061,6 +1063,64 @@ async function handleApi(request, env, url, ctx) {
       await saveStats(env.DB, stats);
     }
     return json({ count: entries.length, from: body.from, to: body.to });
+  }
+  // Gästeanfragen: Nachrichten der Buchungen (3 Jahre zurück) abschnittsweise aus Smoobu lesen und nach Themen sortieren
+  if (path === '/api/inquiries/sync' && request.method === 'POST') {
+    const creds = smoobuCreds(env);
+    if (!creds.key) return fail('Smoobu ist nicht verbunden');
+    const body = await readJson();
+    if (body.reset) await resetInquiries(env.DB);
+    const { date: today } = L.localParts(now, cfg.timezone);
+    const todo = await inquiryTodo(env.DB, L.addDays(today, -3 * 365), L.addDays(today, 365), 8);
+    if (!todo.list.length && !todo.remaining) {
+      if ((await inquiryReport(env.DB)).totals.bookings) return json({ done: 0, remaining: 0, messages: 0 });
+      return fail('Bitte zuerst unter „Buchungstempo“ die Buchungen aus Smoobu laden', 409);
+    }
+    let messages = 0;
+    for (const b of todo.list) {
+      let raw;
+      try { raw = await fetchMessages(creds, b.id); } catch (e) { return fail('Smoobu: ' + e.message, 502); }
+      const msgs = (raw || []).map((m, i) => {
+        const text = cleanMessage(m.message || m.htmlMessage || m.text || m.body || '');
+        const created = String(m.createdAt || m.created_at || m.date || m.sentAt || '').replace(' ', 'T');
+        const inbound = inboundOf(m);
+        const phase = phaseOf(created, b.arrival, b.departure);
+        const found = inbound ? classify(text) : [];
+        const cats = inbound ? (found.length ? found : ['other']).map((cat) => ({ cat, snippet: snippet(text, cat) })) : [];
+        return { id: String(m.id != null ? m.id : `${b.id}-${i}`), created, inbound, phase, text, cats };
+      }).filter((m) => m.text);
+      messages += msgs.length;
+      await saveInquiries(env.DB, String(b.id), b.apt, msgs, now);
+    }
+    return json({ done: todo.list.length, remaining: Math.max(0, todo.remaining - todo.list.length), messages });
+  }
+  if (path === '/api/inquiries' && request.method === 'GET') {
+    const r = await inquiryReport(env.DB);
+    const phases = {};
+    for (const p of r.phases) (phases[p.cat] = phases[p.cat] || {})[p.phase] = p.n;
+    const examples = {};
+    for (const e of r.examples) (examples[e.cat] = examples[e.cat] || []).push(e.snippet);
+    const topics = r.cats.map((c) => ({ id: c.cat, label: labelOf(c.cat), msgs: c.msgs, bookings: c.bookings,
+      phases: phases[c.cat] || {}, examples: examples[c.cat] || [], noise: c.cat === 'thanks' || c.cat === 'other' }))
+      .sort((a, b) => b.bookings - a.bookings || categoryOrder(a.id) - categoryOrder(b.id));
+    const dir = (v) => (r.dirs.find((d) => d.inbound === v) || { n: 0 }).n;
+    return json({ ...r.totals, inbound: dir(1), outbound: dir(0), unknown: dir(null), topics });
+  }
+  if (path === '/api/inquiries/ai' && request.method === 'POST') {
+    if (!env.AI) return fail('Cloudflare Workers AI ist nicht eingerichtet', 501);
+    const sample = (await inquirySample(env.DB, 80)).map((t) => mask(t).replace(/\s+/g, ' ').slice(0, 240));
+    if (sample.length < 10) return fail('Zu wenige Gastnachrichten – bitte zuerst die Nachrichten laden', 409);
+    const prompt = `Du analysierst Nachrichten von Gästen an einen Vermieter von Ferienwohnungen (Apartments Strauss).
+Hier ist eine zufällige Stichprobe von ${sample.length} Gastnachrichten (eine je Zeile, persönliche Daten entfernt):
+${sample.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+Ermittle die 10 häufigsten Anliegen/Fragen der Gäste. Antworte auf Deutsch als nummerierte Liste:
+"<Nr>. <Anliegen> – ca. <Anzahl> Nachrichten – eignet sich für automatische Antwort: ja/teilweise/nein".
+Keine Einleitung, kein Schluss.`;
+    try {
+      const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 900, temperature: 0.2 });
+      return json({ text: String((r && (r.response || r.result)) || '').trim(), sample: sample.length });
+    } catch (e) { return fail('KI-Auswertung fehlgeschlagen: ' + e.message, 502); }
   }
   if (path === '/api/pace/warn-check' && request.method === 'POST') {
     const items = await paceCheck(env, cfg, now);

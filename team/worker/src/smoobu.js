@@ -152,6 +152,19 @@ export function fetchBooking(creds, id) {
   return call(creds, `/reservations/${encodeURIComponent(id)}`);
 }
 
+/** Alle Nachrichten einer Buchung (Gast und Vermieter), höchstens 5 Seiten */
+export async function fetchMessages(creds, id) {
+  const out = [];
+  for (let page = 1; page <= 5; page++) {
+    const data = await call(creds, `/reservations/${encodeURIComponent(id)}/messages`, { page: String(page) });
+    const list = (data && (data.messages || data.data)) || (Array.isArray(data) ? data : []);
+    out.push(...list);
+    const count = data && (data.page_count ?? data.pageCount);
+    if (!list.length || count == null || page >= Number(count)) break;
+  }
+  return out;
+}
+
 function shape(label, value) {
   if (!value) return `${label}: fehlt`;
   const special = [...new Set(value.replace(/[A-Za-z0-9]/g, ''))].join(' ');

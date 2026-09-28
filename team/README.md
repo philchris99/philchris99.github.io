@@ -116,6 +116,10 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
 - **Frühwarnung Buchungstempo** (Statistik → Buchungstempo): jeden Montag 9 Uhr Push an Admin, wenn ein Zeitraum (nächste 30/60/90 Tage
   oder die kommenden 3 Monate) mindestens 5 Punkte hinter dem gleichen Buchungsstand des Vorjahres liegt (inkl. Blockierungen);
   sonst keine Nachricht. „Jetzt prüfen“ jederzeit; betroffene Zeilen mit ⚠️. Einstellbar in `worker/src/config.js` (`paceWarn`).
+- **Gästeanfragen** (Statistik → Gästeanfragen, nur Admin): liest die Smoobu-Nachrichten aller Buchungen der letzten 3 Jahre
+  (ohne Blockierungen; 8 Buchungen je Aufruf) in D1 (`inq_*`) und ordnet Gastnachrichten per Stichwort (DE/EN/HU) 17 Themen zu
+  (`worker/src/inquiries.js`). Top 10 nach Anzahl Buchungen, Zeitpunkt (vor Anreise / im Aufenthalt / nach Abreise), Beispiele mit
+  unkenntlich gemachten Telefonnummern/E-Mails. Optional KI-Zusammenfassung einer Stichprobe (Workers AI). Grundlage für automatische Antworten.
 - **Handwerker & Aufträge** (Admin → Meldungen): Verzeichnis der Stamm-Handwerker (Name, Gewerk, Firma, Telefon, 2. Telefon z. B.
   Notfall, E-Mail, Notiz) mit 📞 / 💬 WhatsApp / ✉️ E-Mail; Startliste in `worker/src/craftsmen.js` (nur privat), danach in der App änderbar.
   Bei jeder Meldung **„🔧 An Handwerker“**: Handwerker wählen, Zusatz-Info, Gültigkeit → Link mit **Auftrag** (Text + Fotos/Videos der
