@@ -452,7 +452,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
     for (const n of nodes) {
-      if (n.parentElement && n.parentElement.closest('[data-no-tr], code, .code, .big')) continue;
+      if (n.parentElement && n.parentElement.closest('[data-no-tr], code, .code, .codes .big, .kpi .big')) continue;
       const next = tr(n.nodeValue);
       if (next !== n.nodeValue) n.nodeValue = next;
     }

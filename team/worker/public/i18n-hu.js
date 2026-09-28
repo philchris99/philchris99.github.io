@@ -5,6 +5,7 @@
   const dict = {
     // Anmeldung, Kopfzeile
     'Wird geladen …': 'Betöltés …',
+    '🔑 Sind die Gästeschlüssel in der Box?': '🔑 A vendégkulcsok a dobozban vannak?', 'z. B. nur 1 von 2 Schlüsseln': 'pl. 2 kulcsból csak 1',
     '✉️ Nachricht von ': '✉️ Üzenet: ', 'Dauerhinweis:': 'Állandó megjegyzés:', 'Dauerhinweis zur Wohnung:': 'Állandó megjegyzés a lakáshoz:',
     '✉️ Nachricht zu dieser Reinigung': '✉️ Üzenet ehhez a takarításhoz', '📌 Dauerhinweis zur Wohnung': '📌 Állandó megjegyzés a lakáshoz',
     '💬 Per WhatsApp einladen': '💬 Meghívás WhatsAppon', '💬 Jetzt per WhatsApp einladen': '💬 Meghívás most WhatsAppon', '📤 Teilen': '📤 Megosztás',
