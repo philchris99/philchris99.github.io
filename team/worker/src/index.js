@@ -348,8 +348,8 @@ const guideNo = (name) => L.apartmentNumber(name);
 export function serviceBoxText(no, settings) {
   const own = ((settings && settings.guideNotes) || {})[no];
   if (own) return own;
-  if ([2, 4, 7].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür „TR 9“). Für diese Wohnung die SERVICE-Box OBEN RECHTS verwenden (obere Reihe, ganz rechts, Aufschrift „SERVICE“).';
-  if ([8, 10, 12].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür „TR 9“). Für diese Wohnung die SERVICE-Box UNTEN RECHTS verwenden (untere Reihe, ganz rechts, Aufschrift „SERVICE“).';
+  if ([2, 4, 7].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür am Eingang „STORAGE FRIENDS“ hinter Aldi). Für diese Wohnung die SERVICE-Box OBEN RECHTS verwenden (obere Reihe, ganz rechts, Aufschrift „SERVICE“).';
+  if ([8, 10, 12].includes(no)) return 'Am Berliner Platz gibt es zwei SERVICE-Schlüsselboxen für alle 6 Wohnungen (innen hinter der Glastür am Eingang „STORAGE FRIENDS“ hinter Aldi). Für diese Wohnung die SERVICE-Box UNTEN RECHTS verwenden (untere Reihe, ganz rechts, Aufschrift „SERVICE“).';
   return 'Die SERVICE-Schlüsselbox hängt direkt hinter der Gäste-Schlüsselbox.';
 }
 const SERVICE_HOWTO = 'Mit dem SERVICE-Code (oben) öffnen, Schlüssel entnehmen und die Box wieder verschließen. Nach der Arbeit den Schlüssel wieder in die SERVICE-Box legen und verschließen.';
