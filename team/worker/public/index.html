@@ -1929,7 +1929,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <div class="actions"><button class="small" data-sync>Jetzt abgleichen</button><button class="small" data-diagnose>Diagnose</button></div>
           <div id="diagnose"></div>
           <p class="meta" style="margin-top:10px"><b>Erinnerungen:</b> überfällig ab ${esc(data.rules.startBy)} Uhr (nicht begonnen) bzw.
-            ${esc(data.rules.finishBy)} Uhr (nicht beendet), Wiederholung alle ${esc(data.rules.repeatMinutes)} Min., <b>Nachtruhe ab ${esc(data.rules.quietFrom)} Uhr</b>.
+            ${esc(data.rules.finishBy)} Uhr (nicht beendet), Wiederholung alle ${esc(data.rules.repeatMinutes)} Min. (höchstens 3× je Frist, Admin nur beim ersten Mal), <b>Nachtruhe ab ${esc(data.rules.quietFrom)} Uhr</b>.
             Letzte Prüfung: ${fmtTime(data.lastRun)} (alle 5 Min.).</p>
           <p class="meta" style="margin-top:10px"><b>Letzter Push-Versand:</b> ${data.pushReport
             ? `${fmtTime(data.pushReport.at)} – ${data.pushReport.sent} zugestellt${data.pushReport.failed ? `, <b style="color:var(--bad)">${data.pushReport.failed} fehlgeschlagen</b>` : ''}

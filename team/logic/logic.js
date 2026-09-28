@@ -28,7 +28,8 @@
     confirmWithinHours: 6,       // so lange nach Eintragung muss alles bestätigt sein
     startBy: '12:00',            // Reinigungstag: bis dahin muss die Reinigung begonnen sein
     finishBy: '15:00',           // Reinigungstag: bis dahin muss sie erledigt sein
-    repeatMinutes: 30,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
+    repeatMinutes: 60,           // überfällig → Erinnerung wiederholen im Abstand von … Minuten
+    maxRepeats: 3,               // … höchstens so oft je Stufe (12-Uhr- bzw. 15-Uhr-Frist)
     quietFrom: '22:00',
     checkoutTime: '10:00',       // Check-out-Uhrzeit, falls Smoobu keine liefert (Hinweis „zu früh“ beim Starten)
     maxPeriodDays: 7,            // Zeitraum höchstens so viele Tage nach dem Check-out
@@ -190,6 +191,7 @@
     task.lateAlerted = false;
     task.lastReminderAt = null;
     task.lastReminderReason = null;
+    task.stageReminders = 0;
     task.pastReminded = false;
     if (task.latestDate) {
       task.latestDate = null;
@@ -1125,7 +1127,8 @@
       //    zugewiesen: alle Mitarbeiterinnen) und Admin
       const reason = overdueReason(task, now, config);
       if (!reason) continue;
-      const crew = task.assignedTo ? team(config, task) : [...leadIds(config), ...config.staff.map((s) => s.id)];
+      // noch niemand eingeteilt → nur Leitung (inkl. Vertretung), nicht alle Mitarbeiterinnen
+      const crew = task.assignedTo ? team(config, task) : leadIds(config);
       const all = [...crew, config.owner.id];
       if (reason === 'past') { // vergangener Tag nicht erledigt: einmal melden
         if (task.pastReminded) continue;
@@ -1138,6 +1141,9 @@
       // Neue Stufe (12 Uhr → 15 Uhr) sofort melden, sonst im eingestellten Abstand wiederholen
       const sameStage = task.lastReminderReason === reason || (!task.lastReminderReason && reason === 'start');
       if (task.lastReminderAt && sameStage && nowMs - Date.parse(task.lastReminderAt) < config.repeatMinutes * 60000 - 60000) continue;
+      const repeat = !!task.lastReminderAt && sameStage;
+      if (repeat && (task.stageReminders || 1) >= config.maxRepeats) continue; // genug erinnert für diese Stufe
+      task.stageReminders = repeat ? (task.stageReminders || 1) + 1 : 1;
       task.lastReminderAt = nowIso;
       task.lastReminderReason = reason;
       task.reminderCount = (task.reminderCount || 0) + 1;
@@ -1154,7 +1160,8 @@
         body = `${task.apartmentName}: ${config.finishBy} Uhr vorbei und noch nicht begonnen (${task.assignedTo ? personName(config, task.assignedTo) : 'noch niemandem zugewiesen'}).`;
       }
       log(task, nowIso, `Erinnerung: ${title}`);
-      notifications.push(...notify(all, reason === 'start' ? 'reminder' : 'reminder2', task, title, body));
+      // Admin nur bei der ersten Meldung je Stufe, Wiederholungen nur ans Reinigungsteam
+      notifications.push(...notify(repeat ? crew : all, reason === 'start' ? 'reminder' : 'reminder2', task, title, body));
     }
     return { state, notifications };
   }

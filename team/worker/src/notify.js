@@ -107,17 +107,22 @@ export async function sendPush(env, user, { title, body, kind }, retries = 2) {
  */
 export function group(messages) {
   const buckets = new Map();
+  // Erinnerungen (nicht gestartet / nicht beendet / nicht erledigt) je Person immer zusammenfassen
+  const REMIND = ['reminder', 'reminder2', 'overdue'];
   for (const m of messages) {
-    const key = `${m.user.id}|${m.kind}`;
+    const key = `${m.user.id}|${REMIND.includes(m.kind) ? 'remind' : m.kind}`;
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(m);
   }
   const out = [];
   for (const list of buckets.values()) {
-    if (list.length <= 3 || !GROUP_TITLES[list[0].kind]) { out.push(...list); continue; }
+    const remind = REMIND.includes(list[0].kind);
+    if (remind ? list.length < 2 : (list.length <= 3 || !GROUP_TITLES[list[0].kind])) { out.push(...list); continue; }
     const lines = list.slice(0, 8).map((m) => '• ' + m.body);
     if (list.length > 8) lines.push(`… und ${list.length - 8} weitere`);
-    out.push({ ...list[0], title: `${list.length} ${GROUP_TITLES[list[0].kind]}`, body: lines.join('\n') });
+    const kind = remind ? (list.some((m) => m.kind === 'reminder2') ? 'reminder2' : list[0].kind) : list[0].kind;
+    const title = remind ? `${list.length} Reinigungen brauchen Aufmerksamkeit` : `${list.length} ${GROUP_TITLES[list[0].kind]}`;
+    out.push({ ...list[0], kind, title, body: lines.join('\n') });
   }
   return out;
 }

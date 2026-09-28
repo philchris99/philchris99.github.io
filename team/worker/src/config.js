@@ -7,7 +7,7 @@ export default {
   confirmWithinHours: 6,       // so lange nach Eintragung müssen Leitung + Mitarbeiterin bestätigt haben
   startBy: '12:00',            // Reinigungstag: bis dahin begonnen, sonst „überfällig“ + Erinnerung
   finishBy: '15:00',           // Reinigungstag: bis dahin erledigt, sonst „überfällig“ + Erinnerung
-  repeatMinutes: 30,           // Erinnerung wiederholen, solange überfällig (Prüfung alle 5 Min.)
+  repeatMinutes: 60,           // Erinnerung wiederholen, solange überfällig – höchstens 3× je Frist (maxRepeats), Admin nur beim ersten Mal
   quietFrom: '22:00',          // ab dann keine Erinnerungen mehr
   // Wohnungsgröße für die Statistik (Wohnungsnummer aus dem Namen: #EINS = 1 …) – geht vor den Smoobu-Angaben
   sizeByNumber: {

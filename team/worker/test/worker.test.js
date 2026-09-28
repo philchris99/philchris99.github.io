@@ -390,7 +390,7 @@ test('Überfällige Reinigung heute: Erinnerung wird verschickt; Versandfehler w
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh' ? new Response('x', { status: 429 }) : realFetch(url, init));
   try {
-    await runSync(env, mk('12', '40'));
+    await runSync(env, mk('13', '10'));
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -398,26 +398,26 @@ test('Überfällige Reinigung heute: Erinnerung wird verschickt; Versandfehler w
   const report = m.pushReport;
   assert.ok(report.failed >= 1);
   assert.match(report.errors[0].error, /429/);
-  assert.ok(m.pushQueued >= 3, 'abgelehnte Nachrichten warten auf Nachsendung');
+  assert.ok(m.pushQueued >= 2, 'abgelehnte Nachrichten warten auf Nachsendung');
   // nächster Lauf: ntfy nimmt wieder an → Warteschlange wird nachgesendet
   pushes = [];
-  await runSync(env, mk('12', '45'));
+  await runSync(env, mk('13', '15'));
   const after = await me(admin);
   assert.equal(after.pushQueued, 0);
-  assert.ok(after.pushReport.resent >= 3);
-  assert.ok(pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').length >= 3);
+  assert.ok(after.pushReport.resent >= 2);
+  assert.ok(pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').length >= 2);
   // mit ntfy-Konto: Tageskontingent wird erkannt und klar benannt
   env.NTFY_TOKEN = 'tk_test';
   globalThis.fetch = async (url, init) => (String(url) === 'https://ntfy.sh'
     ? new Response(JSON.stringify({ code: 42908, http: 429, error: 'limit reached: daily message quota reached' }), { status: 429 }) : realFetch(url, init));
   try {
-    await runSync(env, mk('13', '20'));
+    await runSync(env, mk('14', '15'));
   } finally {
     globalThis.fetch = realFetch;
     delete env.NTFY_TOKEN;
   }
   assert.match((await me(admin)).pushReport.errors[0].error, /Tageskontingent.*nachgesendet.*42908/);
-  await runSync(env, mk('13', '25')); // Warteschlange leeren
+  await runSync(env, mk('14', '20')); // Warteschlange leeren
   assert.equal((await me(admin)).rules.quietFrom, '22:00');
 });
 
@@ -429,11 +429,12 @@ test('Manuelle Reinigung nach 12 Uhr für heute eingetragen → Erinnerung kommt
     pushes = [];
     const res = await call('POST', '/api/manual', { session: admin, body: { apartmentId: '1', date: day, note: 'spät' } });
     assert.equal(res.status, 200);
-    await new Promise((r) => setTimeout(r, 50));
-    const got = pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden').map((p) => p.topic);
+    await new Promise((r) => setTimeout(r, 1500));
+    // einzeln oder als Sammelnachricht („… brauchen Aufmerksamkeit“) mit dieser Erinnerung
+    const got = pushes.filter((p) => p.title === 'Reinigung muss heute noch gestartet werden' || /Bitte jetzt starten/.test(p.message || '')).map((p) => p.topic);
     assert.ok(got.includes(await topicOf(admin)));
     assert.ok(got.includes(await topicOf(lea)));
-    assert.ok(got.includes(await topicOf(mia)), 'noch nicht zugewiesen → alle Mitarbeiterinnen');
+    assert.ok(!got.includes(await topicOf(mia)), 'noch nicht zugewiesen → nur Leitung, nicht alle Mitarbeiterinnen');
   } finally {
     Date.now = realNow;
   }
