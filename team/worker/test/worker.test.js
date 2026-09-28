@@ -954,3 +954,40 @@ test('Buchungstempo: Buchungen abschnittsweise laden, Auswertung nur für Admin,
   const staffSession = (await call('POST', '/api/login', { body: { code: (await me(admin)).staff[0].code } })).body.session;
   assert.equal((await call('GET', '/api/pace', { session: staffSession })).status, 404);
 });
+
+test('Handwerker-Auftrag aus einer Meldung: Link mit Problem und Fotos, Handwerker meldet „erledigt“ → Push an Admin', async () => {
+  const cur = await me(admin);
+  assert.ok(cur.craftsmen.length >= 1, 'Stamm-Handwerker vorhanden');
+  // eigener Handwerker anlegen
+  const withNew = (await call('POST', '/api/craftsmen', { session: admin, body: { name: 'Test Elektro', trade: 'Elektriker', phone: '0171 / 1234567', email: 'x@example.org' } })).body;
+  const craft = withNew.craftsmen.find((c) => c.name === 'Test Elektro');
+  assert.equal(craft.phone, '0171 1234567');
+  assert.equal((await call('POST', '/api/craftsmen', { session: admin, body: { name: 'X', email: 'kaputt' } })).status, 400);
+  // Meldung mit Foto an Wohnung 4004 (Reinigung 601 aus dem Anleitungs-Test)
+  const fd = new FormData();
+  fd.append('text', 'Wasserhahn im Bad tropft');
+  fd.append('photo', new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' }), 'foto.jpg');
+  const rep = await call('POST', '/api/tasks/601/report', { session: admin, body: fd });
+  const report = rep.body.tasks.find((t) => t.id === '601').reports.at(-1);
+  const created = await call('POST', '/api/guide-links', { session: admin, body: { apartmentId: '4004', taskId: '601', reportId: report.id, craftsmanId: craft.id, note: 'Bitte bis Freitag', days: 7 } });
+  assert.equal(created.status, 200);
+  const id = created.body.link.id;
+  assert.equal(created.body.link.craftsmanId, craft.id);
+  const g = (await call('GET', `/api/guide/${id}`)).body;
+  assert.match(g.job.text, /Bitte bis Freitag[\s\S]*Wasserhahn im Bad tropft/);
+  assert.equal(g.name, 'Test Elektro');
+  assert.equal(g.job.media.length, 1);
+  assert.equal((await call('GET', g.job.media[0].url)).status, 200, 'Foto über den Link abrufbar');
+  assert.equal((await call('GET', `/api/guide/${id}/media/p-fremd`)).status, 403, 'fremde Fotos nicht');
+  pushes = [];
+  const done = await call('POST', `/api/guide/${id}/done`, { body: { note: 'Dichtung getauscht' } });
+  assert.equal(done.status, 200);
+  assert.ok(pushes.some((p) => p.title === 'Auftrag erledigt: #VIER | Test'));
+  const job = (await me(admin)).jobs.find((j) => j.linkId === id);
+  assert.ok(job.doneAt);
+  assert.equal(job.doneNote, 'Dichtung getauscht');
+  assert.equal((await call('GET', `/api/guide/${id}`)).body.job.doneAt, job.doneAt);
+  // Meldung einer anderen Wohnung passt nicht zum Link
+  assert.equal((await call('POST', '/api/guide-links', { session: admin, body: { apartmentId: '4004', taskId: '1', reportId: report.id, craftsmanId: craft.id } })).status, 400);
+  assert.equal((await call('POST', `/api/craftsmen/${craft.id}/delete`, { session: admin })).body.craftsmen.some((c) => c.id === craft.id), false);
+});

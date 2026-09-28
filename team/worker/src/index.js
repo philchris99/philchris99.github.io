@@ -17,6 +17,7 @@ import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, di
 import { deliver, sendPush } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
+import DEFAULT_CRAFTSMEN from './craftsmen.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -374,8 +375,13 @@ function guideLinkState(link, now) {
   if (link.revoked) return 'gesperrt';
   return Date.parse(link.expiresAt) <= now ? 'abgelaufen' : 'aktiv';
 }
+/** Handwerker-Verzeichnis (Startliste aus craftsmen.js, danach in den Einstellungen gespeichert) */
+const craftsmenOf = (settings) => (Array.isArray(settings.craftsmen) ? settings.craftsmen : DEFAULT_CRAFTSMEN);
+const guideJobView = (l, now) => (l.job ? { linkId: l.id, reportId: l.job.reportId, taskId: l.job.taskId, craftsmanId: l.craftsmanId || null,
+  name: l.name || '', createdAt: l.createdAt, doneAt: l.job.doneAt || null, doneNote: l.job.doneNote || '', state: guideLinkState(l, now) } : null);
 const guideLinkView = (l, now) => ({ id: l.id, apartmentId: l.apartmentId, apartmentName: l.apartmentName, name: l.name || '',
-  createdAt: l.createdAt, expiresAt: l.expiresAt, views: l.views || 0, lastViewAt: l.lastViewAt || null, state: guideLinkState(l, now) });
+  createdAt: l.createdAt, expiresAt: l.expiresAt, views: l.views || 0, lastViewAt: l.lastViewAt || null, state: guideLinkState(l, now),
+  craftsmanId: l.craftsmanId || null, job: l.job ? { reportId: l.job.reportId, doneAt: l.job.doneAt || null } : null });
 
 /** Telefonnummer (für WhatsApp-Einladung): nur Ziffern, +, Leerzeichen */
 const cleanPhone = (v) => String(v || '').replace(/[^\d+ ]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 25);
@@ -416,6 +422,7 @@ async function viewFor(env, cfg, settings, state, user, now) {
   const base = {
     user: { id: user.id, name: user.name, role: user.role, ...(user.deputy ? { deputy: true } : {}) }, today, time, now: new Date(now).toISOString(),
     aptDetails: user.role === 'owner' ? apartmentDetails(cfg, state) : {}, // nur Admin
+    ...(user.role === 'owner' ? { craftsmen: craftsmenOf(settings), jobs: (settings.guideLinks || []).map((l) => guideJobView(l, now)).filter(Boolean) } : {}),
     startBy: cfg.startBy, finishBy: cfg.finishBy, checkoutTime: cfg.checkoutTime, confirmWithinHours: cfg.confirmWithinHours,
     topic: await topicFor(env, user),
     leads: await teamFor(env, cfg.leads.filter((l) => !l.deputy), user.role === 'owner'),
@@ -519,7 +526,32 @@ async function handleApi(request, env, url, ctx) {
       location: c.description || '', serviceCode: c.service || '', serviceBox: serviceBoxText(no, settings),
       door: (guide && guide.door) || null,
       steps: serviceSteps(guide, no, settings), photos: (guide ? guide.photos : []).map((p) => ({ url: `/${p.f}?t=${link.id}`, caption: p.c })),
-      name: link.name || '', expiresAt: link.expiresAt });
+      name: link.name || '', expiresAt: link.expiresAt,
+      job: link.job ? { text: link.job.text, apartmentName: link.apartmentName, createdAt: link.createdAt, doneAt: link.job.doneAt || null, doneNote: link.job.doneNote || '',
+        media: (link.job.photos || []).map((id) => ({ id, video: id.startsWith('v'), url: `/api/guide/${link.id}/media/${encodeURIComponent(id)}` })) } : null });
+  }
+  // Auftrag: Fotos/Videos der Meldung – nur über den gültigen Link und nur die Medien dieses Auftrags
+  const guideMedia = path.match(/^\/api\/guide\/([a-z0-9]{16,40})\/media\/([A-Za-z0-9-]+)$/);
+  if (guideMedia && request.method === 'GET') {
+    const link = (settings.guideLinks || []).find((l) => l.id === guideMedia[1]);
+    if (!link || guideLinkState(link, now) !== 'aktiv' || !link.job || !(link.job.photos || []).includes(guideMedia[2])) return fail('Nicht erlaubt', 403);
+    if (guideMedia[2].startsWith('v')) return serveVideo(guideMedia[2]);
+    const p = await getPhoto(env.DB, guideMedia[2]);
+    if (!p) return fail('Foto nicht gefunden', 404);
+    return new Response(p.data, { headers: { 'Content-Type': p.mime, 'Cache-Control': 'private, max-age=3600' } });
+  }
+  // Auftrag erledigt melden (Handwerker) → Push an Apartments Strauss
+  const guideDone = path.match(/^\/api\/guide\/([a-z0-9]{16,40})\/done$/);
+  if (guideDone && request.method === 'POST') {
+    const link = (settings.guideLinks || []).find((l) => l.id === guideDone[1]);
+    if (!link || guideLinkState(link, now) !== 'aktiv' || !link.job) return fail('Dieser Link ist nicht (mehr) gültig.', 410);
+    if (link.job.doneAt) return json({ ok: true, doneAt: link.job.doneAt });
+    link.job.doneAt = new Date(now).toISOString();
+    link.job.doneNote = String((await readJson()).note || '').trim().slice(0, 1000);
+    await saveSettings(env.DB, settings);
+    ctx.waitUntil(deliver(env, cfg, [{ to: cfg.owner.id, kind: 'report', title: `Auftrag erledigt: ${link.apartmentName}`,
+      body: `${link.name || 'Handwerker'} meldet „erledigt“.${link.job.doneNote ? ' Notiz: ' + link.job.doneNote : ''}` }]).catch(() => {}));
+    return json({ ok: true, doneAt: link.job.doneAt });
   }
 
   // ---- Anmeldung mit 6-stelligem Code (Admin, Leitung, Mitarbeiterin) ----
@@ -1066,8 +1098,19 @@ async function handleApi(request, env, url, ctx) {
     const apt = apartmentList(state).find((a) => a.id === String(body.apartmentId || ''));
     if (!apt || !guideNo(apt.name)) return fail('Bitte eine Wohnung auswählen');
     const days = GUIDE_DAYS.includes(Number(body.days)) ? Number(body.days) : 7;
-    const link = { id: randomId('', 24), apartmentId: apt.id, apartmentName: apt.name, no: guideNo(apt.name), name: String(body.name || '').trim().slice(0, 60),
+    const craftsman = body.craftsmanId ? craftsmenOf(settings).find((c) => c.id === body.craftsmanId) : null;
+    const link = { id: randomId('', 24), apartmentId: apt.id, apartmentName: apt.name, no: guideNo(apt.name),
+      name: (craftsman ? craftsman.name : String(body.name || '').trim()).slice(0, 60), craftsmanId: craftsman ? craftsman.id : null,
       createdAt: new Date(now).toISOString(), expiresAt: new Date(now + days * 86400000).toISOString(), views: 0 };
+    // Auftrag aus einer Meldung: Text + Fotos/Videos der Meldung gehen mit
+    if (body.reportId) {
+      const task = state.tasks[String(body.taskId || '')];
+      const report = task && (task.reports || []).find((r) => r.id === body.reportId);
+      if (!report || task.apartmentId !== apt.id) return fail('Meldung nicht gefunden');
+      const extra = String(body.note || '').trim().slice(0, 1000);
+      link.job = { taskId: task.id, reportId: report.id, text: [extra, report.text].filter(Boolean).join('\n\nAus der Meldung: ').trim() || 'Bitte vor Ort ansehen.',
+        photos: (report.photos || []).slice(0, 12) };
+    }
     // abgelaufene/gesperrte Links nach 60 Tagen aufräumen
     settings.guideLinks = (settings.guideLinks || []).filter((l) => guideLinkState(l, now) === 'aktiv' || now - Date.parse(l.expiresAt) < 60 * 86400000);
     settings.guideLinks.push(link);
@@ -1082,6 +1125,29 @@ async function handleApi(request, env, url, ctx) {
     await saveSettings(env.DB, settings);
     return json({ ok: true });
   }
+  // Handwerker-Verzeichnis: anlegen/ändern, löschen
+  if (path === '/api/craftsmen' && request.method === 'POST') {
+    const body = await readJson();
+    const clean = (v, n) => String(v || '').trim().slice(0, n);
+    const entry = { id: clean(body.id, 40) || randomId('h-', 8), name: clean(body.name, 80), trade: clean(body.trade, 80), company: clean(body.company, 80),
+      phone: cleanPhone(body.phone), phone2: cleanPhone(body.phone2), phone2Label: clean(body.phone2Label, 30), email: clean(body.email, 120), note: clean(body.note, 500) };
+    if (!entry.name) return fail('Bitte einen Namen eingeben');
+    if (entry.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(entry.email)) return fail('E-Mail-Adresse prüfen');
+    const list = craftsmenOf(settings).slice();
+    const i = list.findIndex((c) => c.id === entry.id);
+    for (const k of Object.keys(entry)) if (!entry[k]) delete entry[k];
+    if (i >= 0) list[i] = entry; else list.push(entry);
+    settings.craftsmen = list;
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
+  }
+  const delCraftsman = path.match(/^\/api\/craftsmen\/([A-Za-z0-9-]+)\/delete$/);
+  if (delCraftsman && request.method === 'POST') {
+    settings.craftsmen = craftsmenOf(settings).filter((c) => c.id !== delCraftsman[1]);
+    await saveSettings(env.DB, settings);
+    return view((await loadState(env.DB)).state);
+  }
+
   if (path === '/api/guide-note' && request.method === 'POST') {
     const body = await readJson();
     const no = Number(body.no);

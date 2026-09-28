@@ -494,6 +494,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   let doneTask = null;           // Reinigung mit offenem „Beenden“-Formular (Checkliste, Schlüssel)
   const shownCodes = {};         // abgerufene Zugangscodes je Reinigung (nur im Speicher, verschwinden automatisch)
   let codeEditor = null;         // Admin: Zugangscodes bearbeiten
+  let jobFor = null;             // Admin: Meldung, für die gerade ein Handwerker-Auftrag erstellt wird
+  let jobResult = null;          // zuletzt erstellter Auftrag (Link + Handwerker)
+  let craftEdit = null;          // Handwerker bearbeiten ('neu' oder ID)
   let guides = null;             // Admin: Anfahrts-Anleitungen + Handwerker-Links (auf Abruf geladen)
   let guideResult = null;        // zuletzt erstellter Handwerker-Link
   let guidePre = '';             // vorausgewählte Wohnung (aus „Wohnung“-Fenster)
@@ -797,7 +800,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           ? '<span class="vthumb">▶ Video</span>' : `<img src="${photoUrl(p)}" alt="" loading="lazy">`}</button>
         ${mine ? `<button type="button" class="x" data-delphoto="${esc(p)}" data-task="${esc(t.id)}" data-report="${esc(r.id)}" aria-label="Foto löschen">✕</button>` : ''}
       </div>`).join('')}</div>` : ''}
-      ${role() === 'owner' && !r.resolved && r.byRole !== 'owner' ? `<div class="actions"><button class="small" data-resolve="${esc(t.id)}" data-report="${esc(r.id)}">Als behoben markieren</button></div>` : ''}
+      ${role() === 'owner' && r.byRole !== 'owner' ? jobStatus(r) : ''}
+      ${role() === 'owner' && !r.resolved && r.byRole !== 'owner' ? `<div class="actions"><button class="small go" data-job-open="${esc(r.id)}">🔧 An Handwerker</button><button class="small" data-resolve="${esc(t.id)}" data-report="${esc(r.id)}">Als behoben markieren</button></div>` : ''}
+      ${role() === 'owner' && jobFor === r.id ? jobForm(t, r) : ''}
+      ${role() === 'owner' && jobResult && jobResult.reportId === r.id ? jobResultBox() : ''}
     </div>`;
   }
 
@@ -1242,7 +1248,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
 
   // ---- Team -------------------------------------------------------------------
   // Einladung: Link trägt den Code auf dem Gerät ein (#login=…, wird nicht an den Server geschickt) → ein Tipp genügt
-  const waNumber = (phone) => { let d = String(phone || '').replace(/[^\d+]/g, ''); if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = '49' + d.slice(1); return d; };
+  const waNumber = (phone) => { let d = String(phone || '').replace(/\(0\)/g, '').replace(/[^\d+]/g, ''); if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2); else if (d.startsWith('0')) d = '49' + d.slice(1); return d; };
   function inviteText(p) {
     const link = `${location.origin}/#login=${p.code}`;
     const role = (data.leads || []).some((x) => x.id === p.id) ? 'Reinigungsleitung' : 'Reinigungsteam';
@@ -1776,11 +1782,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   function ownerReportsPage(reports) {
     const shop = data.shopping || [];
     const keys = data.missingKeys || [];
-    if (!reports.length && !shop.length && !keys.length) {
-      return `<div class="greeting"><h1>Meldungen</h1></div><p class="empty-state">Keine offenen Meldungen, nichts einzukaufen ✓</p>`;
-    }
-    return `<div class="greeting"><h1>Meldungen</h1><p class="meta">Probleme aus den Wohnungen und was fehlt</p></div>
-      ${sectionIf(reports.length, 'meldungen', 'Offene Meldungen', reports.length + ' offen', reportsBlock(reports), 'key')}
+    return `<div class="greeting"><h1>Meldungen</h1><p class="meta">Probleme aus den Wohnungen, Handwerker und was fehlt</p></div>
+      ${reports.length ? section('meldungen', 'Offene Meldungen', reports.length + ' offen', reportsBlock(reports), 'key') : '<p class="empty-state">Keine offenen Meldungen ✓</p>'}
+      ${section('handwerker', '🔧 Handwerker', (data.craftsmen || []).length + ' Kontakte', craftsmenBlock())}
       ${sectionIf(shop.length, 'einkauf', 'Einkaufsliste', shop.length + ' Artikel', shoppingBlock())}`;
   }
 
@@ -1790,6 +1794,67 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       ${section('team', 'Reinigungsteam', (() => { const n = (data.leads || []).length + (data.staff || []).length; return n === 1 ? '1 Person' : n + ' Personen'; })(),
         teamList('lead', data.leads || [], 'Reinigungsleitung') + teamList('staff', data.staff || [], 'Mitarbeiterinnen'), 'key')}
       ${sectionIf(locks.length, 'sperren', 'Gesperrte Anmeldungen', locks.length + ' Adresse(n)', locksBlock(locks))}`;
+  }
+
+  // ---- Admin: Handwerker-Verzeichnis und Aufträge aus Meldungen ---------------------
+  const telHref = (p) => 'tel:' + String(p || '').replace(/\(0\)/g, '').replace(/[^\d+]/g, '');
+  const craftById = (id) => (data.craftsmen || []).find((c) => c.id === id);
+  function craftContacts(c, text, subject) {
+    const btns = [];
+    if (c.phone) btns.push(`<a class="btn small" href="${telHref(c.phone)}">📞 Anrufen</a>`);
+    if (c.phone2) btns.push(`<a class="btn small" href="${telHref(c.phone2)}">📞 ${esc(c.phone2Label || 'Tel. 2')}</a>`);
+    if (c.phone) btns.push(`<a class="btn small" href="https://wa.me/${waNumber(c.phone)}${text ? '?text=' + encodeURIComponent(text) : ''}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
+    if (c.email) btns.push(`<a class="btn small" href="mailto:${esc(c.email)}${text ? `?subject=${encodeURIComponent(subject || 'Auftrag')}&body=${encodeURIComponent(text)}` : ''}">✉️ E-Mail</a>`);
+    return btns.join(' ');
+  }
+  function craftsmenBlock() {
+    const list = data.craftsmen || [];
+    const form = (c) => `<form class="panel" data-craft-form="${esc(c.id || '')}">
+        <div class="form-grid">
+          <label class="field">Name<input name="name" required maxlength="80" value="${esc(c.name || '')}"></label>
+          <label class="field">Gewerk<input name="trade" maxlength="80" value="${esc(c.trade || '')}" placeholder="z. B. Elektriker"></label>
+          <label class="field">Firma<input name="company" maxlength="80" value="${esc(c.company || '')}"></label>
+          <label class="field">Telefon / Mobil<input name="phone" type="tel" maxlength="25" value="${esc(c.phone || '')}"></label>
+          <label class="field">2. Telefon<input name="phone2" type="tel" maxlength="25" value="${esc(c.phone2 || '')}"></label>
+          <label class="field">Bezeichnung 2. Telefon<input name="phone2Label" maxlength="30" value="${esc(c.phone2Label || '')}" placeholder="z. B. Notfall"></label>
+          <label class="field">E-Mail<input name="email" type="email" maxlength="120" value="${esc(c.email || '')}"></label>
+          <label class="field">Notiz<input name="note" maxlength="500" value="${esc(c.note || '')}"></label>
+        </div>
+        <div class="actions"><button class="primary" type="submit">Speichern</button><button type="button" data-craft-cancel>Abbrechen</button>
+          ${c.id ? `<button type="button" class="small danger" data-craft-delete="${esc(c.id)}">Löschen</button>` : ''}</div></form>`;
+    return list.map((c) => craftEdit === c.id ? form(c) : `<div class="panel" style="margin-bottom:8px">
+        <div class="person"><b style="font-size:16px">${esc(c.name)}</b><span class="meta">${esc([c.trade, c.company].filter(Boolean).join(' · '))}</span></div>
+        <div class="meta" style="margin:4px 0">${esc([c.phone, c.phone2 ? `${c.phone2Label || 'Tel. 2'}: ${c.phone2}` : '', c.email].filter(Boolean).join(' · '))}</div>
+        ${c.note ? `<div class="meta">📝 ${esc(c.note)}</div>` : ''}
+        <div class="actions">${craftContacts(c)} <button class="small" data-craft-edit="${esc(c.id)}">✏️ Bearbeiten</button></div></div>`).join('')
+      + (craftEdit === 'neu' ? form({}) : '<div class="actions"><button class="small" data-craft-edit="neu">＋ Handwerker hinzufügen</button></div>');
+  }
+  function jobStatus(r) {
+    return (data.jobs || []).filter((j) => j.reportId === r.id).map((j) => `<div class="meta" style="margin-top:6px">🔧 an <b>${esc(j.name || 'Handwerker')}</b> übergeben ${esc(fmtTime(j.createdAt))}
+      ${j.doneAt ? ` · <b style="color:var(--ok)">✅ erledigt gemeldet ${esc(fmtTime(j.doneAt))}</b>${j.doneNote ? ` – „${esc(j.doneNote)}“` : ''}` : j.state === 'aktiv' ? ' · offen' : ` · Link ${esc(j.state)}`}</div>`).join('');
+  }
+  function jobForm(t, r) {
+    const list = data.craftsmen || [];
+    return `<form class="report-form" data-job-form="${esc(r.id)}" data-task="${esc(t.id)}" data-apt="${esc(r.apartmentId || t.apartmentId || '')}">
+      <label class="field">Handwerker<select name="craftsmanId" required><option value="">Handwerker wählen …</option>
+        ${list.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}${c.trade ? ' – ' + esc(c.trade) : ''}</option>`).join('')}</select></label>
+      <label class="field">Zusätzliche Info für den Handwerker (freiwillig)<textarea name="note" rows="2" maxlength="1000" placeholder="z. B. Bitte bis Freitag, Gäste reisen Samstag an"></textarea></label>
+      <label class="field">Link gültig<select name="days"><option value="3">3 Tage</option><option value="7" selected>7 Tage</option><option value="14">14 Tage</option><option value="30">30 Tage</option></select></label>
+      <p class="meta">Der Handwerker bekommt einen Link mit Problem, Fotos, Anfahrt und SERVICE-Code – und kann dort „erledigt“ melden.</p>
+      <div class="actions"><button class="primary" type="submit">Auftrag erstellen</button><button type="button" data-job-cancel>Abbrechen</button></div></form>`;
+  }
+  function jobText(res) {
+    const c = craftById(res.link.craftsmanId) || {};
+    return `Hallo ${c.name || ''}, wir hätten einen Auftrag in ${res.link.apartmentName}.\nAlle Infos, Fotos und der Zugang (bitte die SERVICE-Schlüsselbox nutzen):\n👉 ${res.url}\n`
+      + `(gültig bis ${guideUntil(res.link.expiresAt)} Uhr). Wenn fertig, bitte über den Link „erledigt“ melden.\nVielen Dank, Apartments Strauss`;
+  }
+  function jobResultBox() {
+    const c = craftById(jobResult.link.craftsmanId) || {};
+    return `<div class="codebox" style="margin-top:8px"><div class="eyebrow">Auftrag für ${esc(c.name || '')} erstellt</div>
+      <p style="word-break:break-all;margin:6px 0"><span id="job-url">${esc(jobResult.url)}</span></p>
+      <div class="actions">${craftContacts(c, jobText(jobResult), `Auftrag ${jobResult.link.apartmentName}`)}
+        <button type="button" class="small" data-copy="job-url">📋 Link kopieren</button><button type="button" class="small" data-job-close>Fertig</button></div>
+      <p class="meta">Tipp: anrufen und den Link danach per WhatsApp schicken.</p></div>`;
   }
 
   // ---- Admin: Anfahrts-Anleitungen (Masteransicht) und Handwerker-Links -------------
@@ -2195,6 +2260,20 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         update(next);
         const t = next.tasks.find((x) => x.id === form.dataset.moveForm);
         toast(t && t.needsBlock ? `Verschoben – Team informiert. Bitte in Smoobu blockieren: ${fmt(t.needsBlock.from)} – ${fmt(t.needsBlock.to)}` : 'Verschoben – das Team wurde informiert');
+      } else if (form.dataset.jobForm) {
+        if (!form.elements.craftsmanId.value) throw new Error('Bitte einen Handwerker wählen');
+        const res = await api('/api/guide-links', 'POST', { apartmentId: form.dataset.apt, taskId: form.dataset.task, reportId: form.dataset.jobForm,
+          craftsmanId: form.elements.craftsmanId.value, note: form.elements.note.value, days: Number(form.elements.days.value) });
+        jobResult = { ...res, reportId: form.dataset.jobForm };
+        jobFor = null;
+        await refresh(true);
+        toast('Auftrag erstellt – jetzt senden oder anrufen');
+      } else if (form.dataset.craftForm !== undefined) {
+        const f = form.elements;
+        update(await api('/api/craftsmen', 'POST', { id: form.dataset.craftForm, name: f.name.value, trade: f.trade.value, company: f.company.value,
+          phone: f.phone.value, phone2: f.phone2.value, phone2Label: f.phone2Label.value, email: f.email.value, note: f.note.value }));
+        craftEdit = null; render();
+        toast('Gespeichert');
       } else if (form.id === 'guide-link-form') {
         guideResult = await api('/api/guide-links', 'POST', { apartmentId: form.elements.apartmentId.value, days: Number(form.elements.days.value), name: form.elements.name.value });
         guides = await api('/api/guides');
@@ -2443,6 +2522,20 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         shownCodes[d.codes] = await api(`/api/tasks/${encodeURIComponent(d.codes)}/codes`, 'POST');
         render();
         setTimeout(() => { if (shownCodes[d.codes]) { delete shownCodes[d.codes]; render(); } }, 3 * 60 * 1000);
+      } else if (d.jobOpen) {
+        jobFor = jobFor === d.jobOpen ? null : d.jobOpen; jobResult = null; render();
+      } else if (d.jobCancel !== undefined) {
+        jobFor = null; render();
+      } else if (d.jobClose !== undefined) {
+        jobResult = null; render();
+      } else if (d.craftEdit) {
+        craftEdit = d.craftEdit; render();
+      } else if (d.craftCancel !== undefined) {
+        craftEdit = null; render();
+      } else if (d.craftDelete) {
+        if (!armed(b, 'Wirklich löschen? Nochmal tippen')) return;
+        update(await api(`/api/craftsmen/${d.craftDelete}/delete`, 'POST'));
+        craftEdit = null; render();
       } else if (d.guidesLoad !== undefined) {
         guides = await api('/api/guides');
         render();

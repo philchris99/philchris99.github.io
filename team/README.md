@@ -110,6 +110,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
   mit ihrem eigenen Code an und kann dann Reinigungen als Leitung bestätigen und einteilen (auch sich selbst), bekommt die
   Nachrichten der Leitung und sieht alle Reinigungen; das Team verwalten kann sie nicht. „👑 Vertretung beenden“ nimmt die
   Rechte wieder weg. Sie bekommt jeweils eine Push-Nachricht.
+- **Handwerker & Aufträge** (Admin → Meldungen): Verzeichnis der Stamm-Handwerker (Name, Gewerk, Firma, Telefon, 2. Telefon z. B.
+  Notfall, E-Mail, Notiz) mit 📞 / 💬 WhatsApp / ✉️ E-Mail; Startliste in `worker/src/craftsmen.js` (nur privat), danach in der App änderbar.
+  Bei jeder Meldung **„🔧 An Handwerker“**: Handwerker wählen, Zusatz-Info, Gültigkeit → Link mit **Auftrag** (Text + Fotos/Videos der
+  Meldung), Anfahrt und SERVICE-Code; senden per WhatsApp/E-Mail oder anrufen. Der Handwerker meldet im Link **„✅ erledigt“** (mit Notiz)
+  → Push an Admin, die Meldung zeigt „an … übergeben · erledigt gemeldet“. Fotos der Meldung sind nur über diesen Link abrufbar.
 - **Anfahrt & Handwerker-Links** (Admin → Einstellungen „📖 Anfahrt & Handwerker-Links“ oder im Wohnungs-Fenster „🔗 Handwerker-Link“):
   Masteransicht je Wohnung mit Gäste-Anleitung (inkl. Gäste-Code), Handwerker-Fassung und Fotos. „Link erstellen“ für **eine** Wohnung
   mit Ablauf (1/3/7/14/30 Tage, optional Name) → `…/anleitung/<link>`: ohne Anmeldung, nur diese Wohnung, **SERVICE-Code**

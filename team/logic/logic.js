@@ -1220,7 +1220,7 @@
     const list = [];
     for (const t of Object.values(state.tasks)) {
       for (const r of t.reports || []) {
-        if (!r.resolved && r.byRole !== 'owner') list.push(Object.assign({ taskId: t.id, apartmentName: t.apartmentName, date: t.date }, r));
+        if (!r.resolved && r.byRole !== 'owner') list.push(Object.assign({ taskId: t.id, apartmentId: t.apartmentId, apartmentName: t.apartmentName, date: t.date }, r));
       }
     }
     return list.sort((a, b) => b.at.localeCompare(a.at));
