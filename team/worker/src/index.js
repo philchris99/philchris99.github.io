@@ -12,9 +12,9 @@ import {
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
   loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, recordDelivery, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
-  inquiryTodo, saveInquiries, inquiryReport, inquirySample, resetInquiries,
+  inquiryTodo, saveInquiries, inquiryReport, inquirySample, inquiryExamples, resetInquiries,
 } from './store.js';
-import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, categoryOrder, labelOf } from './inquiries.js';
+import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, maskStrict, categoryOrder, labelOf } from './inquiries.js';
 import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, diagnose } from './smoobu.js';
 import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
@@ -1105,6 +1105,34 @@ async function handleApi(request, env, url, ctx) {
       .sort((a, b) => b.bookings - a.bookings || categoryOrder(a.id) - categoryOrder(b.id));
     const dir = (v) => (r.dirs.find((d) => d.inbound === v) || { n: 0 }).n;
     return json({ ...r.totals, inbound: dir(1), outbound: dir(0), unknown: dir(null), topics });
+  }
+  // Export als Text (anonymisiert) – zum Weitergeben für die Planung automatischer Antworten
+  if (path === '/api/inquiries/export' && request.method === 'GET') {
+    const r = await inquiryReport(env.DB);
+    if (!r.totals.bookings) return fail('Bitte zuerst die Nachrichten lesen', 409);
+    const ex = await inquiryExamples(env.DB, 8, 30);
+    const phases = {};
+    for (const p of r.phases) (phases[p.cat] = phases[p.cat] || {})[p.phase] = p.n;
+    const dir = (v) => (r.dirs.find((d) => d.inbound === v) || { n: 0 }).n;
+    const one = (t, n) => maskStrict(String(t || '')).replace(/\s+/g, ' ').trim().slice(0, n);
+    const cats = r.cats.slice().sort((a, b) => b.bookings - a.bookings || categoryOrder(a.cat) - categoryOrder(b.cat));
+    const lines = [`GÄSTEANFRAGEN – Export ${new Date(now).toISOString().slice(0, 10)} (Telefon/E-Mail/Links/Zahlen/Codes entfernt)`,
+      `Buchungen gelesen: ${r.totals.bookings} · mit Gastnachricht: ${r.totals.asking} · Gastnachrichten: ${dir(1)} · eigene Nachrichten: ${dir(0)} · ohne Richtung: ${dir(null)} · älteste: ${String(r.totals.oldest || '').slice(0, 10)}`, '',
+      'THEMEN (Buchungen | Nachrichten | vor Anreise / im Aufenthalt / nach Abreise):'];
+    for (const c of cats) {
+      const p = phases[c.cat] || {};
+      lines.push(`- ${labelOf(c.cat)} [${c.cat}]: ${c.bookings} | ${c.msgs} | ${p.vorher || 0} / ${p['während'] || 0} / ${p.nachher || 0}`);
+    }
+    for (const c of cats.filter((x) => x.cat !== 'thanks')) {
+      const list = ex.filter((e) => e.cat === c.cat);
+      if (!list.length) continue;
+      lines.push('', `### ${labelOf(c.cat)} [${c.cat}] – Beispiele`);
+      for (const e of list) {
+        lines.push(`• (${e.phase}) Gast: ${one(e.snippet, 200)}`);
+        if (e.reply) lines.push(`  ↳ Antwort: ${one(e.reply, 220)}`);
+      }
+    }
+    return json({ text: lines.join('\n') });
   }
   if (path === '/api/inquiries/ai' && request.method === 'POST') {
     if (!env.AI) return fail('Cloudflare Workers AI ist nicht eingerichtet', 501);

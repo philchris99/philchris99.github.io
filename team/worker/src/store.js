@@ -363,6 +363,15 @@ export async function inquiryReport(db) {
   ]);
   return { totals: totals || {}, dirs, cats, phases, examples };
 }
+/** Zufällige Beispiele je Thema samt unserer ersten Antwort danach (für den Export) */
+export async function inquiryExamples(db, perTopic, other) {
+  await ensureInquiries(db);
+  const { results } = await db.prepare(`SELECT c.cat, c.phase, c.snippet,
+      (SELECT o.text FROM inq_msgs o WHERE o.booking = c.booking AND o.inbound = 0 AND o.created > c.created ORDER BY o.created LIMIT 1) AS reply
+    FROM (SELECT cat, phase, snippet, booking, created, ROW_NUMBER() OVER (PARTITION BY cat ORDER BY RANDOM()) AS rn FROM inq_cats WHERE cat != 'thanks') c
+    WHERE c.rn <= CASE WHEN c.cat = 'other' THEN ? ELSE ? END`).bind(other, perTopic).all();
+  return results || [];
+}
 /** Stichprobe von Gastnachrichten (für die KI-Zusammenfassung) */
 export async function inquirySample(db, limit) {
   await ensureInquiries(db);

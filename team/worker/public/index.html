@@ -1482,7 +1482,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   }
 
   // Gästeanfragen: häufigste Themen in den Smoobu-Nachrichten (Grundlage für automatische Antworten)
-  let inq = null, inqAi = null;
+  let inq = null, inqAi = null, inqExport = null;
   async function inquirySyncAll(b, reset) {
     let r = await api('/api/inquiries/sync', 'POST', { reset: !!reset });
     let done = r.done, total = done + r.remaining;
@@ -1521,6 +1521,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
           <p class="meta" style="margin:4px 0">Liest eine Zufallsstichprobe von 80 Gastnachrichten (Telefon, E-Mail, Links entfernt) und fasst die 10 häufigsten Anliegen zusammen – findet auch Themen, die die Stichwörter nicht kennen.</p>
           ${inqAi ? `<p style="white-space:pre-line;margin-top:6px">${esc(inqAi.text)}</p><p class="meta">Stichprobe: ${inqAi.sample} Nachrichten</p>` : ''}
           <div class="actions"><button class="small" data-inq-ai>${inqAi ? 'Neue Stichprobe' : 'Zusammenfassen'}</button></div></div>
+        <div class="panel" style="margin:10px 0"><b>📋 Export zum Weitergeben</b>
+          <p class="meta" style="margin:4px 0">Alle Themen mit Zahlen, je 8 zufällige Beispiele und unsere erste Antwort darauf, dazu 30 nicht erkannte Nachrichten.
+            Telefonnummern, E-Mails, Links, Zahlen und Codes werden entfernt – Namen in Grußformeln bitte vor dem Weitergeben kurz prüfen.</p>
+          ${inqExport ? `<pre id="inq-export" style="white-space:pre-wrap;max-height:300px;overflow:auto;font-size:12px;background:var(--bg);padding:8px;border-radius:8px">${esc(inqExport)}</pre>
+            <div class="actions"><button class="small" data-copy="inq-export">Kopieren</button></div>` : `<div class="actions"><button class="small" data-inq-export>Export erstellen</button></div>`}</div>
         <p class="meta">Älteste Nachricht ${inq.oldest ? fmtLong(inq.oldest.slice(0, 10)) : '–'} · zuletzt gelesen ${inq.updated ? fmtTime(new Date(inq.updated).toISOString()) : '–'}</p>
         <div class="actions"><button class="small" data-inq-sync>Neue Buchungen nachladen</button><button class="small" data-inq-reset>Alles neu lesen</button></div>`
       : `<p class="meta">Noch keine Nachrichten gelesen. Das dauert je nach Anzahl der Buchungen einige Minuten – die Seite bitte so lange offen lassen.</p>
@@ -2789,6 +2794,11 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         document.getElementById('inq').scrollIntoView();
         toast(`Nachrichten von ${n} Buchungen gelesen`);
+      } else if (d.inqExport !== undefined) {
+        b.disabled = true;
+        inqExport = (await api('/api/inquiries/export')).text;
+        render();
+        document.getElementById('inq-export').scrollIntoView();
       } else if (d.inqAi !== undefined) {
         b.disabled = true; b.textContent = 'KI liest …';
         inqAi = await api('/api/inquiries/ai', 'POST', {});

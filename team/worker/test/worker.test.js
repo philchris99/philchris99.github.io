@@ -1016,6 +1016,10 @@ test('Gästeanfragen: Nachrichten je Buchung lesen, Themen zählen, nur für Adm
   assert.ok(!JSON.stringify(rep).includes('Blockierung'), 'Blockierungen werden nicht gelesen');
   assert.ok(!JSON.stringify(rep).includes('alte Nachricht'), 'Zitate abgeschnitten');
   assert.equal(rep.topics[0].id, 'parking', 'sortiert nach Buchungen');
+  const exp = (await call('GET', '/api/inquiries/export', { session: admin })).body.text;
+  assert.match(exp, /Parken \[parking\]: 2 \| 2/);
+  assert.match(exp, /Antwort: Gerne, ab 12 Uhr/, "eigene Antwort (Uhrzeiten bleiben)");
+  assert.ok(!exp.includes('1234567') && !exp.includes('Danke!'));
   // erneuter Abruf liest nichts doppelt
   r = await call('POST', '/api/inquiries/sync', { session: admin, body: {} });
   assert.equal(r.body.done, 0);

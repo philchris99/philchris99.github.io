@@ -61,6 +61,13 @@ export function mask(text) {
     .replace(/\+?\d[\d\s/().-]{6,}\d/g, '[Nummer]');
 }
 
+/** Strenger für den Export: zusätzlich Zahlen (Codes, Hausnummern) und Wörter nach „Passwort/Code/PIN“ */
+export function maskStrict(text) {
+  return mask(text)
+    .replace(/((?:passwor[dt]|kennwort|pw|code|pin|wlan|wifi|wi-fi|ssid|netzwerk|network|jelszó)\s*[:=]?\s*)[^\s,;.]+/gi, '$1[…]')
+    .replace(/\b[A-Za-z]{0,2}\d{3,}[A-Za-z]{0,2}\b/g, '[Zahl]');
+}
+
 /** Themen einer Gastnachricht (leer = nicht erkannt) */
 export function classify(text) {
   const t = ' ' + String(text || '').toLowerCase().replace(/\s+/g, ' ').trim() + ' ';
