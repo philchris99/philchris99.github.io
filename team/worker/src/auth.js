@@ -65,6 +65,11 @@ export async function authenticate(request, env, cfg) {
   return safeEqual(match[2], await tokenFor(env, user)) ? user : null;
 }
 
+/** Geheimer Pfad für eingehende E-Mails (Make-Szenario) */
+export async function mailToken(env) {
+  return (await hmac(env.APP_SECRET, 'webhook:mail')).replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
+}
+
 /** Geheimer Pfad für den Smoobu-Webhook (optional, für sofortige Aktualisierung). */
 export async function webhookToken(env) {
   return (await hmac(env.APP_SECRET, 'webhook:smoobu')).replace(/[^A-Za-z0-9]/g, '').slice(0, 32);

@@ -4,7 +4,7 @@
 import L from '../../logic/logic.js';
 import config from './config.js';
 import {
-  authenticate, allUsers, findUser, sessionFor, topicFor, webhookToken, safeEqual,
+  authenticate, allUsers, findUser, sessionFor, topicFor, webhookToken, mailToken, safeEqual,
   newCode, randomId, hashCode, findByCode, encryptCode, decryptCode,
 } from './auth.js';
 import {
@@ -12,6 +12,7 @@ import {
   saveVideo, getVideoInfo, getVideoChunk, VIDEO_CHUNK,
   loadSettings, saveSettings, upsertPace, loadPace, countPushQueue, recordDelivery, lockedFor, recordFailure, clearAttempts, loadStats, saveStats,
   codeLockState, codeFailure, codeSuccess, listCodeLocks, releaseCodeLock,
+  saveMailMsg, mailMsgExists, mailMsgsOf, mailThreadFor, addMailKeys, mailThreadsForBooking,
   inquiryTodo, saveInquiries, inquiryReport, inquirySample, inquiryExamples, resetInquiries,
   missingFingerprints, setFingerprints, automatedFingerprints, messagesOf, pastAnswers,
   getThread, saveThread, listThreads, countThreads, dueThreads, pollTimes, markPolled,
@@ -19,13 +20,16 @@ import {
   saveDoc, docByToken, docsOf,
 } from './store.js';
 import { cleanMessage, classify, snippet, phaseOf, inboundOf, mask, maskStrict, categoryOrder, labelOf } from './inquiries.js';
-import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, sendMessageToGuest, fetchGuest, diagnose } from './smoobu.js';
-import { needsReply, language, topicsOf, templateDraft, aiPrompt, planFacts, fingerprint, invoiceTotals, invoiceNumber, invoiceHtml, wgbHtml, parsePerson, splitName, TOPIC_LABELS } from './messages.js';
+import { fetchBookings, fetchBooking, fetchApartments, fetchApartmentDetails, fetchMessages, sendMessageToGuest, fetchGuest, fetchRates, diagnose } from './smoobu.js';
+import { needsReply, language, topicsOf, templateDraft, aiPrompt, planFacts, fingerprint, invoiceTotals, invoiceNumber, invoiceHtml, wgbHtml, wgbPdfPage, parsePerson, splitName, TOPIC_LABELS,
+  parseAddresses, normSubject, htmlText, mailBody, wixForm, forwardedFrom, requestedPeriod, availability, aiMailPrompt, isNoise, greetName, parseOfferTable, requestedCount } from './messages.js';
 import { deliver, sendPush, flushPushQueue } from './notify.js';
 import BUILTIN_CODES from './access-codes.js';
 import GUIDES from './guides.js';
 import DEFAULT_CRAFTSMEN from './craftsmen.js';
 import ISSUERS from './issuers.js';
+import KNOWLEDGE from './knowledge.js';
+import WIFI from './wifi.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -514,11 +518,12 @@ function buildMsgs(raw, b) {
 }
 
 const localIso = (now, cfg) => { const p = L.localParts(now, cfg.timezone); return `${p.date}T${p.time}`; };
-const replyDefaults = (cfg, settings) => ({ checkin: '15:00', checkout: cfg.checkoutTime || '10:00', phone: ISSUERS.phone || '', ...(settings.replies || {}) });
+const replyDefaults = (cfg, settings) => ({ checkin: '16:00', checkout: cfg.checkoutTime || '10:00', phone: ISSUERS.phone || '',
+  knowledge: KNOWLEDGE.knowledge || '', signatureMail: KNOWLEDGE.signatureMail || '', ...(settings.replies || {}) });
 
 /** Buchungen, deren Nachrichten regelmäßig abgerufen werden: Anreise in ≤ 14 Tagen bis 7 Tage nach Abreise */
 function inboxBookings(state, today) {
-  return Object.values(state.reservations || {}).filter((r) => r.arrival <= L.addDays(today, 14) && r.departure >= L.addDays(today, -7));
+  return Object.values(state.reservations || {}).filter((r) => !r.blocked && r.arrival <= L.addDays(today, 60) && r.departure >= L.addDays(today, -7));
 }
 function aptNameOf(state, id) {
   const t = Object.values(state.tasks || {}).find((x) => x.apartmentId === String(id));
@@ -627,7 +632,7 @@ export async function runInbox(env, now = Date.now(), cfg) {
   await markPolled(env.DB, due.map((r) => r.id), now);
   // 2) Geplante Antworten senden
   for (const t of await dueThreads(env.DB, now, 3)) {
-    try { await sendThread(env, cfg, t, t.draft, now); out.sent++; } catch (e) {
+    try { if (t.kind === 'mail') await sendMailThread(env, cfg, settings, t, t.draft, now); else await sendThread(env, cfg, t, t.draft, now); out.sent++; } catch (e) {
       t.status = 'offen'; t.error = 'Senden fehlgeschlagen: ' + e.message; t.sendAt = null; await saveThread(env.DB, t, now); out.errors.push(e.message);
       notes.push({ to: cfg.owner.id, kind: 'guestmsg', title: `Senden fehlgeschlagen: ${t.aptName}`, body: e.message });
     }
@@ -640,7 +645,7 @@ export async function runInbox(env, now = Date.now(), cfg) {
   if (env.AI) {
     for (const t of (await listThreads(env.DB, ['offen'], 20)).filter((x) => x.aiWanted).slice(0, 2)) {
       try {
-        const text = await aiDraftFor(env, cfg, settings, t, auto);
+        const text = t.kind === 'mail' ? await aiMailDraftFor(env, cfg, settings, t) : await aiDraftFor(env, cfg, settings, t, auto);
         const cur = await getThread(env.DB, t.booking);
         if (!cur || cur.lastIn !== t.lastIn) continue;
         cur.aiWanted = false;
@@ -651,6 +656,198 @@ export async function runInbox(env, now = Date.now(), cfg) {
   }
   if (notes.length) await deliverLogged(env, cfg, notes);
   return out;
+}
+
+// ---- E-Mails (Make-Szenario → /api/mail-in/<token>; Antwort über Make-Webhook) ----
+const OWN_MAIL = /@(apartments-strauss\.de)$/i;
+const IGNORE_MAIL = /(no-?reply|donotreply|mailer-daemon|postmaster|@(host\.)?smoobu\.com$|@([\w-]+\.)?booking\.com$|@([\w-]+\.)?airbnb\.[a-z]+$|@([\w-]+\.)?expedia\.[a-z]+$|newsletter)/i;
+const OFFER = /frei|verfügbar|verfuegbar|availab|anfrage|angebot|anmieten|mieten|buchen|book|price|preis|kosten|quote|vacan|zeitraum/i;
+async function shortHash(text) {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text))));
+  return [...h.slice(0, 10)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+/** Apartments mit Name, Link, Betten (für Verfügbarkeit in Angeboten) */
+function offerApartments(state, settings, lang) {
+  const sheet = (settings && settings.offerData) || {};
+  const info = (settings && settings.aptInfo) || {};
+  const en = lang === 'en';
+  const three = (t) => (String(t || '').match(/[^.!?]+[.!?]+/g) || [String(t || '')]).slice(0, 3).join('').trim(); // höchstens 3 Sätze
+  return Object.entries(config.apartmentDetails || {}).filter(([, d]) => d.smoobuId).map(([num, d]) => {
+    const base = (KNOWLEDGE.offer || {})[d.smoobuId] || {};
+    const row = sheet[num] || {};
+    const col = (re) => { const k = Object.keys(row).find((x) => re.test(x)); return k ? row[k] : ''; };
+    return { id: d.smoobuId, num: Number(num), active: base.active !== false && !/^no|nein$/i.test(col(/active/i)),
+      name: col(en ? /name.*en/i : /name.*de/i) || (en ? base.name_en : base.name_de) || d.name,
+      address: col(/address|adresse/i) || base.address || d.address || '',
+      url: col(en ? /url.*en/i : /url.*de/i) || (en ? base.url_en : base.url_de) || d.url,
+      text: three(col(en ? /text.*en/i : /text.*de/i) || (en ? base.text_en : base.text_de) || ''),
+      max: Number(col(/max|guests|person/i)) || base.max || (info[d.smoobuId] || {}).maxOccupancy || null,
+      beds: ((config.apartmentFacts || {})[num] || {}).beds || '' };
+  }).filter((a) => a.active);
+}
+/** Durchschnittspreis pro Nacht (ganze Euro) aus Smoobu für den Zeitraum */
+async function offerPrices(env, ids, from, to) {
+  if (!ids.length || !smoobuCreds(env).key) return {};
+  const rates = await fetchRates(smoobuCreds(env), ids, from, L.addDays(to || L.addDays(from, 30), -1));
+  const out = {};
+  for (const id of ids) {
+    const days = Object.values(rates[id] || rates[Number(id)] || {}).map((x) => Number(x && x.price)).filter((x) => x > 0);
+    if (days.length) out[id] = Math.round(days.reduce((a, b) => a + b, 0) / days.length);
+  }
+  return out;
+}
+/** Buchung zur Mail finden (Gastname im Text/Betreff, laufende oder kommende zuerst) */
+function matchBooking(state, text, today) {
+  const low = String(text || '').toLowerCase();
+  const cands = Object.values(state.reservations || {}).filter((r) => !r.blocked && r.guest && r.departure >= L.addDays(today, -30))
+    .filter((r) => r.guest.toLowerCase().split(/[\s,]+/).filter((w) => w.length >= 4 && !/^(familie|family|herr|frau|gmbh)$/.test(w)).some((w) => low.includes(w)))
+    .sort((a, b) => (a.arrival < b.arrival ? -1 : 1));
+  return cands[0] || null;
+}
+function mailContext(state, t, today, settings) {
+  const r = t.linkedBooking ? (state.reservations || {})[t.linkedBooking] : null;
+  const booking = r ? { id: r.id, aptName: aptNameOf(state, r.apartmentId), arrival: r.arrival, departure: r.departure, guest: r.guest,
+    nextArrival: planFacts({ apartmentId: String(r.apartmentId), arrival: r.arrival, departure: r.departure, bookingId: String(r.id), tasks: [], reservations: Object.values(state.reservations || {}) }).nextArrival } : null;
+  const avail = t.period && t.period.from >= L.addDays(today, -1) ? availability(offerApartments(state, settings, t.lang), Object.values(state.reservations || {}), t.period.from, t.period.to) : null;
+  return { booking, avail };
+}
+function mailTemplate(t, ctx, s) {
+  const de = t.lang !== 'en';
+  const name = String((t.contact && t.contact.name) || '');
+  const first = name.includes(',') ? name.split(',')[1].trim().split(/\s+/)[0] : greetName(name);
+  const dm = (iso) => (iso ? iso.split('-').reverse().join('.') : '');
+  const p = [];
+  if (ctx.avail && t.topics.includes('offer')) {
+    const per = `${dm(t.period.from)}${t.period.to ? ' bis ' + dm(t.period.to) : ''}`;
+    const want = requestedCount(t.lastText), guests = t.guests || 0;
+    const fits = [...ctx.avail.free, ...ctx.avail.partly].filter((a) => !guests || !a.max || a.max >= guests);
+    const shown = fits.slice(0, want > 1 ? want : 3);
+    const pr = (t.prices || {});
+    const price = (a) => (pr[a.id] ? `${pr[a.id]} EUR ${de ? '(inkl. 7 % MwSt. und Endreinigung)' : '(incl. 7 % VAT and final cleaning)'}` : '[bitte ergänzen] EUR');
+    const opt = (a) => de
+      ? `${a.name}\nLink: ${a.url}${a.address ? `\nAdresse: ${a.address}` : ''}${a.text ? `\n• ${a.text}` : ''}\n• ${a.freeFrom ? `verfügbar ab ${dm(a.freeFrom)}` : 'durchgehend verfügbar'}\n• Preis pro Nacht: ${price(a)}`
+      : `${a.name}\nLink: ${a.url}${a.address ? `\nAddress: ${a.address}` : ''}${a.text ? `\n• ${a.text}` : ''}\n• ${a.freeFrom ? `available from ${dm(a.freeFrom)}` : 'available for the whole period'}\n• Price per night: ${price(a)}`;
+    const intro = !shown.length
+      ? (de ? `vielen Dank für deine Anfrage. Für den Zeitraum ${per} ist leider aktuell keine passende Wohnung frei. [bitte ergänzen: Alternative]` : `thank you for your request. Unfortunately no suitable apartment is available for ${per}. [please add: alternative]`)
+      : want > 1 && shown.length < want
+        ? (de ? `vielen Dank für deine Anfrage. Für den Zeitraum ${per} ist aktuell leider nur ${shown.length === 1 ? 'eine passende Wohnung' : shown.length + ' passende Wohnungen'} frei:` : `thank you for your request. For ${per} currently only ${shown.length === 1 ? 'one suitable apartment is' : shown.length + ' suitable apartments are'} available:`)
+        : (de ? `vielen Dank für deine Anfrage. Für den Zeitraum ${per} können wir dir folgende Apartments anbieten:` : `thank you for your request. For ${per} we can offer the following apartments:`);
+    p.push(shown.length ? `${intro}\n\n${shown.map(opt).join('\n\n')}` : intro);
+    if (shown.length) p.push(de
+      ? 'Stornierung: kostenfrei bis 30 Tage vor Anreise, danach – auch während des Aufenthalts – mit 30 Tagen Frist.\nEine Zwischenreinigung während des Aufenthalts ist möglich (den Kontakt zum Dienstleister geben wir gern weiter). Eine Wohnungsgeberbestätigung stellen wir aus, den Namen am Briefkasten können wir hinterlegen.\n\nBitte gib mir kurz Bescheid, welches Apartment ich reservieren darf. Anschließend sende ich dir alle weiteren Informationen zur Buchung.'
+      : 'Cancellation: free of charge up to 30 days before arrival, afterwards (also during the stay) with 30 days notice.\nAdditional cleaning during the stay is possible (we are happy to share the contact of our service provider). Local registration (landlord confirmation) is possible and we can put the guest\'s name on the mailbox.\n\nPlease let me know which apartment I may reserve for you, and I will send you all further booking details.');
+  }
+  if (ctx.booking && /verläng|extend|länger|longer/i.test(t.lastText || '')) {
+    const wanted = t.period && (t.period.to || t.period.from);
+    p.push(ctx.booking.nextArrival && wanted && wanted > ctx.booking.nextArrival
+      ? (de ? `leider ist die Wohnung ab dem ${dm(ctx.booking.nextArrival)} wieder belegt – eine Verlängerung ist bis dahin möglich.` : `unfortunately the apartment is booked again from ${dm(ctx.booking.nextArrival)} – an extension is possible until then.`)
+      : (de ? `ja, eine Verlängerung${wanted ? ` bis zum ${dm(wanted)}` : ''} ist möglich – zu den bisherigen Konditionen. Bitte um kurze Bestätigung.` : `yes, an extension${wanted ? ` until ${dm(wanted)}` : ''} is possible at the same conditions. Please confirm briefly.`));
+  }
+  const rest = templateDraft({ lang: t.lang, guest: '', topics: t.topics.filter((x) => !['offer', 'change', 'checkin', 'checkout', 'access', 'directions'].includes(x)), text: t.lastText, phase: 'vorher', s: { ...s, signatureDe: '§', signatureEn: '§' }, plan: {} });
+  const middle = rest.split('\n\n').slice(1, -1).join('\n\n');
+  if (middle && (!/\[(bitte ergänzen|please add)\]$/.test(middle.trim()) || !p.length)) p.push(middle);
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  return `${de ? 'Hallo' : 'Hi'}${first ? ' ' + first : ''},\n\n${p.filter(Boolean).map(cap).join('\n\n')}\n\n${s.signatureMail || (de ? 'Viele Grüße\nApartments Strauss' : 'Best regards\nApartments Strauss')}`;
+}
+
+/** Eingehende (oder eigene gesendete) E-Mail verarbeiten → Vorgang im Reiter „Nachrichten“ */
+async function mailIn(env, cfg, settings, body, now) {
+  const from = parseAddresses(body.from || body.sender)[0];
+  if (!from) return { ignored: 'kein Absender' };
+  const subject = String(body.subject || '').slice(0, 300);
+  const raw = String(body.text || '').trim() || htmlText(body.html);
+  const msgId = String(body.messageId || body.message_id || (body.headers && (body.headers['message-id'] || body.headers['Message-ID'])) || '').trim()
+    || `gen-${await shortHash(subject + '|' + body.date + '|' + from.address + '|' + raw.slice(0, 200))}`;
+  const id = 'mm' + await shortHash(msgId);
+  if (await mailMsgExists(env.DB, id)) return { duplicate: true };
+  const refs = [body.inReplyTo || body.in_reply_to, ...String(body.references || '').split(/\s+/)].map((x) => String(x || '').trim()).filter(Boolean);
+  const to = parseAddresses(body.to), cc = parseAddresses(body.cc);
+  let contact = from, text = mailBody(raw), inbound = true, source = 'mail';
+  const wix = /wix-forms|wix\.com/i.test(from.address) ? wixForm(raw) : null;
+  if (wix && wix.email) { contact = { name: wix.name, address: wix.email }; text = wix.message || text; source = 'formular'; }
+  else if (OWN_MAIL.test(from.address)) {
+    const fwd = /^\s*(wg|fw|fwd)\s*:/i.test(subject) ? forwardedFrom(raw) : null;
+    if (fwd && !OWN_MAIL.test(fwd.address)) {
+      contact = fwd;
+      const w2 = /wix-forms/i.test(fwd.address) ? wixForm(raw) : null;
+      if (w2 && w2.email) { contact = { name: w2.name, address: w2.email }; text = w2.message; source = 'formular'; }
+      else { const at = raw.search(/(?:^|\n)\s*(?:Von|From):\s/i); const after = raw.slice(Math.max(0, at)).replace(/^[\s\S]*?\n\s*(?:Betreff|Subject):[^\n]*\n/i, ''); text = mailBody(after); }
+    } else { inbound = false; contact = to.find((x) => !OWN_MAIL.test(x.address)) || to[0] || from; }
+  }
+  if (inbound && IGNORE_MAIL.test(contact.address)) return { ignored: 'Systemmail' };
+  const subjKey = `sub:${normSubject(subject).toLowerCase()}|${contact.address}`;
+  let threadId = await mailThreadFor(env.DB, [...refs.map((r) => 'mid:' + r), subjKey]);
+  if (!threadId && !inbound) return { ignored: 'eigene Mail ohne Vorgang' };
+  threadId = threadId || 'm' + randomId('', 12);
+  const created = localIso(Date.parse(body.date) || now, cfg);
+  await saveMailMsg(env.DB, { id, thread: threadId, created, inbound, name: inbound ? contact.name : 'Apartments Strauss', address: inbound ? contact.address : from.address,
+    subject, text, full: raw.slice(0, 12000), msgId, source });
+  await addMailKeys(env.DB, threadId, ['mid:' + msgId, subjKey]);
+  let t = await getThread(env.DB, threadId);
+  const others = [...to, ...cc].filter((x) => !OWN_MAIL.test(x.address) && x.address !== contact.address).map((x) => x.address);
+  t = t || { booking: threadId, kind: 'mail', source, contact, cc: [], topics: [], subject: normSubject(subject) || '(ohne Betreff)' };
+  t.cc = [...new Set([...(t.cc || []), ...others])].slice(0, 10);
+  t.lastSubject = subject || t.lastSubject; t.lastMsgId = msgId; t.references = [...new Set([...(t.references || []), ...refs, msgId])].slice(-12);
+  if (!inbound) {
+    t.lastReply = created;
+    if (t.status === 'offen' && created >= (t.lastIn || '')) { t.status = 'erledigt'; t.doneBy = 'per E-Mail beantwortet'; }
+    if (!t.status) t.status = 'erledigt';
+    await saveThread(env.DB, t, now);
+    return { thread: threadId, outbound: true };
+  }
+  if (isNoise(text) || !needsReply(text)) {
+    if (!t.status) { t.status = 'erledigt'; t.doneBy = 'keine Antwort nötig'; }
+    await saveThread(env.DB, t, now);
+    return { thread: threadId, noReply: true };
+  }
+  const { state } = await loadState(env.DB);
+  const today = L.localParts(now, cfg.timezone).date;
+  const all = `${subject}\n${text}`;
+  const period = requestedPeriod(all, today);
+  const topics = [...new Set([...(t.status === 'offen' ? t.topics : []), ...topicsOf(text)])];
+  if (period && OFFER.test(all) && !topics.includes('offer')) topics.unshift('offer');
+  if (!t.linkedBooking) { const b = matchBooking(state, `${all}\n${contact.name}`, today); if (b) { t.linkedBooking = b.id; t.apt = String(b.apartmentId); } }
+  const gm = all.match(/(\d+)\s*(personen|person|gäste|guests|people|adults|erwachsene)/i);
+  if (gm) t.guests = Number(gm[1]);
+  Object.assign(t, { status: 'offen', sendAt: null, lastIn: created, lastText: text, topics, lang: language([text]) === 'en' ? 'en' : 'de', period: period || t.period || null,
+    aptName: t.linkedBooking ? aptNameOf(state, t.apt) : '', error: null, edited: false, aiWanted: !!env.AI });
+  const mctx = mailContext(state, t, today, settings);
+  if (mctx.avail && t.topics.includes('offer')) {
+    const ids = [...mctx.avail.free, ...mctx.avail.partly].map((a) => a.id);
+    t.prices = await offerPrices(env, ids, t.period.from, t.period.to).catch((e) => { t.priceError = e.message; return {}; });
+  }
+  t.draftTpl = mailTemplate(t, mctx, replyDefaults(cfg, settings));
+  t.draft = t.draftTpl; t.draftBy = 'vorlage';
+  await saveThread(env.DB, t, now);
+  return { thread: threadId, note: { to: cfg.owner.id, kind: 'guestmsg', title: `E-Mail: ${contact.name || contact.address}`,
+    body: `${t.subject}\n${text.replace(/\s+/g, ' ').slice(0, 160)} · Entwurf liegt bereit` } };
+}
+async function aiMailDraftFor(env, cfg, settings, t) {
+  const { state } = await loadState(env.DB);
+  const today = L.localParts(Date.now(), cfg.timezone).date;
+  const msgs = await mailMsgsOf(env.DB, t.booking);
+  // erste Mail eines übernommenen Verlaufs: zitierte Vorgeschichte als Kontext mitgeben
+  const history = msgs.map((m, i) => ({ inbound: m.inbound, name: m.name, address: m.address, created: m.created, text: mask(i === 0 && msgs.length < 3 ? m.full || m.text : m.text) }));
+  const ctx = mailContext(state, t, today, settings);
+  const prompt = aiMailPrompt({ s: replyDefaults(cfg, settings), history, subject: t.subject, period: t.period, avail: ctx.avail, booking: ctx.booking, template: t.draftTpl, prices: t.prices });
+  const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages: [{ role: 'user', content: prompt }], max_tokens: 900, temperature: 0.3 });
+  return String((r && (r.response || r.result)) || '').trim();
+}
+const mailHook = (env, settings) => String(env.MAKE_MAIL_WEBHOOK || (settings.mail || {}).sendHook || '').trim();
+async function sendMailThread(env, cfg, settings, t, text, now) {
+  const hook = mailHook(env, settings);
+  if (!/^https:\/\//.test(hook)) throw new Error('E-Mail-Versand ist noch nicht eingerichtet (Make-Webhook fehlt – Nachrichten → E-Mail einrichten)');
+  const escH = (x) => String(x).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const subj = t.lastSubject || t.subject || '';
+  const res = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    to: t.contact.address, toName: t.contact.name || '', cc: (t.cc || []).join(', '), subject: /^\s*(re|aw)\s*:/i.test(subj) ? subj : `Re: ${subj}`,
+    text, html: `<div style="font-family:Arial,sans-serif;font-size:14px">${escH(text).replace(/\n/g, '<br>')}</div>`,
+    inReplyTo: t.lastMsgId || '', references: (t.references || []).join(' '), thread: t.booking }) });
+  if (!res.ok) throw new Error(`Make antwortet mit ${res.status}`);
+  const at = localIso(now, cfg);
+  await saveMailMsg(env.DB, { id: `app-${now}`, thread: t.booking, created: at, inbound: false, name: 'Apartments Strauss', address: '', subject: subj, text });
+  Object.assign(t, { status: 'gesendet', sentAt: now, sentText: text, lastReply: at, sendAt: null, error: null });
+  await saveThread(env.DB, t, now);
 }
 
 // ---- Rechnungen ----
@@ -677,7 +874,8 @@ async function seriesList(env, iset, year) {
 function factsFor(aptId, aptName) {
   const all = config.apartmentDetails || {};
   const num = Object.keys(all).find((n) => all[n].smoobuId === String(aptId)) || L.apartmentNumber(aptName);
-  return (config.apartmentFacts || {})[num] || null;
+  const f = (config.apartmentFacts || {})[num];
+  return f || WIFI[num] ? { ...(f || {}), wifi: WIFI[num] || null } : null;
 }
 const docUrl = (cfg, request, token) => `${request ? new URL(request.url).origin : cfg.appUrl}/dok/${token}`;
 function guestAddress(g) {
@@ -701,13 +899,35 @@ async function invoiceDraft(env, cfg, settings, state, booking, now) {
   let address = '';
   if (raw.guestId) address = guestAddress(await fetchGuest(creds, raw.guestId).catch(() => null));
   let recipient = [guestName, address].filter(Boolean).join('\n');
-  if (env.AI) {
-    const msgs = (await messagesOf(env.DB, booking)).filter((m) => m.inbound === 1 && /rechnung|invoice|firma|company|gmbh|ag\b|ltd|ust|vat|adresse|address/i.test(m.text));
-    if (msgs.length) {
+  let known = null, ref = '', recipientFrom = 'Gast';
+  // alle Nachrichten zur Buchung: Smoobu + zugeordnete E-Mails
+  const msgs = (await messagesOf(env.DB, booking)).filter((m) => m.inbound === 1).map((m) => m.text);
+  for (const th of await mailThreadsForBooking(env.DB, booking)) {
+    const t = await getThread(env.DB, th);
+    msgs.push(`${(t && t.subject) || ''}\n${(t && t.contact && t.contact.address) || ''}`, ...(await mailMsgsOf(env.DB, th)).filter((m) => m.inbound).map((m) => m.full || m.text));
+  }
+  const hay = [guestName, raw.email || '', raw.notice || '', ...msgs].join('\n');
+  // 1) bekannter Firmenkunde aus bisherigen Rechnungen
+  for (const k of KNOWLEDGE.recipients || []) {
+    if (!k.match.test(hay)) continue;
+    ref = k.ref ? ((hay.match(k.ref) || [])[0] || '') : '';
+    known = k; recipientFrom = 'bisherige Rechnungen';
+    recipient = k.recipient.replace('{guest}', guestName).replace('{ref}', ref || '[Referenz]');
+    break;
+  }
+  // 2) gleicher Gast schon einmal abgerechnet → Empfänger übernehmen
+  if (!known) {
+    const prev = (await listInvoices(env.DB, 300)).find((i) => i.number && i.status !== 'storno' && i.guest && i.guest.toLowerCase() === guestName.toLowerCase());
+    if (prev) { recipient = prev.recipient; recipientFrom = `Rechnung ${prev.number}`; }
+  }
+  // 3) Firmenadresse aus den Nachrichten (KI)
+  if (recipientFrom === 'Gast' && env.AI) {
+    const rel = msgs.filter((m) => /rechnung|invoice|firma|company|gmbh|ag\b|ltd|ust|vat|adresse|address/i.test(m));
+    if (rel.length) {
       const r = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { max_tokens: 200, temperature: 0, messages: [{ role: 'user', content:
-        `Aus diesen Gastnachrichten die gewünschte Rechnungsadresse herauslesen (Firma/Name, ggf. z. Hd., Straße, PLZ Ort, Land falls nicht Deutschland, USt-IdNr. falls genannt). Antworte NUR mit den Adresszeilen, eine je Zeile, ohne weiteren Text. Gibt es keine Rechnungsadresse, antworte genau: KEINE\n\n${msgs.slice(-5).map((m) => m.text.slice(0, 800)).join('\n---\n')}` }] }).catch(() => null);
+        `Aus diesen Nachrichten die gewünschte Rechnungsadresse herauslesen (Firma, darunter Name des Gastes, Straße, PLZ Ort, Land falls nicht Deutschland, USt-IdNr. falls genannt). Antworte NUR mit den Adresszeilen, eine je Zeile, ohne weiteren Text. Gibt es keine Rechnungsadresse, antworte genau: KEINE\n\n${rel.slice(-5).map((m) => m.slice(0, 1500)).join('\n---\n')}` }] }).catch(() => null);
       const text = String((r && r.response) || '').trim();
-      if (text && !/^KEINE/i.test(text) && text.length < 400) recipient = text;
+      if (text && !/^KEINE/i.test(text) && text.length < 400) { recipient = text; recipientFrom = 'KI aus den Nachrichten'; }
     }
   }
   const aptName = (raw.apartment && raw.apartment.name) || aptNameOf(state, apt);
@@ -716,7 +936,7 @@ async function invoiceDraft(env, cfg, settings, state, booking, now) {
   const paid = viaPortal || /^(yes|true|1)$/i.test(String(raw['price-paid'] ?? ''));
   const dmy = (iso) => { const [y, m, d] = iso.split('-'); return `${d}.${m}.${y.slice(2)}`; };
   const vat = issuer && issuer.smallBusiness ? 0 : Number(issuer && issuer.vat != null ? issuer.vat : 7);
-  const lang = /^(de|deu|german)/i.test(String(raw.language || 'de')) ? 'de' : 'en';
+  const lang = known && known.lang ? known.lang : /^(de|deu|german)/i.test(String(raw.language || 'de')) ? 'de' : 'en';
   const adults = Number(raw.adults) || 0, children = Number(raw.children) || 0;
   const people = [adults ? `${adults} ${lang === 'de' ? (adults === 1 ? 'Erwachsener' : 'Erwachsene') : (adults === 1 ? 'Adult' : 'Adults')}` : '',
     children ? `${children} ${lang === 'de' ? (children === 1 ? 'Kind' : 'Kinder') : (children === 1 ? 'Child' : 'Children')}` : ''].filter(Boolean).join(', ');
@@ -729,7 +949,7 @@ async function invoiceDraft(env, cfg, settings, state, booking, now) {
     payment: lang === 'de'
       ? (paid ? `Vielen Dank für den Aufenthalt${viaPortal ? ` und die Zahlung via ${channel}` : ' und die Zahlung'}.` : 'Hiermit bestätigen wir die Buchung der Unterkunft und bitten um Zahlung entsprechend des Zahlungsziels.')
       : (paid ? `Thank you for your stay${viaPortal ? ` and the payment via ${channel}` : ' and the payment'}.` : 'We hereby confirm the booking of the accommodation and kindly ask for payment by the due date.'),
-    note: '', lang,
+    note: known && known.note ? known.note.replace('{ref}', ref || '[Referenz]') : '', lang, recipientFrom,
   };
 }
 function invoiceView(inv, cfg, request) {
@@ -938,6 +1158,17 @@ async function handleApi(request, env, url, ctx) {
     }
     await clearAttempts(env.DB, 'admin');
     return json({ session: await sessionFor(env, allUsers(cfg).find((u) => u.role === 'owner')) });
+  }
+
+  // ---- E-Mails aus dem Postfach (Make-Szenario) → Reiter „Nachrichten“ ----
+  const mailHookIn = path.match(/^\/api\/mail-in\/([A-Za-z0-9]+)$/);
+  if (mailHookIn && request.method === 'POST') {
+    if (!env.APP_SECRET || !safeEqual(mailHookIn[1], await mailToken(env))) return fail('Unbekannt', 404);
+    const body = await request.json().catch(() => null);
+    if (!body) return fail('JSON erwartet');
+    const r = await mailIn(env, cfg, settings, body, now);
+    if (r.note) ctx.waitUntil(deliverLogged(env, cfg, [r.note]).catch(() => {}));
+    return json({ ok: true, ...r, note: undefined });
   }
 
   // ---- Optionaler Smoobu-Webhook für sofortige Aktualisierung (sonst alle 15 Min.) ----
@@ -1404,9 +1635,10 @@ async function handleApi(request, env, url, ctx) {
     const examples = {};
     const out = [];
     for (const t of threads) {
-      const msgs = await messagesOf(env.DB, t.booking);
-      const history = msgs.slice(-14).map((m) => ({ id: m.id, created: m.created, inbound: m.inbound === 1,
-        auto: m.inbound === 0 && !String(m.id).startsWith('app-') && auto.has(m.fp || ''), text: m.text.slice(0, 2000) }));
+      const history = t.kind === 'mail'
+        ? (await mailMsgsOf(env.DB, t.booking)).slice(-10).map((m) => ({ id: m.id, created: m.created, inbound: m.inbound, who: m.inbound ? (m.name || m.address) : 'Wir', text: String(m.text || '').slice(0, 3000) }))
+        : (await messagesOf(env.DB, t.booking)).slice(-14).map((m) => ({ id: m.id, created: m.created, inbound: m.inbound === 1,
+          auto: m.inbound === 0 && !String(m.id).startsWith('app-') && auto.has(m.fp || ''), text: m.text.slice(0, 2000) }));
       if (view === 'offen') {
         for (const cat of (t.topics || []).filter((x) => x !== 'wgb')) {
           if (examples[cat]) continue;
@@ -1414,10 +1646,15 @@ async function handleApi(request, env, url, ctx) {
             .slice(0, 3).map((x) => ({ q: x.q.slice(0, 400), a: x.a.slice(0, 900) }));
         }
       }
-      out.push({ ...t, history, invoices: (await listInvoices(env.DB, 5, t.booking)).map((i) => invoiceView(i, cfg, request)),
+      out.push({ ...t, history, invoices: (await listInvoices(env.DB, 5, t.kind === 'mail' ? t.linkedBooking || '-' : t.booking)).map((i) => invoiceView(i, cfg, request)),
         docs: (await docsOf(env.DB, t.booking)).map((d) => ({ id: d.id, kind: d.kind, created: d.created, url: docUrl(cfg, request, d.token) })) });
     }
-    return json({ view, threads: out, counts: await countThreads(env.DB), examples, labels: TOPIC_LABELS, settings: replyDefaults(cfg, settings), ai: !!env.AI });
+    const { state } = await loadState(env.DB);
+    const today = L.localParts(now, cfg.timezone).date;
+    const bookings = out.some((t) => t.kind === 'mail') ? Object.values(state.reservations || {}).filter((r) => !r.blocked && r.departure >= L.addDays(today, -30))
+      .sort((a, b) => (a.arrival < b.arrival ? -1 : 1)).slice(0, 120).map((r) => ({ id: r.id, apt: r.apartmentId, aptName: aptNameOf(state, r.apartmentId), guest: r.guest, arrival: r.arrival, departure: r.departure })) : [];
+    return json({ view, threads: out, counts: await countThreads(env.DB), examples, labels: { ...TOPIC_LABELS, offer: 'Anfrage / Angebot' }, settings: { ...replyDefaults(cfg, settings), offerTable: settings.offerTable || '' }, offerRows: Object.keys(settings.offerData || {}).length, ai: !!env.AI,
+      mail: { inUrl: `${new URL(request.url).origin}/api/mail-in/${await mailToken(env)}`, sendReady: /^https:\/\//.test(mailHook(env, settings)), fromEnv: !!env.MAKE_MAIL_WEBHOOK }, bookings });
   }
   if (path === '/api/inbox/poll' && request.method === 'POST') {
     if (!smoobuCreds(env).key) return fail('Smoobu ist nicht verbunden');
@@ -1443,12 +1680,24 @@ async function handleApi(request, env, url, ctx) {
   }
   if (path === '/api/inbox/settings' && request.method === 'POST') {
     const body = await readJson();
-    const keys = ['checkin', 'checkout', 'earlyFee', 'lateFee', 'luggage', 'parking', 'wifi', 'cot', 'tips', 'doorTip', 'phone', 'signatureDe', 'signatureEn', 'knowledge'];
+    const keys = ['checkin', 'checkout', 'earlyFee', 'lateFee', 'luggage', 'parking', 'wifi', 'cot', 'tips', 'doorTip', 'phone', 'signatureDe', 'signatureEn', 'signatureMail', 'knowledge'];
     settings.replies = Object.fromEntries(keys.map((k) => [k, String(body[k] || '').slice(0, k === 'knowledge' ? 12000 : 1500).trim()]).filter(([, v]) => v));
+    if (body.offerTable != null) {
+      settings.offerTable = String(body.offerTable).slice(0, 40000);
+      settings.offerData = parseOfferTable(settings.offerTable, (c) => L.apartmentNumber(c));
+    }
     await saveSettings(env.DB, settings);
-    return json({ settings: replyDefaults(cfg, settings) });
+    return json({ settings: { ...replyDefaults(cfg, settings), offerTable: settings.offerTable || '' }, offerRows: Object.keys(settings.offerData || {}).length });
   }
-  const ib = path.match(/^\/api\/inbox\/(\w+)\/(draft|send|done|reopen|ai|template)$/);
+  if (path === '/api/mail/settings' && request.method === 'POST') {
+    const body = await readJson();
+    const hook = String(body.sendHook || '').trim();
+    if (hook && !/^https:\/\/[\w.-]+\/\S+$/.test(hook)) return fail('Bitte die vollständige Webhook-Adresse aus Make eintragen (beginnt mit https://)');
+    settings.mail = { ...(settings.mail || {}), sendHook: hook };
+    await saveSettings(env.DB, settings);
+    return json({ ok: true, sendReady: /^https:\/\//.test(mailHook(env, settings)) });
+  }
+  const ib = path.match(/^\/api\/inbox\/(\w+)\/(draft|send|done|reopen|ai|template|link)$/);
   if (ib && request.method === 'POST') {
     const t = await getThread(env.DB, ib[1]);
     if (!t) return fail('Vorgang nicht gefunden', 404);
@@ -1456,22 +1705,28 @@ async function handleApi(request, env, url, ctx) {
     const text = String(body.text != null ? body.text : t.draft || '').trim().slice(0, 5000);
     if (ib[2] === 'draft') { t.draft = text; t.edited = true; }
     else if (ib[2] === 'template') { t.draft = t.draftTpl; t.draftBy = 'vorlage'; t.edited = false; }
+    else if (ib[2] === 'link') {
+      const { state } = await loadState(env.DB);
+      const r = (state.reservations || {})[String(body.booking || '')];
+      t.linkedBooking = r ? r.id : null; t.apt = r ? String(r.apartmentId) : null; t.aptName = r ? aptNameOf(state, r.apartmentId) : '';
+      if (t.kind === 'mail' && t.status === 'offen') t.draftTpl = mailTemplate(t, mailContext(state, t, L.localParts(now, cfg.timezone).date, settings), replyDefaults(cfg, settings));
+    }
     else if (ib[2] === 'ai') {
       if (!env.AI) return fail('Cloudflare Workers AI ist nicht eingerichtet', 501);
-      try { t.draftAi = await aiDraftFor(env, cfg, settings, t, await automatedFingerprints(env.DB)); } catch (e) { return fail('KI-Entwurf fehlgeschlagen: ' + e.message, 502); }
+      try { t.draftAi = t.kind === 'mail' ? await aiMailDraftFor(env, cfg, settings, t) : await aiDraftFor(env, cfg, settings, t, await automatedFingerprints(env.DB)); } catch (e) { return fail('KI-Entwurf fehlgeschlagen: ' + e.message, 502); }
       t.draft = t.draftAi; t.draftBy = 'ki'; t.edited = false; t.aiWanted = false;
     } else if (ib[2] === 'done') { t.status = 'erledigt'; t.doneBy = 'ohne Antwort'; t.doneMark = localIso(now, cfg); t.sendAt = null; }
     else if (ib[2] === 'reopen') { t.status = 'offen'; t.doneMark = null; }
     else if (ib[2] === 'send') {
       if (!text) return fail('Die Nachricht ist leer');
-      if (/\[(bitte ergänzen|please add)[^\]]*\]/i.test(text)) return fail('Bitte zuerst die Stellen „[bitte ergänzen]“ im Text ausfüllen');
+      if (/\[(bitte ergänzen|bitte entscheiden|please add)[^\]]*\]/i.test(text)) return fail('Bitte zuerst die Stellen „[bitte ergänzen]“ bzw. „[bitte entscheiden]“ im Text ausfüllen');
       t.draft = text;
       if (body.at) {
         const at = Number(body.at);
         if (!at || at < now - 60000) return fail('Zeitpunkt liegt in der Vergangenheit');
         t.status = 'geplant'; t.sendAt = at;
       } else {
-        try { await sendThread(env, cfg, t, text, now); } catch (e) { return fail('Senden fehlgeschlagen: ' + e.message, 502); }
+        try { if (t.kind === 'mail') await sendMailThread(env, cfg, settings, t, text, now); else await sendThread(env, cfg, t, text, now); } catch (e) { return fail('Senden fehlgeschlagen: ' + e.message, 502); }
         return json({ thread: t });
       }
     }
@@ -1591,7 +1846,8 @@ async function handleApi(request, env, url, ctx) {
   // ---- Wohnungsgeberbestätigung ----
   if (path === '/api/wgb' && request.method === 'POST') {
     const body = await readJson();
-    const lines = (Array.isArray(body.names) ? body.names : String(body.names || '').split('\n')).map((x) => String(x).trim()).filter(Boolean).slice(0, 12);
+    const lines = (Array.isArray(body.names) ? body.names : String(body.names || '').split('\n')).map((x) => String(x).trim()).filter(Boolean);
+    if (lines.length > 7) return fail('Das Formular hat Platz für höchstens 7 Personen – bitte aufteilen');
     if (!lines.length) return fail('Bitte die Personen eintragen (je Zeile: Name, Vorname – Geburtsdatum)');
     const persons = lines.map(parsePerson);
     const t = body.booking ? await getThread(env.DB, body.booking) : null;
@@ -1613,7 +1869,7 @@ async function handleApi(request, env, url, ctx) {
       street: m ? m[1] : full.replace(/\s*\(\d+\)\s*$/, ''), zip: m ? m[2] : '', city: m ? m[3] : 'Braunschweig',
       floor: String(body.floor || b.description || '').trim(),
       landlord: { last: name.last, first: name.first, street: addr[0] || '', city: addr.slice(1).join(', ') },
-      owner: String(body.owner != null ? body.owner : map.owner || '').trim(),
+      owner: '', // Wohnungsgeber ist immer Eigentümer
       place: (issuer && issuer.place) || 'Braunschweig', signer: (issuer && (issuer.signer || issuer.name)) || '', date: L.localParts(now, cfg.timezone).date };
     if (!doc.street) return fail('Anschrift der Wohnung fehlt – bitte eintragen');
     if (!doc.landlord.last || !doc.landlord.street) return fail('Wohnungsgeber fehlt – bitte unter Rechnungen Name und Anschrift des Ausstellers eintragen');
@@ -1958,7 +2214,7 @@ export default {
       const inv = await invoiceByToken(env.DB, dok[1]).catch(() => null);
       if (inv && inv.number) return new Response(invoiceHtml(inv), { headers });
       const doc = await docByToken(env.DB, dok[1]).catch(() => null);
-      if (doc && doc.kind === 'wgb') return new Response(wgbHtml(doc), { headers });
+      if (doc && doc.kind === 'wgb') return new Response(url.searchParams.has('html') ? wgbHtml(doc) : wgbPdfPage(doc), { headers });
       return new Response('Dokument nicht gefunden', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     }
     // Fotos der Anleitungen (public/g/…): nur mit gültigem Handwerker-Link (?t=) für diese Wohnung oder als Admin (?a=)

@@ -538,3 +538,44 @@ export async function docsOf(db, booking) {
   const { results } = await db.prepare('SELECT * FROM docs WHERE booking = ? ORDER BY created DESC').bind(String(booking)).all();
   return (results || []).map(docOf);
 }
+
+// ---- E-Mails (über Make): Nachrichten je Vorgang und Zuordnungsschlüssel (Message-ID, Betreff+Adresse) ----
+async function ensureMail(db) {
+  await db.prepare('CREATE TABLE IF NOT EXISTS mail_msgs (id TEXT PRIMARY KEY, thread TEXT NOT NULL, created TEXT NOT NULL, inbound INTEGER NOT NULL, data TEXT NOT NULL)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS mail_keys (key TEXT PRIMARY KEY, thread TEXT NOT NULL)').run();
+}
+export async function saveMailMsg(db, m) {
+  await ensureMail(db);
+  const { id, thread, created, inbound, ...data } = m;
+  await db.prepare('INSERT OR REPLACE INTO mail_msgs (id, thread, created, inbound, data) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, thread, created, inbound ? 1 : 0, JSON.stringify(data)).run();
+}
+export async function mailMsgExists(db, id) {
+  await ensureMail(db);
+  return !!(await db.prepare('SELECT 1 AS x FROM mail_msgs WHERE id = ?').bind(id).first());
+}
+export async function mailMsgsOf(db, thread) {
+  await ensureMail(db);
+  const { results } = await db.prepare('SELECT * FROM mail_msgs WHERE thread = ? ORDER BY created, id').bind(thread).all();
+  return (results || []).map((r) => ({ ...JSON.parse(r.data), id: r.id, thread: r.thread, created: r.created, inbound: r.inbound === 1 }));
+}
+export async function mailThreadFor(db, keys) {
+  await ensureMail(db);
+  for (const k of keys.filter(Boolean)) {
+    const r = await db.prepare('SELECT thread FROM mail_keys WHERE key = ?').bind(k).first();
+    if (r) return r.thread;
+  }
+  return null;
+}
+export async function addMailKeys(db, thread, keys) {
+  await ensureMail(db);
+  const list = keys.filter(Boolean);
+  if (list.length) await db.batch(list.map((k) => db.prepare('INSERT OR REPLACE INTO mail_keys (key, thread) VALUES (?, ?)').bind(k, thread)));
+}
+
+/** E-Mail-Vorgänge, die einer Buchung zugeordnet sind */
+export async function mailThreadsForBooking(db, booking) {
+  await ensureInbox(db);
+  const { results } = await db.prepare('SELECT booking FROM inbox WHERE data LIKE ?').bind(`%"linkedBooking":"${String(booking).replace(/[%_"]/g, '')}"%`).all();
+  return (results || []).map((r) => r.booking);
+}

@@ -1,6 +1,6 @@
 // Offline-Unterstützung: App-Seite und Logos im Gerät zwischenspeichern.
 // Daten (/api/…) werden nicht hier gespeichert – das macht die App selbst (letzter Stand + Warteschlange).
-const CACHE = 'strauss-v5';
+const CACHE = 'strauss-v6';
 const SHELL = ['/', '/bau', '/bau.webmanifest', '/i18n-hu.js', '/logo.png', '/logo-house.png', '/logo-strauss.png', '/logo-wordmark.png', '/manifest.webmanifest', '/icon-512.png', '/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {
@@ -15,7 +15,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/')) return;
   // Handwerker-Anleitung und ihre geschützten Fotos nicht im App-Speicher ablegen
-  if (/^\/anleitung(\/|$)/.test(url.pathname) || url.pathname.startsWith('/g/')) return;
+  // Dokumente für Gäste (Rechnung, Wohnungsgeberbestätigung) ebenfalls nicht
+  if (/^\/(anleitung|dok)(\/|$)/.test(url.pathname) || url.pathname.startsWith('/g/') || url.pathname.endsWith('.pdf') || url.pathname === '/pdf-lib.min.js') return;
   if (req.mode === 'navigate') { // immer die neueste Version, ohne Netz die gespeicherte
     const page = /^\/bau(\/|$)/.test(url.pathname) ? '/bau' : '/'; // Baustellenassistent getrennt speichern
     e.respondWith(fetch(req).then((res) => {

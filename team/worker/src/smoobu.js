@@ -170,6 +170,13 @@ export async function fetchMessages(creds, id) {
   return out;
 }
 
+/** Preise je Tag: { [apartmentId]: { 'YYYY-MM-DD': { price, available } } } */
+export async function fetchRates(creds, apartmentIds, from, to) {
+  const params = [['start_date', from], ['end_date', to], ...apartmentIds.map((id) => ['apartments[]', String(id)])];
+  const data = await call(creds, '/rates', params);
+  return (data && (data.data || data)) || {};
+}
+
 /** Nachricht an den Gast senden (landet im richtigen Kanal: Airbnb, Booking.com, E-Mail) */
 export async function sendMessageToGuest(creds, id, subject, text) {
   const body = JSON.stringify({ subject: subject || 'Apartments Strauss', messageBody: text });

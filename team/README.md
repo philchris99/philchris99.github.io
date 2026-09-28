@@ -125,6 +125,11 @@ Admin-Code unter „Team → Mein Admin-Code“; Notzugang `/admin` mit `ADMIN_P
     später Check-out (nicht bei Anreise am selben Tag), Verlängerung bis zur nächsten Anreise, Gäste-Link aus Smoobu.
     Danach KI-Entwurf (Workers AI) mit „Standards & Wissen“, Verlauf und früheren echten Antworten zum Thema.
   - Senden sofort oder geplant über `POST /reservations/{id}/messages/send-message-to-guest`; „[bitte ergänzen]“ blockiert das Senden.
+- **E-Mails** (über Make): Make schickt jede Mail aus dem Postfach per POST an `/api/mail-in/<geheimer Schlüssel>` (Adresse unter
+  Nachrichten → E-Mail einrichten). Wix-Formulare, Weiterleitungen (WG:), Verläufe (Message-ID/Betreff) werden erkannt, Systemmails ignoriert.
+  Anfrage mit Zeitraum → freie Wohnungen aus dem Belegungsplan, Preis pro Nacht als Smoobu-Durchschnitt (`/rates`), Texte aus
+  `knowledge.js` (Make-Tabelle) bzw. eingefügter Tabelle. Antwort nach Freigabe über einen Make-Webhook (`MAKE_MAIL_WEBHOOK` oder in der App).
+  Nie automatischer Versand. WLAN-Daten je Wohnung (`wifi.js`, nur privat) nur in Entwürfen an Gäste dieser Wohnung.
 - **Rechnungen** (Nachrichten → Rechnungen): bis 3 Aussteller (Steuernummer, USt-Satz oder Kleinunternehmer, Bank), Zuordnung je Wohnung,
   fortlaufender Nummernkreis je Präfix/Standort und Jahr wie bisher in Smoobu (`inv_counter`, z. B. ALL-2026-007, BER-2026-054; Berliner Platz teilt sich BER). Entwurf aus der Smoobu-Buchung
   (Preis, Zeitraum, Gastadresse; Firmenadresse per KI aus den Nachrichten), „Ausstellen“ friert die Rechnung ein, Korrektur per Storno

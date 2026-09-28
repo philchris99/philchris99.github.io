@@ -1852,8 +1852,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   const localInput = (ms) => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
   const tomorrow8 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); };
   function msgHtml(m) {
-    return `<div class="msg ${m.inbound ? 'in' : 'out'}${m.auto ? ' auto' : ''}"><small>${m.inbound ? 'Gast' : m.auto ? 'Automatisch (Smoobu)' : 'Wir'} · ${esc(fmtTime(m.created))}</small>${esc(m.text)}</div>`;
+    return `<div class="msg ${m.inbound ? 'in' : 'out'}${m.auto ? ' auto' : ''}"><small>${m.who ? esc(m.who) : m.inbound ? 'Gast' : m.auto ? 'Automatisch (Smoobu)' : 'Wir'} · ${esc(fmtTime(m.created))}</small>${esc(m.text)}</div>`;
   }
+  const dmy = (iso) => (iso ? iso.split('-').reverse().join('.') : '');
   function invoiceStatus(i) {
     return { entwurf: 'Entwurf', ausgestellt: 'ausgestellt', storniert: 'storniert', storno: 'Storno' }[i.status] || i.status;
   }
@@ -1874,7 +1875,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <select data-l="vat">${[7, 19, 0].map((v) => `<option value="${v}"${Number(l.vat) === v ? ' selected' : ''}>${v} %</option>`).join('')}</select></div>`).join('');
     return `<form class="panel inv-grid" style="margin-top:8px" data-inv-form="${esc(inv.id)}"><b>🧾 Rechnungsentwurf</b>
       <label>Aussteller</label><select name="issuerId">${iss.length ? '' : '<option value="">– bitte unter „Rechnungen“ anlegen –</option>'}${iss.map((x) => `<option value="${esc(x.id)}"${x.id === inv.issuerId ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>
-      <label>Empfänger (Rechnungsadresse)</label><textarea name="recipient" rows="4">${esc(inv.recipient)}</textarea>
+      <label>Empfänger (Rechnungsadresse)${inv.recipientFrom ? ` – übernommen aus: ${esc(inv.recipientFrom)}` : ''}</label><textarea name="recipient" rows="4">${esc(inv.recipient)}</textarea>
       <label>Leistungen (Betrag brutto, USt)</label>${lines}
       <button type="button" class="small" data-inv-addline>+ Position</button>
       <label><input type="checkbox" name="paid" style="width:auto;min-height:0"${inv.paid ? ' checked' : ''}> bereits bezahlt (z. B. über Booking.com) – sonst Zahlungsziel</label>
@@ -1904,10 +1905,18 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const invs = t.invoices || [];
     const draftInv = invs.find((i) => i.status === 'entwurf');
     const planned = t.status === 'geplant';
+    const mail = t.kind === 'mail';
+    const linked = mail && t.linkedBooking ? (inbox.bookings || []).find((b) => b.id === t.linkedBooking) : null;
+    const invBooking = mail ? t.linkedBooking : t.booking;
     return `<article class="task" id="thr-${esc(t.booking)}">
-      <div class="eyebrow">${esc(phaseText[t.phase] || '')} · ${esc(dayShort(t.arrival))}–${esc(dayShort(t.departure))}${t.channel ? ' · ' + esc(t.channel) : ''}</div>
-      <h3>${esc(t.aptName)} · ${esc(t.guest || 'Gast')}</h3>
-      <div style="margin:4px 0">${(t.topics || []).map((x) => `<span class="chip${x === 'problem' ? ' alert' : ''}">${esc((inbox.labels || {})[x] || x)}</span>`).join(' ') || '<span class="chip">Sonstiges</span>'}</div>
+      ${mail ? `<div class="eyebrow">✉️ ${t.source === 'formular' ? 'Website-Formular' : 'E-Mail'} · ${esc(t.contact.name || '')} &lt;${esc(t.contact.address)}&gt;${(t.cc || []).length ? ' · CC ' + esc(t.cc.join(', ')) : ''}</div>
+        <h3>${esc(t.subject)}</h3>`
+      : `<div class="eyebrow">${esc(phaseText[t.phase] || '')} · ${esc(dayShort(t.arrival))}–${esc(dayShort(t.departure))}${t.channel ? ' · ' + esc(t.channel) : ''}</div>
+      <h3>${esc(t.aptName)} · ${esc(t.guest || 'Gast')}</h3>`}
+      <div style="margin:4px 0">${(t.topics || []).map((x) => `<span class="chip${x === 'problem' ? ' alert' : ''}">${esc((inbox.labels || {})[x] || x)}</span>`).join(' ') || '<span class="chip">Sonstiges</span>'}
+        ${mail && t.period ? ` <span class="chip yes">📅 ${esc(dmy(t.period.from))}${t.period.to ? '–' + esc(dmy(t.period.to)) : ''}</span>` : ''}</div>
+      ${mail ? `<label class="meta">Zugehörige Buchung (für Rechnung, Verlängerung, Wohnungsgeberbestätigung)</label>
+        <select data-thr-link="${esc(t.booking)}"><option value="">– keine –</option>${(inbox.bookings || []).map((b) => `<option value="${esc(b.id)}"${b.id === t.linkedBooking ? ' selected' : ''}>${esc(b.aptName)} · ${esc(b.guest || '')} · ${esc(dayShort(b.arrival))}–${esc(dayShort(b.departure))}</option>`).join('')}</select>` : ''}
       ${older.length ? `<details class="more"><summary>Ältere Nachrichten (${older.length})</summary>${older.map(msgHtml).join('')}</details>` : ''}
       ${recent.map(msgHtml).join('')}
       ${t.error ? `<div class="notice bad"><span>${esc(t.error)}</span></div>` : ''}
@@ -1927,12 +1936,13 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       </div>` : `<p class="meta" style="margin-top:8px">${t.status === 'gesendet' ? `📤 Gesendet ${esc(fmtTime(new Date(t.sentAt).toISOString()))}` : `✓ Erledigt${t.doneBy ? ' (' + esc(t.doneBy) + ')' : ''}`}</p>
         <div class="actions"><button class="small" data-thr-reopen="${esc(t.booking)}">Wieder öffnen</button></div>`}
       <div class="actions">
-        ${draftInv || invEdit[t.booking] ? '' : `<button class="small" data-inv-new="${esc(t.booking)}">🧾 Rechnung vorbereiten</button>`}
+        ${draftInv || !invBooking ? '' : `<button class="small" data-inv-new="${esc(invBooking)}">🧾 Rechnung vorbereiten</button>`}
         <button class="small" data-wgb-open="${esc(t.booking)}">📄 Wohnungsgeberbestätigung</button></div>
       ${invs.map((i) => invoiceEditor(i, t.booking)).join('')}
       ${wgbOpen.has(t.booking) ? `<div class="panel inv-grid" style="margin-top:8px"><b>📄 Wohnungsgeberbestätigung</b>
-        <label>Personen – je Zeile: Name, Vorname – Geburtsdatum</label><textarea id="wgb-names-${esc(t.booking)}" rows="4" placeholder="Bandaru, Kishore – 01.01.1991"></textarea>
-        <label>Einzugsdatum</label><input type="date" id="wgb-date-${esc(t.booking)}" value="${esc(t.arrival || '')}">
+        <label>Personen (höchstens 7) – je Zeile: Name, Vorname – Geburtsdatum</label><textarea id="wgb-names-${esc(t.booking)}" rows="4" placeholder="Bandaru, Kishore – 01.01.1991"></textarea>
+        ${mail && !linked ? `<label>Wohnung</label><select id="wgb-apt-${esc(t.booking)}">${((invData && invData.apartments) || []).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select>` : ''}
+        <label>Einzugsdatum</label><input type="date" id="wgb-date-${esc(t.booking)}" value="${esc(t.arrival || (linked && linked.arrival) || (t.period && t.period.from) || '')}">
         <label>Anschrift der Wohnung (leer = aus den Wohnungsdaten)</label><input id="wgb-addr-${esc(t.booking)}" placeholder="Brucknerstraße 10, 38106 Braunschweig">
         <label>Stockwerk / Lage (leer = aus den Wohnungsdaten)</label><input id="wgb-floor-${esc(t.booking)}" placeholder="3. OG rechts">
         <div class="actions"><button class="primary" data-wgb-create="${esc(t.booking)}">Erstellen</button></div></div>` : ''}
@@ -1954,7 +1964,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${f('doorTip', 'Tipp Haustür/Schlüsselbox', 'Die Haustür bitte kräftig heranziehen und dann den Schlüssel drehen.', 2)}
         ${f('tips', 'Tipps Umgebung', '', 2)}${f('phone', 'Telefon für Notfälle', '')}
         ${f('signatureDe', 'Gruß Deutsch', 'Liebe Grüße\\nLea\\nApartments Strauss', 3)}${f('signatureEn', 'Gruß Englisch', 'Best regards\\nLea\\nApartments Strauss', 3)}
-        ${f('knowledge', 'Wissen & Regeln für die KI (z. B. Prompt aus dem Make-Szenario, Hausregeln, Preise)', '', 8)}
+        ${f('signatureMail', 'Signatur E-Mail', '', 5)}
+        ${f('knowledge', 'Wissen & Regeln für die KI (z. B. Prompt aus dem Make-Szenario, Hausregeln, Preise)', '', 12)}
+        <label>Angebotsdaten je Wohnung – Tabelle aus Google Sheets hier einfügen (alles markieren → kopieren → einfügen; erste Zeile = Spaltennamen)${inbox.offerRows ? ` · ${inbox.offerRows} Wohnungen erkannt` : ''}</label>
+        <textarea name="offerTable" rows="6" placeholder="apartment&#9;website_url_de&#9;short_text_de&#9;price …">${esc(s.offerTable || '')}</textarea>
         <button type="submit" class="primary">Speichern</button></form></details>`;
   }
   function invoiceSettingsBlock() {
@@ -1973,8 +1986,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <label>Ort / Unterzeichner (Wohnungsgeberbestätigung)</label><div class="inv-line" style="grid-template-columns:1fr 1fr"><input data-k="place" value="${esc(x.place || '')}" placeholder="Braunschweig"><input data-k="signer" value="${esc(x.signer || '')}" placeholder="Name"></div></fieldset>`;
     const apts = invData.apartments.map((a) => { const m = st.apts[a.id] || {}; return `<tr data-apt="${esc(a.id)}"><td>${esc(a.name)}</td>
       <td><select data-k="issuer"><option value="">–</option>${iss.map((x, i) => `<option value="${esc(x.id)}"${m.issuer === x.id ? ' selected' : ''}>${esc(x.name || 'Aussteller ' + (i + 1))}</option>`).join('')}</select></td>
-      <td><input data-k="prefix" value="${esc(m.prefix || '')}" placeholder="BER" style="max-width:90px"></td>
-      <td><input data-k="owner" value="${esc(m.owner || '')}" placeholder="= Aussteller"></td></tr>`; }).join('');
+      <td><input data-k="prefix" value="${esc(m.prefix || '')}" placeholder="BER" style="max-width:90px"></td></tr>`; }).join('');
     const series = (invData.series || []).map((x) => `<tr data-series="${esc(x.prefix)}"><td><b>${esc(x.prefix)}</b></td><td><input data-k="next" inputmode="numeric" value="${esc(x.next)}" style="max-width:100px"></td></tr>`).join('');
     const list = invData.invoices.filter((i) => i.number).map((i) => `<tr><td><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.number)}</a></td><td>${esc(dayShort(i.date))}</td>
       <td>${esc(i.aptName || '')}</td><td>${esc(String(i.recipient || '').split('\n')[0])}</td><td style="text-align:right">${eur(i.totals.gross)}</td><td>${esc(invoiceStatus(i))}${i.sentAt ? ' ✓' : ''}</td></tr>`).join('');
@@ -1985,13 +1997,28 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         ${iss.map(issuerForm).join('')}
         <div class="panel scroll"><b>Wohnungen: Aussteller & Nummernkreis</b>
           <p class="meta">Wohnungen mit gleichem Präfix teilen sich einen fortlaufenden Nummernkreis (z. B. alle Berliner-Platz-Wohnungen „BER“), jedes Jahr neu ab 1.
-            „Eigentümer“ nur ausfüllen, wenn der Aussteller nicht Eigentümer ist (für die Wohnungsgeberbestätigung).</p>
-          <table><tr><th>Wohnung</th><th>Aussteller</th><th>Präfix</th><th>Eigentümer (falls abweichend)</th></tr>${apts}</table>
+            Der Aussteller ist zugleich Wohnungsgeber und Eigentümer (Wohnungsgeberbestätigung).</p>
+          <table><tr><th>Wohnung</th><th>Aussteller</th><th>Präfix</th></tr>${apts}</table>
           <b style="display:block;margin-top:10px">Nächste Rechnungsnummer ${esc(invData.year || '')}</b>
           <p class="meta">Einmal an die letzte Nummer aus Smoobu anpassen (letzte BER-2026-053 → hier 54).</p>
           <table><tr><th>Präfix</th><th>Nächste Nr.</th></tr>${series || '<tr><td colspan="2" class="meta">Erst Präfixe speichern.</td></tr>'}</table>
           <label class="meta">Format ({prefix} {jahr} {nr} {nr3} {nr4})</label><input name="format" value="${esc(st.format)}"></div>
         <button type="submit" class="primary">Speichern</button></form></details>`;
+  }
+  function mailSetupBlock() {
+    const m = inbox.mail || {};
+    return `<details class="more" id="mail-setup"><summary>✉️ E-Mail einrichten (Make) ${m.sendReady ? '– Versand bereit ✓' : '– Versand noch nicht eingerichtet'}</summary>
+      <div class="panel inv-grid" style="margin-top:8px">
+        <p><b>1. Eingang:</b> Im Make-Szenario (Postfach anfrage@/info@ beobachten) ein Modul <i>HTTP → Make a request</i> anhängen:
+          Methode POST, Body-Typ JSON, Felder <code>from</code>, <code>to</code>, <code>cc</code>, <code>subject</code>, <code>date</code>, <code>messageId</code>,
+          <code>inReplyTo</code>, <code>references</code>, <code>text</code>, <code>html</code> aus dem E-Mail-Modul. Adresse:</p>
+        <input readonly value="${esc(m.inUrl || '')}" id="mail-in-url" onclick="this.select()"><div class="actions"><button type="button" class="small" data-copy="mail-in-url">Adresse kopieren</button></div>
+        <p class="meta">Die Adresse enthält einen geheimen Schlüssel – bitte nur in Make eintragen, nicht weitergeben.</p>
+        <p><b>2. Versand:</b> Ein zweites Szenario <i>Webhooks → Custom webhook</i> → <i>E-Mail → Send an email</i> (Konto info@ bei goneo):
+          An = <code>to</code>, CC = <code>cc</code>, Betreff = <code>subject</code>, Inhalt = <code>html</code>, Header In-Reply-To/References = <code>inReplyTo</code>/<code>references</code>.
+          Die Webhook-Adresse hier eintragen:</p>
+        ${m.fromEnv ? '<p class="meta">✓ In Cloudflare als MAKE_MAIL_WEBHOOK hinterlegt.</p>' : `<form data-mail-settings class="inv-grid"><input name="sendHook" placeholder="https://hook.eu1.make.com/…" value=""><button type="submit" class="primary">Speichern</button></form>`}
+      </div></details>`;
   }
   function inboxPage() {
     if (!inbox) {
@@ -2004,8 +2031,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       <div class="actions">${tab('offen', 'Offen', c.offen)}${tab('geplant', 'Geplant', c.geplant)}${tab('erledigt', 'Erledigt', (c.erledigt || 0) + (c.gesendet || 0))}
         <button type="button" class="small" data-inbox-poll>🔄 Jetzt abrufen</button></div>
       <div style="margin-top:12px">${inbox.threads.length ? inbox.threads.map(threadCard).join('') : `<p class="empty">${inboxView === 'offen' ? 'Keine offenen Nachrichten. 🎉' : 'Nichts vorhanden.'}</p>`}</div>
-      <div style="margin-top:18px">${replySettingsForm()}${invoiceSettingsBlock()}</div>
-      <p class="meta" style="margin-top:10px">Abruf automatisch alle 5 Minuten (Buchungen mit Anreise in den nächsten 14 Tagen bis 7 Tage nach Abreise, laufende Aufenthalte bevorzugt). Push bei neuen Nachrichten.</p>`;
+      <div style="margin-top:18px">${replySettingsForm()}${mailSetupBlock()}${invoiceSettingsBlock()}</div>
+      <p class="meta" style="margin-top:10px">Abruf automatisch alle 5 Minuten (Buchungen mit Anreise in den nächsten 2 Monaten bis 7 Tage nach Abreise, laufende Aufenthalte und Anreisen in den nächsten Tagen zuerst). Push bei neuen Nachrichten. Gesendet wird nie automatisch – nur nach deiner Freigabe.</p>`;
   }
 
   function renderOwner() {
@@ -2097,6 +2124,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
     const keys = data.missingKeys || [];
     return `<div class="greeting"><h1>Meldungen</h1><p class="meta">Probleme aus den Wohnungen, Handwerker und was fehlt</p></div>
       ${reports.length ? section('meldungen', 'Offene Meldungen', reports.length + ' offen', reportsBlock(reports), 'key') : '<p class="empty-state">Keine offenen Meldungen ✓</p>'}
+      ${section('handwerker-link', '🔗 Zugangs-Link für Handwerker', 'Wohnung wählen · 7 Tage gültig', guideFormHtml())}
       ${section('handwerker', '🔧 Handwerker', (data.craftsmen || []).length + ' Kontakte', craftsmenBlock())}
       ${sectionIf(shop.length, 'einkauf', 'Einkaufsliste', shop.length + ' Artikel', shoppingBlock())}`;
   }
@@ -2150,7 +2178,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         <div class="meta" style="margin:4px 0">${esc([c.phone, c.phone2 ? `${c.phone2Label || 'Tel. 2'}: ${c.phone2}` : '', c.email].filter(Boolean).join(' · '))}</div>
         ${c.note ? `<div class="meta">📝 ${esc(c.note)}</div>` : ''}
         <div class="meta">🕒 ${c.lastViewAt ? `Link zuletzt geöffnet ${esc(agoText(c.lastViewAt))}` : c.links ? 'Link noch nicht geöffnet' : 'noch kein Link verschickt'}${c.openJobs ? ` · <b>${c.openJobs} offene${c.openJobs === 1 ? 'r Auftrag' : ' Aufträge'}</b>` : ''}</div>
-        <div class="actions">${craftContacts(c)} <button class="small" data-craft-edit="${esc(c.id)}">✏️ Bearbeiten</button></div></div>`).join('')
+        <div class="actions">${craftContacts(c)} <button class="small go" data-craft-link="${esc(c.id)}">🔗 Zugangs-Link</button> <button class="small" data-craft-edit="${esc(c.id)}">✏️ Bearbeiten</button></div></div>`).join('')
       + (craftEdit === 'neu' ? form({}) : '<div class="actions"><button class="small" data-craft-edit="neu">＋ Handwerker hinzufügen</button></div>');
   }
   function jobStatus(r) {
@@ -2188,28 +2216,40 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
       + `Bitte die SERVICE-Schlüsselbox benutzen – Code und Weg stehen im Link (gültig bis ${guideUntil(l.expiresAt)} Uhr).\nViele Grüße, Apartments Strauss`;
   }
   const guideUrl = (id) => `${location.origin}/anleitung/${id}`;
-  function guidesHtml() {
-    if (!guides) {
-      return `<p class="meta">Wegbeschreibung je Wohnung mit Fotos. Für Handwerker erstellen Sie einen Link für <b>eine</b> Wohnung mit Ablaufdatum –
-        der Handwerker sieht nur diese Wohnung und den <b>SERVICE-Code</b> (nie den Gäste-Code).</p>
-        <div class="actions"><button class="primary" data-guides-load>Anleitungen &amp; Links öffnen</button></div>`;
-    }
+  let guidesLoading = false, guideCraft = '';
+  function ensureGuides() {
+    if (guides || guidesLoading) return;
+    guidesLoading = true;
+    api('/api/guides').then((g) => { guides = g; guidesLoading = false; render(); }).catch((e) => { guidesLoading = false; toast(e.message); });
+  }
+  /** Formular „Zugangs-Link für Handwerker“: Wohnung + Handwerker + Gültigkeit (Standard 7 Tage) */
+  function guideFormHtml() {
+    if (!guides) { ensureGuides(); return '<p class="meta">Wird geladen …</p>'; }
     const apts = guides.apartments;
+    const crafts = data.craftsmen || [];
     const res = guideResult ? `<div class="codebox" style="margin-top:10px"><div class="eyebrow">Link für ${esc(guideResult.link.apartmentName)}${guideResult.link.name ? ' · ' + esc(guideResult.link.name) : ''}</div>
         <p style="word-break:break-all;margin:6px 0"><span id="guide-url">${esc(guideResult.url)}</span></p>
-        <p class="meta">Gültig bis ${esc(guideUntil(guideResult.link.expiresAt))} Uhr</p>
+        <p class="meta">Gültig bis ${esc(guideUntil(guideResult.link.expiresAt))} Uhr · zeigt nur diese Wohnung und den SERVICE-Code (nie den Gäste-Code)</p>
         <div class="actions"><button type="button" class="go" data-guide-wa="${esc(guideResult.link.id)}">💬 Per WhatsApp senden</button>
           <button type="button" class="small" data-copy="guide-url">📋 Kopieren</button><a class="btn" href="${esc(guideResult.url)}" target="_blank" rel="noopener">👁️ Ansehen</a></div></div>` : '';
-    const form = `<form class="panel" id="guide-link-form">
-        <b>🔗 Handwerker-Link erstellen</b>
+    return `<form class="panel" id="guide-link-form">
+        <b>🔗 Zugangs-Link für Handwerker erstellen</b>
+        <p class="meta" style="margin:4px 0 0">Der Handwerker sieht nur die gewählte Wohnung mit Anfahrt, Fotos und SERVICE-Code – der Link läuft automatisch ab.</p>
         <div class="form-grid" style="margin-top:8px">
           <label class="field">Wohnung<select name="apartmentId" required>
             <option value="">Wohnung wählen …</option>
             ${apts.map((a) => `<option value="${esc(a.id)}" ${a.id === guidePre ? 'selected' : ''}>${esc(a.name)}${a.hasGuide ? '' : ' (ohne Wegbeschreibung)'}</option>`).join('')}</select></label>
+          <label class="field">An wen?<select name="craftsmanId"><option value="">– anderer (Name unten) –</option>
+            ${crafts.map((c) => `<option value="${esc(c.id)}" ${c.id === guideCraft ? 'selected' : ''}>${esc(c.name)}${c.trade ? ' · ' + esc(c.trade) : ''}</option>`).join('')}</select></label>
+          <label class="field">Name (wenn nicht in der Liste)<input name="name" maxlength="60" placeholder="z. B. Elektriker Müller"></label>
           <label class="field">Gültig<select name="days">${guides.days.map((d) => `<option value="${d}" ${d === 7 ? 'selected' : ''}>${d === 1 ? '1 Tag' : d + ' Tage'}</option>`).join('')}</select></label>
-          <label class="field">Für (freiwillig)<input name="name" maxlength="60" placeholder="z. B. Elektriker Müller"></label>
           <button class="primary" type="submit">Link erstellen</button>
         </div>${res}</form>`;
+  }
+  function guidesHtml() {
+    if (!guides) { ensureGuides(); return '<p class="meta">Wird geladen …</p>'; }
+    const apts = guides.apartments;
+    const form = guideFormHtml();
     const links = guides.links.length ? `<table class="bars" style="margin-top:8px">${guides.links.map((l) => `<tr>
         <td><b>${esc(l.apartmentName)}</b>${l.name ? `<div class="meta">${esc(l.name)}</div>` : ''}
           <div class="meta">${l.state === 'aktiv' ? `gültig bis ${esc(guideUntil(l.expiresAt))}` : `<span style="color:var(--bad)">${esc(l.state)}</span>`} · ${l.views}× geöffnet${l.lastViewAt ? ', zuletzt ' + esc(fmtTime(l.lastViewAt)) : ''}</div></td>
@@ -2515,6 +2555,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
   });
   // Entwurf beim Verlassen des Feldes speichern (übersteht Neuladen)
   document.addEventListener('change', (e) => {
+    if (e.target.matches && e.target.matches('[data-thr-link]')) {
+      api(`/api/inbox/${e.target.dataset.thrLink}/link`, 'POST', { booking: e.target.value }).then(() => loadInbox()).catch((err) => toast(err.message));
+      return;
+    }
     if (e.target.matches && e.target.matches('[data-inbox-draft]')) api(`/api/inbox/${e.target.dataset.inboxDraft}/draft`, 'POST', { text: e.target.value }).catch(() => {});
   });
 
@@ -2545,9 +2589,16 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         const res = await api('/api/admin-login', 'POST', { password: $('admin-pw').value }, true);
         auth = res.session; store.set(auth);
         await refresh(true);
+      } else if (form.dataset.mailSettings !== undefined) {
+        const r = await api('/api/mail/settings', 'POST', { sendHook: form.querySelector('[name="sendHook"]').value });
+        inbox.mail = { ...(inbox.mail || {}), sendReady: r.sendReady };
+        delete form.dataset.dirty;
+        toast(r.sendReady ? 'Versand eingerichtet' : 'Gespeichert');
+        render();
       } else if (form.dataset.replySettings !== undefined) {
         const body = Object.fromEntries([...form.querySelectorAll('[name]')].map((x) => [x.name, x.value]));
-        inbox.settings = (await api('/api/inbox/settings', 'POST', body)).settings;
+        const saved = await api('/api/inbox/settings', 'POST', body);
+        inbox.settings = saved.settings; inbox.offerRows = saved.offerRows;
         delete form.dataset.dirty;
         toast('Gespeichert – gilt für neue Entwürfe');
       } else if (form.dataset.invSettings !== undefined) {
@@ -2558,7 +2609,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         });
         const apts = {}, next = {};
         for (const r of form.querySelectorAll('[data-apt]')) {
-          apts[r.dataset.apt] = { issuer: r.querySelector('[data-k="issuer"]').value, prefix: r.querySelector('[data-k="prefix"]').value, owner: r.querySelector('[data-k="owner"]').value };
+          apts[r.dataset.apt] = { issuer: r.querySelector('[data-k="issuer"]').value, prefix: r.querySelector('[data-k="prefix"]').value };
         }
         for (const r of form.querySelectorAll('[data-series]')) next[r.dataset.series] = r.querySelector('[data-k="next"]').value;
         const r = await api('/api/invoices/settings', 'POST', { issuers, apts, next, format: form.querySelector('[name="format"]').value });
@@ -2635,10 +2686,12 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         craftEdit = null; render();
         toast('Gespeichert');
       } else if (form.id === 'guide-link-form') {
-        guideResult = await api('/api/guide-links', 'POST', { apartmentId: form.elements.apartmentId.value, days: Number(form.elements.days.value), name: form.elements.name.value });
+        guideCraft = form.elements.craftsmanId.value;
+        guideResult = await api('/api/guide-links', 'POST', { apartmentId: form.elements.apartmentId.value, days: Number(form.elements.days.value), name: form.elements.name.value,
+          craftsmanId: guideCraft || undefined });
         guides = await api('/api/guides');
         render();
-        document.getElementById('guides').scrollIntoView();
+        const box = document.getElementById('guide-url'); if (box) box.scrollIntoView({ block: 'center' });
         toast('Link erstellt');
       } else if (form.dataset.guideNote) {
         await api('/api/guide-note', 'POST', { no: Number(form.dataset.guideNote), text: form.elements.text.value });
@@ -2907,6 +2960,10 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         guidePre = d.guideFor; guideResult = null;
         if (!guides) guides = await api('/api/guides');
         await goPage('einstellungen', 'guide-link-form');
+      } else if (d.craftLink) {
+        guideCraft = d.craftLink; guideResult = null;
+        render();
+        const f = document.getElementById('guide-link-form'); if (f) { f.scrollIntoView({ behavior: 'smooth', block: 'start' }); const sel = f.querySelector('[name="apartmentId"]'); if (sel) sel.focus(); }
       } else if (d.guideRevoke) {
         if (!armed(b, 'Link sperren? Nochmal tippen')) return;
         await api(`/api/guide-links/${d.guideRevoke}/revoke`, 'POST');
@@ -2916,7 +2973,9 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         toast('Link gesperrt – funktioniert ab sofort nicht mehr');
       } else if (d.guideWa) {
         const l = (guideResult && guideResult.link.id === d.guideWa) ? guideResult.link : guides.links.find((x) => x.id === d.guideWa);
-        window.open(`https://wa.me/?text=${encodeURIComponent(guideShareText(l, guideUrl(l.id)))}`, '_blank');
+        const c = (data.craftsmen || []).find((x) => x.id === l.craftsmanId);
+        const num = c && c.phone ? String(c.phone).replace(/[^\d+]/g, '').replace(/^\+/, '').replace(/^00/, '').replace(/^0/, '49') : '';
+        window.open(`https://wa.me/${num}?text=${encodeURIComponent(guideShareText(l, guideUrl(l.id)))}`, '_blank');
       } else if (d.codeEditor !== undefined) {
         codeEditor = await api('/api/access-codes');
         render();
@@ -3107,7 +3166,8 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
       } else if (d.wgbCreate) {
         const id = d.wgbCreate;
-        await api('/api/wgb', 'POST', { booking: id, names: $('wgb-names-' + id).value, moveIn: $('wgb-date-' + id).value, address: $('wgb-addr-' + id).value, floor: $('wgb-floor-' + id).value });
+        await api('/api/wgb', 'POST', { booking: id, names: $('wgb-names-' + id).value, moveIn: $('wgb-date-' + id).value, address: $('wgb-addr-' + id).value, floor: $('wgb-floor-' + id).value,
+          apt: $('wgb-apt-' + id) ? $('wgb-apt-' + id).value : undefined });
         wgbOpen.delete(id);
         toast('Wohnungsgeberbestätigung erstellt');
         await loadInbox();
@@ -3152,7 +3212,7 @@ td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top
         render();
         toast('Test-Nachricht verschickt – bitte aufs Handy schauen');
       } else if (d.copy) {
-        const text = d.copy.startsWith('code-') ? $(d.copy).textContent.replace(/\s/g, '') : $(d.copy).textContent;
+        const text = d.copy.startsWith('code-') ? $(d.copy).textContent.replace(/\s/g, '') : ($(d.copy).value || $(d.copy).textContent);
         try { await navigator.clipboard.writeText(text); toast('Kopiert'); } catch (err) {
           const r = document.createRange(); r.selectNodeContents($(d.copy));
           const s = getSelection(); s.removeAllRanges(); s.addRange(r);

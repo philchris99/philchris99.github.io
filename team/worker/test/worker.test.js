@@ -45,6 +45,7 @@ function smoobuAuthorized(url, headers, method, body) {
 let smoobuBookings = [];
 let smoobuMessages = {};
 let sentToGuests = [];
+const mailHookCalls = [];
 let pushes = [];
 let smoobuCalls = 0;
 const geocodeCalls = [];
@@ -62,6 +63,14 @@ globalThis.fetch = async (url, init = {}) => {
     return Response.json({ apartments: [{ id: 111, name: 'FeWo Elbblick' }, { id: 222, name: 'Loft Altstadt' }] });
   }
   if (url.startsWith('https://login.smoobu.com/api/reservations?')) return Response.json({ page_count: 1, page: 1, bookings: smoobuBookings });
+  if (url.startsWith('https://login.smoobu.com/api/rates')) {
+    const u = new URL(url), data = {};
+    for (const id of u.searchParams.getAll('apartments[]')) {
+      data[id] = {};
+      for (let d = u.searchParams.get('start_date'); d <= u.searchParams.get('end_date'); d = new Date(Date.parse(d) + 86400000).toISOString().slice(0, 10)) data[id][d] = { price: 74.6, available: 1 };
+    }
+    return Response.json({ data });
+  }
   const sendTo = url.match(/^https:\/\/login\.smoobu\.com\/api\/reservations\/(\d+)\/messages\/send-message-to-guest/);
   if (sendTo && init.method === 'POST') { sentToGuests.push({ id: sendTo[1], ...JSON.parse(init.body) }); return Response.json({ id: 1 }); }
   const guest = url.match(/^https:\/\/login\.smoobu\.com\/api\/guests\/(\d+)/);
@@ -72,6 +81,7 @@ globalThis.fetch = async (url, init = {}) => {
     const b = smoobuBookings.find((x) => String(x.id) === url.split('/').pop());
     return b ? Response.json(b) : new Response('not found', { status: 404 });
   }
+  if (url.startsWith('https://hook.test/')) { mailHookCalls.push(JSON.parse(init.body)); return Response.json({ ok: true }); }
   if (url === 'https://ntfy.sh') {
     pushes.push(JSON.parse(init.body));
     return Response.json({ id: 'x' });
@@ -1056,7 +1066,8 @@ test('Nachrichten: Gastfrage abrufen, Entwurf, Senden über Smoobu, Planen, Erle
   assert.ok(t, 'Vorgang für die Gastfrage');
   assert.deepEqual(t.topics.slice().sort(), ['checkin', 'parking']);
   assert.match(t.draft, /^Hallo Anna,/);
-  assert.match(t.draft, /12:00/);
+  assert.match(t.draft, /nur in Ausnahmefällen/, 'früher Check-in wird nicht zugesagt');
+  assert.match(t.draft, /\[bitte entscheiden/);
   assert.match(t.draft, /guest\.smoobu\.com\/abc/, 'Gäste-Link aus Smoobu');
   assert.ok(!box.threads.find((x) => x.booking === '9102'), 'Abwesenheitsnotiz braucht keine Antwort');
   assert.ok(pushes.some((p) => /Gastnachricht/.test(p.title)), 'Push an Admin');
@@ -1141,13 +1152,87 @@ test('Rechnungen: Aussteller je Wohnung, fortlaufende Nummer, Storno, Link, CSV;
   assert.equal((await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Schmidt, Anna', address: 'Testweg 5, 38100 Braunschweig' } })).status, 400, 'Geburtsdatum Pflicht');
   r = await call('POST', '/api/wgb', { session: admin, body: { booking: '9101', names: 'Schmidt, Anna – 01.02.1990\nSchmidt, Max 3.4.2020', address: 'Testweg 5, 38100 Braunschweig', floor: '3. OG rechts' } });
   assert.equal(r.status, 200);
-  const w = await (await worker.fetch(new Request(r.body.doc.url.replace(/^https?:\/\/[^/]+/, 'https://team.example')), env, { waitUntil() {} })).text();
+  const docUrl = r.body.doc.url.replace(/^https?:\/\/[^/]+/, 'https://team.example');
+  const pdfPage = await (await worker.fetch(new Request(docUrl), env, { waitUntil() {} })).text();
+  assert.match(pdfPage, /wgb-braunschweig\.pdf/, 'Original-Formular wird ausgefüllt');
+  assert.match(pdfPage, /\["Schmidt, Max","03\.04\.2020"\]/);
+  const w = await (await worker.fetch(new Request(docUrl + '?html=1'), env, { waitUntil() {} })).text();
   assert.match(w, /Wohnungsgeberbestätigung/);
   assert.match(w, /Schmidt, Max<\/td><td>03\.04\.2020/);
   assert.match(w, /3\. OG rechts/);
   assert.match(w, /38100 Braunschweig/);
   assert.match(w, /Musterweg 1/);
   assert.equal((await worker.fetch(new Request('https://team.example/dok/aaaaaaaaaaaaaaaaaaaaaaaa'), env, { waitUntil() {} })).status, 404);
+});
+
+test('E-Mails über Make: Formular-Anfrage mit freien Wohnungen, Verlauf per Message-ID, Senden über Webhook, Weiterleitung, Systemmails ignoriert', async () => {
+  const plus = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const dmy = (iso) => iso.split('-').reverse().join('.');
+  const box0 = (await call('GET', '/api/inbox', { session: admin })).body;
+  const inPath = new URL(box0.mail.inUrl).pathname;
+  assert.equal((await call('POST', '/api/mail-in/falsch123', { body: {} })).status, 404);
+  // Wix-Formular (an info@ weitergeleitet wie bisher)
+  let r = await call('POST', inPath, { body: { from: 'Apartments Strauss <notifications@wix-forms.com>', to: 'info@apartments-strauss.de', subject: 'Anfrage hat eine neue Einreichung',
+    messageId: '<wix-1@wix>', date: new Date().toISOString(),
+    text: `Ein Website-Besucher hat gerade dein Formular Anfrage auf Apartments Strauss eingereicht\nFirst name:\nMara\nLast name:\nBeispiel\nEmail:\nmara@netinera.example\nDeine Nachricht:\nGuten Tag, wir suchen für unsere Mitarbeiter Apartments vom ${dmy(plus(40))} bis ${dmy(plus(70))}. Haben Sie noch Apartments frei? Über ein Preisangebot würden wir uns freuen.\nEinreichungen ansehen` } });
+  assert.equal(r.status, 200);
+  const tid = r.body.thread;
+  assert.ok(tid);
+  let box = (await call('GET', '/api/inbox', { session: admin })).body;
+  let t = box.threads.find((x) => x.booking === tid);
+  assert.equal(t.kind, 'mail');
+  assert.equal(t.contact.address, 'mara@netinera.example');
+  assert.ok(t.topics.includes('offer'));
+  assert.deepEqual(t.period, { from: plus(40), to: plus(70) });
+  assert.match(t.draft, /^Hallo Mara,/);
+  assert.match(t.draft, /apartment-2-zwei/, 'freie Wohnung mit Link');
+  assert.match(t.draft, /Preis pro Nacht: 75 EUR/, 'Preis aus Smoobu (Durchschnitt, gerundet)');
+  assert.match(t.draft, /30 Tage/, 'Stornobedingungen');
+  // Angebotsdaten aus Google Sheets (kopiert, Tabulatoren) → Preis und Beschreibung im nächsten Angebot
+  const saved = (await call('POST', '/api/inbox/settings', { session: admin, body: { offerTable: 'apartment\tprice\tshort_text_de\n#ZWEI | Berliner Platz 1c\t65\tStudio direkt am Hauptbahnhof.' } })).body;
+  assert.equal(saved.offerRows, 1);
+  r = await call('POST', inPath, { body: { from: 'Doris <doris@firma.example>', to: 'info@apartments-strauss.de', subject: 'Anfrage zwei Apartments', messageId: '<d-1@firma>',
+    text: `Hallo, wir suchen zwei Apartments vom ${dmy(plus(40))} bis ${dmy(plus(70))}. Was kostet das?` } });
+  const td = (await call('GET', '/api/inbox', { session: admin })).body.threads.find((x) => x.booking === r.body.thread);
+  assert.match(td.draft, /Preis pro Nacht: 75 EUR \(inkl\. 7 % MwSt\. und Endreinigung\)/, 'Preis aus Smoobu, gerundet');
+  assert.match(td.draft, /Studio direkt am Hauptbahnhof/);
+  assert.equal((td.draft.match(/^• (verfügbar|durchgehend)/gm) || []).length, 2, 'genau 2 Optionen bei 2 angefragten Wohnungen');
+  // Antwort über Make-Webhook
+  assert.equal((await call('POST', `/api/inbox/${tid}/send`, { session: admin, body: { text: 'Hallo Mara, gerne!' } })).status, 502, 'ohne Webhook kein Versand');
+  assert.equal((await call('POST', '/api/mail/settings', { session: admin, body: { sendHook: 'https://hook.test/abc' } })).body.sendReady, true);
+  r = await call('POST', `/api/inbox/${tid}/send`, { session: admin, body: { text: 'Hallo Mara, gerne!' } });
+  assert.equal(r.status, 200);
+  const sent = mailHookCalls[mailHookCalls.length - 1];
+  assert.equal(sent.to, 'mara@netinera.example');
+  assert.equal(sent.subject, 'Re: Anfrage hat eine neue Einreichung');
+  assert.equal(sent.inReplyTo, '<wix-1@wix>');
+  // Rückfrage des Kunden mit In-Reply-To → gleicher Vorgang, wieder offen
+  r = await call('POST', inPath, { body: { from: 'Mara Beispiel <mara@netinera.example>', to: 'info@apartments-strauss.de', cc: 'rechnung@netinera.example',
+    subject: 'Re: Anfrage hat eine neue Einreichung', messageId: '<n-2@netinera>', inReplyTo: '<app-1@strauss>', references: '<wix-1@wix>',
+    text: 'Moin, sind Haustiere erlaubt? Unser Mitarbeiter hat einen Hund.\n\nAm 28.09.2026 um 08:25 schrieb Apartments Strauss:\n> alt' } });
+  assert.equal(r.body.thread, tid);
+  box = (await call('GET', '/api/inbox', { session: admin })).body;
+  t = box.threads.find((x) => x.booking === tid);
+  assert.equal(t.status, 'offen');
+  assert.ok(t.topics.includes('pets'));
+  assert.deepEqual(t.cc, ['rechnung@netinera.example']);
+  assert.ok(!t.history.some((m) => /> alt/.test(m.text)), 'Zitat abgeschnitten');
+  // eigene Antwort aus dem Mailprogramm (Make meldet auch gesendete) → erledigt
+  r = await call('POST', inPath, { body: { from: 'info@apartments-strauss.de', to: 'mara@netinera.example', subject: 'Re: Anfrage hat eine neue Einreichung',
+    messageId: '<own-3@strauss>', inReplyTo: '<n-2@netinera>', text: 'Hallo Mara, ja, gegen 100 € Reinigungsgebühr.' } });
+  assert.equal(r.body.outbound, true);
+  assert.equal((await call('GET', '/api/inbox?view=erledigt', { session: admin })).body.threads.find((x) => x.booking === tid).doneBy, 'per E-Mail beantwortet');
+  // doppelt eingeliefert → ignoriert
+  assert.equal((await call('POST', inPath, { body: { from: 'info@apartments-strauss.de', to: 'x@y.de', subject: 'x', messageId: '<own-3@strauss>', text: 'x' } })).body.duplicate, true);
+  // weitergeleitete Mail (WG:) → ursprünglicher Absender; Gastname passt zur Buchung 9101 → zugeordnet, Verlängerung
+  r = await call('POST', inPath, { body: { from: 'Philipp <info@apartments-strauss.de>', to: 'anfrage@apartments-strauss.de', subject: 'WG: Verlängerung Schmidt',
+    messageId: '<fw-4@strauss>', text: `---------- Weitergeleitete Nachricht ----------\nVon: Anna Schmidt <anna@schmidt.example>\nDatum: heute\nBetreff: Verlängerung\n\nHallo, können wir bis zum ${dmy(plus(5))} verlängern? Viele Grüße Anna Schmidt` } });
+  const t2 = (await call('GET', '/api/inbox', { session: admin })).body.threads.find((x) => x.booking === r.body.thread);
+  assert.equal(t2.contact.address, 'anna@schmidt.example');
+  assert.equal(t2.linkedBooking, '9101');
+  assert.match(t2.draft, /Verlängerung|verlänger/);
+  // Systemmails ignoriert
+  assert.ok((await call('POST', inPath, { body: { from: 'noreply@booking.com', subject: 'Neue Buchung', text: 'x', messageId: '<b@b>' } })).body.ignored);
 });
 
 test('Nachrichten, Rechnungen, Gästeanfragen und Dokumente nur für den Admin – nicht für Leitung, Vertretung oder Reinigung', async () => {
@@ -1157,7 +1242,7 @@ test('Nachrichten, Rechnungen, Gästeanfragen und Dokumente nur für den Admin �
   assert.ok(sessions.length >= 2);
   const routes = [['GET', '/api/inbox'], ['POST', '/api/inbox/poll'], ['POST', '/api/inbox/settings'], ['POST', '/api/inbox/9101/send'], ['POST', '/api/inbox/9101/done'],
     ['GET', '/api/invoices'], ['POST', '/api/invoices/settings'], ['POST', '/api/invoices/draft'], ['GET', '/api/invoices.csv'], ['POST', '/api/wgb'],
-    ['GET', '/api/inquiries'], ['POST', '/api/inquiries/sync'], ['POST', '/api/inquiries/export']];
+    ['GET', '/api/inquiries'], ['POST', '/api/inquiries/sync'], ['POST', '/api/inquiries/export'], ['POST', '/api/mail/settings'], ['POST', '/api/inbox/m1/link']];
   for (const session of sessions) {
     for (const [m, path] of routes) assert.equal((await call(m, path, m === 'GET' ? { session } : { session, body: {} })).status, 404, `${m} ${path}`);
     const view = await call('GET', '/api/me', { session });
